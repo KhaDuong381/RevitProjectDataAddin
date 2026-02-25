@@ -59,7 +59,7 @@ namespace RevitProjectDataAddin
         private static (double X, double Y) OffsetCentralStirrupFrame { get; set; } = (0, 10000);  // Offset cho /////////////// 4 chổ /////////////////////
         private static (double X, double Y) OffsetLegendColumn { get; set; } = (0, 10000);         // Offset cho ///////////// 5 chổ //////////////
         private static readonly string[] _standardRebarDiameters = { "10", "13", "16", "19", "22", "25", "29", "32", "35", "38" };
-        private static readonly string[] _standardRebarDiameters1 = { "10", "13", "16" };
+        private static readonly string[] _standardRebarDiameters1 = { "10", "13", "16", "19", "22", "25", "29", "32", "35", "38" };
 
 
 
