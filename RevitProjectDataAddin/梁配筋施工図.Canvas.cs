@@ -59,8 +59,11 @@ namespace RevitProjectDataAddin
         private static (double X, double Y) OffsetCentralStirrupFrame { get; set; } = (0, 10000);  // Offset cho /////////////// 4 chổ /////////////////////
         private static (double X, double Y) OffsetLegendColumn { get; set; } = (0, 10000);         // Offset cho ///////////// 5 chổ //////////////
         private static readonly string[] _standardRebarDiameters = { "10", "13", "16", "19", "22", "25", "29", "32", "35", "38" };
-        private static readonly string[] _standardRebarDiameters1 = { "10", "13", "16", "19", "22", "25", "29", "32", "35", "38" };
+        private static readonly string[] _standardRebarDiameters1 = { "10", "13", "16" };
 
+        // DIM hover/base brushes (class scope to avoid missing-variable compile issues)
+        private readonly Brush dimBaseFg = Brushes.Black;
+        private readonly Brush dimHoverFg = Brushes.Blue;
 
 
 
@@ -329,7 +332,7 @@ namespace RevitProjectDataAddin
             double combinedScale = ResolveTextCombinedScale(T, owner);
 
             double effectiveFontPx = fontPx * combinedScale;
-            double effectiveHeightMm = heightMm ;
+            double effectiveHeightMm = heightMm * combinedScale;
 
             var textColor = ColorFromBrush(color ?? Brushes.Black, Colors.Black);
             string fontFamily = this.FontFamily?.Source ?? "Yu Mincho";
@@ -1664,10 +1667,25 @@ namespace RevitProjectDataAddin
                 };
             }
 
+            if (tb.Foreground == null)
+                tb.Foreground = dimBaseFg;
+
+            EnableEditableHoverWithBox(tb, canvas,
+                hoverForeground: dimBaseFg,
+                hoverFill: new SolidColorBrush(Color.FromArgb(100, 30, 144, 255)),
+                hoverStroke: Brushes.Blue);
+
+            // Hover chỉ để highlight, không mở popup.
+            tb.MouseEnter += (s, e) =>
+            {
+                // Nếu còn popup cũ của DIM này, đóng lại để tránh cảm giác "hover là mở menu".
+                if (Mouse.LeftButton != MouseButtonState.Pressed)
+                    CloseExistingPopups();
+            };
+
             // ===== On click =====
             tb.MouseLeftButtonDown += (s, e) =>
             {
-                e.Handled = true;
                 CloseExistingPopups();
 
                 double GetCurrentFor(AnkaSide side, bool wantTop)
@@ -1720,10 +1738,19 @@ namespace RevitProjectDataAddin
                     };
                 }
 
+                double anchorX = tb.ActualWidth;
+                if (anchorX <= 0)
+                {
+                    tb.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                    anchorX = tb.DesiredSize.Width;
+                }
+
                 var mainPop = new System.Windows.Controls.Primitives.Popup
                 {
                     PlacementTarget = tb,
-                    Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint,
+                    Placement = System.Windows.Controls.Primitives.PlacementMode.Relative,
+                    HorizontalOffset = Math.Max(1.0, anchorX + 1.0),
+                    VerticalOffset = 0,
                     AllowsTransparency = true,
                     StaysOpen = true
                 };
@@ -1732,11 +1759,17 @@ namespace RevitProjectDataAddin
                 System.Windows.Controls.Primitives.Popup sidePop = null;
                 System.Windows.Controls.Primitives.Popup lenPop = null;
                 System.Windows.Controls.Primitives.Popup lenDirPop = null;
+                System.Windows.Controls.Primitives.Popup cutModePop = null;
+                System.Windows.Controls.Primitives.Popup cutInputPop = null;
+                System.Windows.Controls.Primitives.Popup cutDetailPop = null;
 
                 void CloseSubMenus()
                 {
                     if (lenDirPop != null) lenDirPop.IsOpen = false;
                     if (lenPop != null) lenPop.IsOpen = false;
+                    if (cutDetailPop != null) cutDetailPop.IsOpen = false;
+                    if (cutInputPop != null) cutInputPop.IsOpen = false;
+                    if (cutModePop != null) cutModePop.IsOpen = false;
                     if (sidePop != null) sidePop.IsOpen = false;
                     if (ankaPop != null) ankaPop.IsOpen = false;
                 }
@@ -1813,6 +1846,9 @@ namespace RevitProjectDataAddin
                     {
                         if (lenDirPop != null) lenDirPop.IsOpen = false;
                         if (lenPop != null) lenPop.IsOpen = false;
+                        if (cutDetailPop != null) cutDetailPop.IsOpen = false;
+                        if (cutInputPop != null) cutInputPop.IsOpen = false;
+                        if (cutModePop != null) cutModePop.IsOpen = false;
                         if (sidePop != null) sidePop.IsOpen = false;
                         if (ankaPop != null) ankaPop.IsOpen = false;
                         if (mainPop != null) mainPop.IsOpen = false;
@@ -1872,7 +1908,12 @@ namespace RevitProjectDataAddin
                         IsPointInside(tb, screenPt)
                         || (mainPop?.Child is FrameworkElement m && IsPointInside(m, screenPt))
                         || (ankaPop?.Child is FrameworkElement a && IsPointInside(a, screenPt))
-                        || (sidePop?.Child is FrameworkElement r && IsPointInside(r, screenPt));
+                        || (sidePop?.Child is FrameworkElement r && IsPointInside(r, screenPt))
+                        || (lenPop?.Child is FrameworkElement l && IsPointInside(l, screenPt))
+                        || (lenDirPop?.Child is FrameworkElement ld && IsPointInside(ld, screenPt))
+                        || (cutModePop?.Child is FrameworkElement cm && IsPointInside(cm, screenPt))
+                        || (cutInputPop?.Child is FrameworkElement ci && IsPointInside(ci, screenPt))
+                        || (cutDetailPop?.Child is FrameworkElement cd && IsPointInside(cd, screenPt));
 
                     if (!inside)
                     {
@@ -1936,7 +1977,8 @@ namespace RevitProjectDataAddin
                     {
                         Content = child,
                         FontSize = SystemFonts.MessageFontSize,
-                        FontFamily = SystemFonts.MessageFontFamily
+                        FontFamily = SystemFonts.MessageFontFamily,
+                        Foreground = SystemColors.ControlTextBrush
                     };
 
                     var box = new Border
@@ -1953,6 +1995,7 @@ namespace RevitProjectDataAddin
 
                 Button selectedMainBtn = null;
                 Button selectedAnkaBtn = null;
+                Button selectedCutBtn = null;
                 FrameworkElement selectedSideRow = null;
 
                 void SelectMain(Button btn)
@@ -1967,6 +2010,13 @@ namespace RevitProjectDataAddin
                     if (selectedAnkaBtn != null) selectedAnkaBtn.Background = normalBg;
                     selectedAnkaBtn = btn;
                     if (selectedAnkaBtn != null) selectedAnkaBtn.Background = selectedBg;
+                }
+
+                void SelectCut(Button btn)
+                {
+                    if (selectedCutBtn != null) selectedCutBtn.Background = normalBg;
+                    selectedCutBtn = btn;
+                    if (selectedCutBtn != null) selectedCutBtn.Background = selectedBg;
                 }
 
                 void SelectSideRow(FrameworkElement row)
@@ -2631,6 +2681,9 @@ namespace RevitProjectDataAddin
                 {
                     if (lenDirPop != null) lenDirPop.IsOpen = false;
                     if (lenPop != null) lenPop.IsOpen = false;
+                    if (cutDetailPop != null) cutDetailPop.IsOpen = false;
+                    if (cutInputPop != null) cutInputPop.IsOpen = false;
+                    if (cutModePop != null) cutModePop.IsOpen = false;
                     if (sidePop != null) sidePop.IsOpen = false;
                     if (ankaPop != null) ankaPop.IsOpen = false;
 
@@ -2692,8 +2745,201 @@ namespace RevitProjectDataAddin
                     }), DispatcherPriority.Input);
                 }
 
+                bool TryParsePositiveInt(string text, out int n)
+                {
+                    n = 0;
+                    if (!int.TryParse((text ?? string.Empty).Trim(), out n)) return false;
+                    return n > 0;
+                }
+
+                void OpenCutDetailPopup(FrameworkElement placementTarget, int segments)
+                {
+                    if (cutDetailPop != null) cutDetailPop.IsOpen = false;
+
+                    cutDetailPop = new System.Windows.Controls.Primitives.Popup
+                    {
+                        PlacementTarget = placementTarget,
+                        Placement = System.Windows.Controls.Primitives.PlacementMode.Right,
+                        HorizontalOffset = 1,
+                        VerticalOffset = -1.5,
+                        AllowsTransparency = true,
+                        StaysOpen = true
+                    };
+
+                    var root = new StackPanel { Orientation = Orientation.Vertical };
+                    for (int i = 1; i <= segments; i++)
+                    {
+                        var row = new StackPanel
+                        {
+                            Orientation = Orientation.Horizontal,
+                            Margin = new Thickness(10, 6, 10, 6),
+                            MinWidth = 160
+                        };
+
+                        row.Children.Add(new TextBlock
+                        {
+                            Text = $"{i}:",
+                            Width = 24,
+                            VerticalAlignment = VerticalAlignment.Center
+                        });
+
+                        row.Children.Add(new TextBox
+                        {
+                            Width = 110,
+                            VerticalContentAlignment = VerticalAlignment.Center,
+                            Padding = new Thickness(2, 0, 2, 0)
+                        });
+
+                        root.Children.Add(WithRowDivider(row));
+                    }
+
+                    cutDetailPop.Child = WrapBox(root);
+
+                    placementTarget.Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        cutDetailPop.IsOpen = true;
+                    }), DispatcherPriority.Input);
+                }
+
+                void OpenCutInputPopup(Button placementBtn, bool isCustom)
+                {
+                    if (cutDetailPop != null) cutDetailPop.IsOpen = false;
+                    if (cutInputPop != null) cutInputPop.IsOpen = false;
+
+                    cutInputPop = new System.Windows.Controls.Primitives.Popup
+                    {
+                        PlacementTarget = placementBtn,
+                        Placement = System.Windows.Controls.Primitives.PlacementMode.Right,
+                        HorizontalOffset = 1,
+                        VerticalOffset = -1.5,
+                        AllowsTransparency = true,
+                        StaysOpen = true
+                    };
+
+                    var root = new StackPanel { Orientation = Orientation.Vertical };
+                    var row = new Grid
+                    {
+                        Margin = new Thickness(10, 6, 10, 6),
+                        MinWidth = 160
+                    };
+                    row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                    row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+                    var lblSegments = new TextBlock
+                    {
+                        Text = "数段",
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Margin = new Thickness(0, 0, 10, 0)
+                    };
+                    Grid.SetColumn(lblSegments, 0);
+
+                    var txtSegments = new TextBox
+                    {
+                        Width = 90,
+                        VerticalContentAlignment = VerticalAlignment.Center,
+                        Padding = new Thickness(2, 0, 2, 0),
+                        HorizontalAlignment = HorizontalAlignment.Left
+                    };
+                    Grid.SetColumn(txtSegments, 1);
+
+                    row.Children.Add(lblSegments);
+                    row.Children.Add(txtSegments);
+
+                    void TryOpenCustomDetail()
+                    {
+                        if (!isCustom) return;
+                        if (TryParsePositiveInt(txtSegments.Text, out int n))
+                            OpenCutDetailPopup(txtSegments, n);
+                        else if (cutDetailPop != null)
+                            cutDetailPop.IsOpen = false;
+                    }
+
+                    txtSegments.TextChanged += (_, __) => TryOpenCustomDetail();
+                    txtSegments.KeyDown += (_, ee) =>
+                    {
+                        if (ee.Key == Key.Enter)
+                        {
+                            TryOpenCustomDetail();
+                            ee.Handled = true;
+                        }
+                    };
+
+                    root.Children.Add(WithRowDivider(row));
+
+                    cutInputPop.Child = WrapBox(root);
+
+                    placementBtn.Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        cutInputPop.IsOpen = true;
+                        txtSegments.Focus();
+                        txtSegments.SelectAll();
+                    }), DispatcherPriority.Input);
+                }
+
+                void OpenCutModePopup(Button placementBtn)
+                {
+                    if (lenDirPop != null) lenDirPop.IsOpen = false;
+                    if (lenPop != null) lenPop.IsOpen = false;
+                    if (sidePop != null) sidePop.IsOpen = false;
+                    if (ankaPop != null) ankaPop.IsOpen = false;
+                    if (cutDetailPop != null) cutDetailPop.IsOpen = false;
+                    if (cutInputPop != null) cutInputPop.IsOpen = false;
+                    if (cutModePop != null) cutModePop.IsOpen = false;
+
+                    cutModePop = new System.Windows.Controls.Primitives.Popup
+                    {
+                        PlacementTarget = placementBtn,
+                        Placement = System.Windows.Controls.Primitives.PlacementMode.Right,
+                        HorizontalOffset = 1,
+                        VerticalOffset = -1.5,
+                        AllowsTransparency = true,
+                        StaysOpen = true
+                    };
+
+                    var root = new StackPanel { Orientation = Orientation.Vertical };
+                    var btnEqual = MakeMenuButton("等分切断", hasNext: true, minWidth: MENU2_MIN_WIDTH);
+                    var btnCustom = MakeMenuButton("任意切断", hasNext: true, minWidth: MENU2_MIN_WIDTH);
+
+                    btnEqual.MouseEnter += (_, __) =>
+                    {
+                        SelectCut(btnEqual);
+                        OpenCutInputPopup(btnEqual, isCustom: false);
+                    };
+                    btnEqual.Click += (_, __) =>
+                    {
+                        SelectCut(btnEqual);
+                        OpenCutInputPopup(btnEqual, isCustom: false);
+                    };
+
+                    btnCustom.MouseEnter += (_, __) =>
+                    {
+                        SelectCut(btnCustom);
+                        OpenCutInputPopup(btnCustom, isCustom: true);
+                    };
+                    btnCustom.Click += (_, __) =>
+                    {
+                        SelectCut(btnCustom);
+                        OpenCutInputPopup(btnCustom, isCustom: true);
+                    };
+
+                    root.Children.Add(WithRowDivider(btnEqual));
+                    root.Children.Add(WithRowDivider(btnCustom));
+                    cutModePop.Child = WrapBox(root);
+
+                    placementBtn.Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        cutModePop.IsOpen = true;
+                        SelectCut(null);
+                    }), DispatcherPriority.Input);
+                }
+
                 void OpenAnkaPopup(Button placementBtn)
                 {
+                    if (lenDirPop != null) lenDirPop.IsOpen = false;
+                    if (lenPop != null) lenPop.IsOpen = false;
+                    if (cutDetailPop != null) cutDetailPop.IsOpen = false;
+                    if (cutInputPop != null) cutInputPop.IsOpen = false;
+                    if (cutModePop != null) cutModePop.IsOpen = false;
                     if (ankaPop != null) ankaPop.IsOpen = false;
                     if (sidePop != null) sidePop.IsOpen = false;
 
@@ -2812,20 +3058,18 @@ namespace RevitProjectDataAddin
                     OpenLenPopup(btnLen);
                 };
 
-                var btnCut = MakeMenuButton("鉄筋を切る", hasNext: false, minWidth: MENU1_MIN_WIDTH);
+                var btnCut = MakeMenuButton("鉄筋を切る", hasNext: true, minWidth: MENU1_MIN_WIDTH);
                 btnCut.MouseEnter += (_, __) =>
                 {
                     CancelActiveAnkaEdit();
-                    CloseSubMenus();
                     SelectMain(btnCut);
+                    OpenCutModePopup(btnCut);
                 };
                 btnCut.Click += (_, __) =>
                 {
                     CancelActiveAnkaEdit();
-                    CloseSubMenus();
                     SelectMain(btnCut);
-                    CloseAll();
-                    MessageBox.Show("Thực hiện hành động CẮT đoạn DIM này");
+                    OpenCutModePopup(btnCut);
                 };
 
                 var btnDel = MakeMenuButton("鉄筋を削除", hasNext: false, minWidth: MENU1_MIN_WIDTH);
@@ -2900,9 +3144,6 @@ namespace RevitProjectDataAddin
         private readonly Dictionary<GridBotsecozu, Dictionary<(int spanIndex, bool isRightAbdominal, bool isRightEnd), double>>
         _tanbuHookOverrides = new Dictionary<GridBotsecozu, Dictionary<(int spanIndex, bool isRightAbdominal, bool isRightEnd), double>>();
 
-        private static string BuildTanbuHookKey(int spanIndex, bool isRightAbdominal, bool isRightEnd)
-            => $"{spanIndex}:{(isRightAbdominal ? 1 : 0)}:{(isRightEnd ? 1 : 0)}";
-
         private string FormatTanbuLabel(string dia, double hookLength)
         {
             dia = string.IsNullOrWhiteSpace(dia) ? string.Empty : dia;
@@ -2912,13 +3153,6 @@ namespace RevitProjectDataAddin
         //private double GetTanbuHookLength(GridBotsecozu item, int spanIndex, double fallback)
         private double GetTanbuHookLength(GridBotsecozu item, int spanIndex, bool isRightAbdominal, bool isRightEnd, double fallback)
         {
-            if (item?.TanbuHookOverrides != null
-                && item.TanbuHookOverrides.TryGetValue(BuildTanbuHookKey(spanIndex, isRightAbdominal, isRightEnd), out var persisted)
-                && persisted > 0)
-            {
-                return persisted;
-            }
-
             if (item != null
                 && _tanbuHookOverrides.TryGetValue(item, out var spanDict)
                 && spanDict.TryGetValue((spanIndex, isRightAbdominal, isRightEnd), out var val)
@@ -2945,16 +3179,6 @@ namespace RevitProjectDataAddin
                            || Math.Abs(existing - newLength) > 1e-6;
 
             spanDict[(spanIndex, isRightAbdominal, isRightEnd)] = newLength;
-
-            var hookOverrides = item.TanbuHookOverrides ?? new Dictionary<string, double>();
-            var key = BuildTanbuHookKey(spanIndex, isRightAbdominal, isRightEnd);
-            if (!hookOverrides.TryGetValue(key, out var persisted) || Math.Abs(persisted - newLength) > 1e-6)
-            {
-                hookOverrides[key] = newLength;
-                item.TanbuHookOverrides = new Dictionary<string, double>(hookOverrides);
-                changed = true;
-            }
-
             return changed;
         }
         private void ShowComboEditor(Canvas canvas, TextBlock tb, WCTransform T,
@@ -13747,24 +13971,6 @@ namespace RevitProjectDataAddin
 
                 if (dict.Count == 0)
                     _tanbuHookOverrides.Remove(beamKvp.Key);
-
-                var persistent = beamKvp.Key.TanbuHookOverrides;
-                if (persistent == null || persistent.Count == 0) continue;
-
-                bool removed = false;
-                foreach (var key in new[]
-                {
-                    BuildTanbuHookKey(spanIndex, false, false),
-                    BuildTanbuHookKey(spanIndex, false, true),
-                    BuildTanbuHookKey(spanIndex, true, false),
-                    BuildTanbuHookKey(spanIndex, true, true)
-                })
-                {
-                    removed |= persistent.Remove(key);
-                }
-
-                if (removed)
-                    beamKvp.Key.TanbuHookOverrides = new Dictionary<string, double>(persistent);
             }
         }
 
@@ -13830,13 +14036,13 @@ namespace RevitProjectDataAddin
             }
         }
         private void DrawCentralStirrupTripletPx(
-            Canvas canvas, WCTransform T, GridBotsecozu item,
-            double centerXmm, double yMm,
-            double fontPx,
-            Brush brush,
-            string diaText, string pitchText, string matText,
-            out TextBlock tbDia, out TextBlock tbPitch, out TextBlock tbMat,
-            double gapPx = 6.0)
+    Canvas canvas, WCTransform T, GridBotsecozu item,
+    double centerXmm, double yMm,
+    double fontPx,
+    Brush brush,
+    string diaText, string pitchText, string matText,
+    out TextBlock tbDia, out TextBlock tbPitch, out TextBlock tbMat,
+    double gapPx = 6.0)
         {
             tbDia = null;
             tbPitch = null;
@@ -13867,14 +14073,14 @@ namespace RevitProjectDataAddin
             tbMat = DrawText_Rec(canvas, T, item, matText, xMat, yMm, fontPx, brush, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
         }
         private void BeginInlinePitchEditPushNeighbors(
-            Canvas canvas,
-            TextBlock tbPitch,
-            FrameworkElement leftTb,   // tbDia
-            FrameworkElement rightTb,  // tbMat
-            Func<string> getCurrentText,
-            Action<string> commitText,
-            double gapPx = 6.0,
-            double paddingPx = 14.0)
+    Canvas canvas,
+    TextBlock tbPitch,
+    FrameworkElement leftTb,   // tbDia
+    FrameworkElement rightTb,  // tbMat
+    Func<string> getCurrentText,
+    Action<string> commitText,
+    double gapPx = 6.0,
+    double paddingPx = 14.0)
         {
             if (canvas == null || tbPitch == null || leftTb == null || rightTb == null) return;
 
@@ -14192,8 +14398,6 @@ namespace RevitProjectDataAddin
             tbPitch.LayoutUpdated += layoutUpd;
             tbMat.LayoutUpdated += layoutUpd;
         }
-
-
 
     }
 }
