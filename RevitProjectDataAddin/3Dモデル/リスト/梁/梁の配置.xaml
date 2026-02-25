@@ -1,0 +1,409 @@
+﻿<Window x:Class="RevitProjectDataAddin.梁の配置"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             xmlns:local="clr-namespace:RevitProjectDataAddin"
+             mc:Ignorable="d" 
+             Height="auto" Width="1550" ResizeMode="NoResize" FontFamily="Yu Mincho">
+    <!-- Định nghĩa tài nguyên màu -->
+    <Window.Resources>
+        <SolidColorBrush x:Key="TitleColor1" Color="Blue"/>
+        <SolidColorBrush x:Key="TitleColor2" Color="Orange"/>
+        <SolidColorBrush x:Key="Label" Color="Green"/>
+        <SolidColorBrush x:Key="注意" Color="Red"/>
+    </Window.Resources>
+    <Grid Background="White">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" >
+            <Grid>
+                <Grid x:Name="GridTop">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="1*"/>
+                        <ColumnDefinition Width="1*"/>
+                        <ColumnDefinition Width="1*"/>
+                        <ColumnDefinition Width="1*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock HorizontalAlignment="Left" FontSize="40" Text="梁の配置" VerticalAlignment="Top" Margin="308,10,0,0" Grid.ColumnSpan="2" Grid.Column="1"/>
+
+                    <TextBlock FontSize="35" HorizontalAlignment="Left" Margin="10,100,0,0" VerticalAlignment="Top">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Text" Value="端部1"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding ElementName=全断面, Path=IsChecked}" Value="True">
+                                        <Setter Property="Text" Value="全断面"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+
+                    <TextBlock FontSize="35" HorizontalAlignment="Left" Margin="10,100,0,0"  VerticalAlignment="Top" Grid.Column="1">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Text" Value="中央"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding ElementName=全断面, Path=IsChecked}" Value="True">
+                                        <Setter Property="Text" Value="全断面"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+
+                    <TextBlock FontSize="35" HorizontalAlignment="Left" Margin="10,100,0,0" Grid.Column="2">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Text" Value="端部2"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding ElementName=全断面, Path=IsChecked}" Value="True">
+                                        <Setter Property="Text" Value="全断面"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+
+                    <CheckBox x:Name="全断面" IsChecked="{Binding 全断面, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Height="17" HorizontalAlignment="Left" Margin="50,156,0,0" VerticalAlignment="Top" Grid.Column="3" Grid.RowSpan="2">
+                        <ContentControl Content="全断面" FontSize="15" Margin="0,-3"/>
+                    </CheckBox>
+                    <CheckBox x:Name="地中ON_般OFF" IsChecked="{Binding 地中ON_般OFF, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Height="17"  HorizontalAlignment="Left" Margin="50,49,0,0" VerticalAlignment="Top" Grid.Column="3" Grid.Row="1">
+                        <ContentControl Content="地中ON,一般OFF" FontSize="15" Margin="0,-3"/>
+                    </CheckBox>
+                    <CheckBox x:Name="大梁ON_小梁OFF" IsChecked="{Binding 大梁ON_小梁OFF, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" HorizontalAlignment="Left" Margin="50,99,0,0" VerticalAlignment="Top" Grid.Column="3" Grid.Row="1">
+                        <ContentControl Content="大梁ON,小梁OFF" FontSize="15" Margin="0,-3"/>
+                    </CheckBox>
+                    <TextBlock Text="梁幅" FontSize="18" HorizontalAlignment="Left" Margin="10,40,0,0"  VerticalAlignment="Top" Grid.Row="1"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput"  x:Name="端部1の幅TEXTBOX" Text="{Binding 端部1幅, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="10,70,20,0"  VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Row="1"  Grid.Column="0"/>
+
+                    <TextBlock Text="梁幅" FontSize="18" HorizontalAlignment="Left" Margin="10,40,0,0"  VerticalAlignment="Top" Grid.Column="1" Grid.Row="1"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="中央の幅TEXTBOX" Margin="10,70,20,0"  Text="{Binding 中央幅, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="1" Grid.Row="1"/>
+
+                    <TextBlock Text="梁幅" FontSize="18" HorizontalAlignment="Left" Margin="10,40,0,0"  VerticalAlignment="Top" Grid.Column="2" Grid.Row="1"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="端部2の幅TEXTBOX" Margin="10,70,20,0"  Text="{Binding 端部2幅, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="2" Grid.Row="1"/>
+
+                    <TextBlock Text="梁成" FontSize="18" HorizontalAlignment="Left" Margin="11,101,0,0"  VerticalAlignment="Top" Grid.Row="1"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="端部1の成TEXTBOX" Margin="11,130,20,0"  Text="{Binding 端部1成, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Row="1" Grid.Column="0"/>
+
+                    <TextBlock Text="梁成" FontSize="18" HorizontalAlignment="Left" Margin="10,101,0,0"  VerticalAlignment="Top" Grid.Column="1" Grid.Row="1"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="中央の成TEXTBOX" Margin="10,130,20,0"  Text="{Binding 中央成, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="1" Grid.Row="1"/>
+
+                    <TextBlock Text="梁成" FontSize="18" HorizontalAlignment="Left" Margin="10,101,0,0"  VerticalAlignment="Top" Grid.Column="2" Grid.Row="1"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="端部2のTEXTBOX" Margin="10,130,20,0"  Text="{Binding 端部2成, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="2" Grid.Row="1"/>
+
+                    <TextBlock Text="主筋径" FontSize="18" HorizontalAlignment="Left" Margin="10,160,0,0"  VerticalAlignment="Top" Grid.Row="1"/>
+                    <ComboBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="端部1の主筋径COMBOBOX" Margin="10,190,0,0"  ItemsSource="{Binding Valid径Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" SelectedItem="{Binding 端部1主筋径, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Row="1" HorizontalAlignment="Left" Width="160" Grid.Column="0"/>
+
+                    <TextBlock Text="主筋材質" FontSize="18" HorizontalAlignment="Right" Margin="0,160,70,0"  VerticalAlignment="Top" Grid.Row="1" Width="110"/>
+                    <ComboBox x:Name="端部1の主筋材質COMBOBOX" ItemsSource="{Binding Valid材質Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" SelectedItem="{Binding 端部1主筋材質, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Height="32" Width="160" Margin="0,190,20,0" VerticalAlignment="Top" Grid.Row="1" HorizontalAlignment="Right" Grid.Column="0"/>
+
+                    <TextBlock Text="主筋径" FontSize="18" HorizontalAlignment="Left" Margin="10,160,0,0"  VerticalAlignment="Top" Grid.Column="1" Grid.Row="1"/>
+                    <ComboBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="中央の主筋径COMBOBOX" Margin="10,190,0,0"  ItemsSource="{Binding Valid径Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" SelectedItem="{Binding 中央主筋径, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="1" Grid.Row="1" HorizontalAlignment="Left" Width="160"/>
+
+                    <TextBlock Text="材質" FontSize="18" HorizontalAlignment="Right" Margin="0,160,59,0"  VerticalAlignment="Top" Grid.Column="1" Grid.Row="1" Width="120"/>
+                    <ComboBox x:Name="中央の材質COMBOBOX" ItemsSource="{Binding Valid材質Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" SelectedItem="{Binding 中央材質, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Height="32" Width="160" Margin="0,190,19,0" VerticalAlignment="Top" Grid.Column="1" Grid.Row="1" HorizontalAlignment="Right"/>
+
+                    <TextBlock Text="主筋径" FontSize="18" HorizontalAlignment="Left" Margin="11,160,0,0"  VerticalAlignment="Top" Grid.Column="2" Grid.Row="1"/>
+                    <ComboBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="端部2の主筋径COMBOBOX" Margin="11,190,0,0"  ItemsSource="{Binding Valid径Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" SelectedItem="{Binding 端部2主筋径, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="2" Grid.Row="1" HorizontalAlignment="Left" Width="160"/>
+
+                    <TextBlock Text="主筋材質" FontSize="18" HorizontalAlignment="Right" Margin="0,160,60,0"  VerticalAlignment="Top" Grid.Column="2" Grid.Row="1" Width="120"/>
+                    <ComboBox x:Name="端部2の主筋材質COMBOBOX" ItemsSource="{Binding Valid材質Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" SelectedItem="{Binding 端部2主筋材質, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Height="32" Width="160" Margin="0,190,20,0" VerticalAlignment="Top" Grid.Column="2" Grid.Row="1" HorizontalAlignment="Right"/>
+
+                    <TextBlock Text="上筋本数" FontSize="18" HorizontalAlignment="Left" Margin="11,225,0,0"  VerticalAlignment="Top" Grid.Row="1"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="端部1の上筋本数TEXTBOX" Margin="11,255,20,0"  Text="{Binding 端部1上筋本数, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Row="1" Grid.Column="0" />
+
+                    <TextBlock Text="上筋本数" FontSize="18" HorizontalAlignment="Left" Margin="10,225,0,0"  VerticalAlignment="Top" Grid.Column="1" Grid.Row="1"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="中央の上筋本数TEXTBOX" Margin="10,255,19,0"  Text="{Binding 中央上筋本数, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="1" Grid.Row="1" />
+
+                    <TextBlock Text="上筋本数" FontSize="18" HorizontalAlignment="Left" Margin="10,225,0,0"  VerticalAlignment="Top" Grid.Column="2" Grid.Row="1"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="端部2の上筋本数TEXTBOX" Margin="10,255,20,0"  Text="{Binding 端部2上筋本数, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="2" Grid.Row="1" />
+
+                    <TextBlock Text="上宙1" FontSize="18" HorizontalAlignment="Left" Margin="10,285,0,0"  VerticalAlignment="Top" Grid.Row="1"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="端部1の上宙1TEXTBOX" Margin="10,315,20,0"  Text="{Binding 端部1上宙1, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Row="1" Grid.Column="0" />
+
+                    <TextBlock Text="上宙1" FontSize="18" Margin="10,285,200,0"  VerticalAlignment="Top" Grid.Column="1" Grid.Row="1"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="中央の上宙1TEXTBOX" Margin="10,315,19,0"  Text="{Binding 中央上宙1, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="1" Grid.Row="1" />
+
+                    <TextBlock Text="上宙1" FontSize="18" HorizontalAlignment="Left" Margin="10,285,0,0"  VerticalAlignment="Top" Grid.Column="2" Grid.Row="1"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="端部2の上宙1TEXTBOX" Margin="10,315,20,0"  Text="{Binding 端部2上宙1, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="2" Grid.Row="1" />
+
+                    <TextBlock Text="上宙2" FontSize="18" HorizontalAlignment="Left" Margin="10,345,0,0"  VerticalAlignment="Top" Grid.Row="1"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="端部1の上宙2TEXTBOX" Margin="10,375,20,0"  Text="{Binding 端部1上宙2, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Row="1" Grid.Column="0"  />
+                    <!--TextChanged="OnColumnTriggerTextChanged"-->
+
+                    <TextBlock Text="上宙2" FontSize="18" Margin="10,345,200,0"  VerticalAlignment="Top" Grid.Column="1" Grid.Row="1"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="中央の上宙2TEXTBOX" Margin="10,375,19,0"  Text="{Binding 中央上宙2, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="1" Grid.Row="1" />
+
+                    <TextBlock Text="上宙2" FontSize="18" HorizontalAlignment="Left" Margin="10,345,0,0"  VerticalAlignment="Top" Grid.Column="2" Grid.Row="1"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="端部2の上宙2TEXTBOX" Margin="10,375,20,0"  Text="{Binding 端部2上宙2, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="2" Grid.Row="1" />
+
+                    <TextBlock Text="下宙2" FontSize="18" HorizontalAlignment="Left" Margin="10,405,0,0"  VerticalAlignment="Top" Grid.Row="1"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="端部1の下宙2TEXTBOX" Margin="10,435,20,0"  Text="{Binding 端部1下宙2, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Row="1" Grid.Column="0"  />
+                    <!--TextChanged="OnColumnTriggerTextChanged"-->
+
+                    <TextBlock Text="下宙2" FontSize="18" Margin="10,405,199,0"  VerticalAlignment="Top" Grid.Column="1" Grid.Row="1"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="中央の下宙2TEXTBOX" Margin="10,435,19,0"  Text="{Binding 中央下宙2, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="1" Grid.Row="1" />
+
+                    <TextBlock Text="下宙2" FontSize="18" HorizontalAlignment="Left" Margin="10,405,0,0"  VerticalAlignment="Top" Grid.Column="2" Grid.Row="1"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="端部2の下宙2TEXTBOX" Margin="10,435,20,0"  Text="{Binding 端部2下宙2, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="2" Grid.Row="1" />
+
+                    <TextBlock Text="下宙1" FontSize="18" HorizontalAlignment="Left" Margin="11,470,0,0"  VerticalAlignment="Top" Grid.Row="1"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="端部1の下宙1TEXTBOX" Margin="11,500,20,0"  Text="{Binding 端部1下宙1, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Row="1" Grid.Column="0" />
+
+                    <TextBlock Text="下宙1" FontSize="18" Margin="10,470,198,0"  VerticalAlignment="Top" Grid.Column="1" Grid.Row="1"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="中央の下宙1TEXTBOX" Margin="10,500,19,0"  Text="{Binding 中央下宙1, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="1" Grid.Row="1" />
+
+                    <TextBlock Text="下宙1" FontSize="18" HorizontalAlignment="Left" Margin="10,470,0,0"  VerticalAlignment="Top" Grid.Column="2" Grid.Row="1"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="端部2の下宙1TEXTBOX" Margin="10,500,20,0"  Text="{Binding 端部2下宙1, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="2" Grid.Row="1" />
+
+                    <TextBlock Text="下筋本数" FontSize="18" HorizontalAlignment="Left" Margin="10,530,0,0"  VerticalAlignment="Top" Grid.Row="1"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="端部1の下筋本数TEXTBOX" Margin="10,560,20,0"  Text="{Binding 端部1下筋本数, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Row="1" Grid.Column="0"/>
+
+                    <TextBlock Text="下筋本数" FontSize="18" Margin="10,530,200,0"  VerticalAlignment="Top" Grid.Column="1" Grid.Row="1"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="中央の下筋本数TEXTBOX" Margin="10,560,20,0"  Text="{Binding 中央下筋本数, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="1" Grid.Row="1" />
+
+                    <TextBlock Text="下筋本数" FontSize="18" HorizontalAlignment="Left" Margin="10,530,0,0"  VerticalAlignment="Top" Grid.Column="2" Grid.Row="1"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="端部2の下筋本数TEXTBOX" Margin="10,560,20,0"  Text="{Binding 端部2下筋本数, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="2" Grid.Row="1" />
+
+                    <TextBlock Text="スタラップ径" FontSize="18" HorizontalAlignment="Left" Margin="10,590,0,0"  VerticalAlignment="Top" Grid.Row="1"/>
+                    <ComboBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="端部1のスタラップ径TEXTBOX" Margin="10,620,0,0" ItemsSource="{Binding Validスタラップ径Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" SelectedItem="{Binding 端部1スタラップ径, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Row="1" HorizontalAlignment="Left" Width="105" Grid.Column="0"/>
+
+                    <TextBlock Text="ピッチ" FontSize="18" HorizontalAlignment="Left" Margin="126,590,0,0"  VerticalAlignment="Top" Grid.Row="1" Width="100"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="端部1のピッチTEXTBOX" HorizontalAlignment="Left" Margin="125,620,0,0"  Text="{Binding 端部1ピッチ, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Row="1" Width="105" Grid.Column="0"/>
+
+                    <TextBlock Text="スタラップ材質" FontSize="18" Margin="0,590,20,0"  VerticalAlignment="Top" Grid.Row="1" HorizontalAlignment="Right" />
+                    <ComboBox x:Name="端部1のスタラップ材質COMBOBOX" ItemsSource="{Binding Valid材質Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" SelectedItem="{Binding 端部1スタラップ材質, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Height="32" Margin="0,620,20,0" VerticalAlignment="Top" Grid.Row="1" HorizontalAlignment="Right" Width="120" Grid.Column="0"/>
+
+                    <TextBlock Text="スタラップ径" FontSize="18" HorizontalAlignment="Left" Margin="10,590,0,0"  VerticalAlignment="Top" Grid.Column="1" Grid.Row="1"/>
+                    <ComboBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="中央のスタラップ径TEXTBOX" Margin="10,620,0,0"  ItemsSource="{Binding Validスタラップ径Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" SelectedItem="{Binding 中央スタラップ径, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="1" Grid.Row="1" HorizontalAlignment="Left" Width="104"/>
+
+                    <TextBlock Text="ピッチ" FontSize="18" HorizontalAlignment="Left" Margin="126,590,0,0"  VerticalAlignment="Top" Grid.Column="1" Grid.Row="1" Width="104"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="中央のピッチTEXTBOX" HorizontalAlignment="Left" Margin="124,620,0,0"  Text="{Binding 中央ピッチ, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="1" Grid.Row="1" Width="106"/>
+
+                    <TextBlock Text="スタラップ材質" FontSize="18" Margin="0,590,20,0"  VerticalAlignment="Top" Grid.Column="1" Grid.Row="1" HorizontalAlignment="Right" />
+                    <ComboBox x:Name="中央のスタラップ材質COMBOBOX" ItemsSource="{Binding Valid材質Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" SelectedItem="{Binding 中央スタラップ材質, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Height="32" Margin="0,620,20,0" VerticalAlignment="Top" Grid.Column="1" Grid.Row="1" HorizontalAlignment="Right" Width="120"/>
+
+                    <TextBlock Text="スタラップ径" FontSize="18" HorizontalAlignment="Left" Margin="10,590,0,0"  VerticalAlignment="Top" Grid.Column="2" Grid.Row="1"/>
+                    <ComboBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="端部2のスタラップ径TEXTBOX" Margin="10,620,0,0"  ItemsSource="{Binding Validスタラップ径Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" SelectedItem="{Binding 端部2スタラップ径, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="2" Grid.Row="1" HorizontalAlignment="Left" Width="105"/>
+
+                    <TextBlock Text="ピッチ" FontSize="18" HorizontalAlignment="Left" Margin="125,590,0,0"  VerticalAlignment="Top" Grid.Column="2" Grid.Row="1" Width="104"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="端部2のピッチTEXTBOX" HorizontalAlignment="Left" Margin="125,620,0,0"  Text="{Binding 端部2ピッチ, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="2" Grid.Row="1" Width="105"/>
+
+                    <TextBlock Text="スタラップ材質" FontSize="18" Margin="0,590,20,0"  VerticalAlignment="Top" Grid.Column="2" Grid.Row="1" HorizontalAlignment="Right"/>
+                    <ComboBox x:Name="端部2のスタラップ材質COMBOBOX" ItemsSource="{Binding Valid材質Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" SelectedItem="{Binding 端部2スタラップ材質, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Height="32" Margin="0,620,20,0" VerticalAlignment="Top" Grid.Column="2" Grid.Row="1" HorizontalAlignment="Right" Width="120"/>
+
+                    <TextBlock Text="スタラップ形" FontSize="18" HorizontalAlignment="Left" Margin="10,650,0,0"  VerticalAlignment="Top" Grid.Row="1"/>
+                    <ComboBox x:Name="端部1のスタラップ形COMBOBOX" ItemsSource="{Binding Validスタラップ形Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" SelectedItem="{Binding 端部1のスタラップ形, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Height="32" Width="160" Margin="10,680,0,0" VerticalAlignment="Top" Grid.Row="1" HorizontalAlignment="Left" Grid.Column="0"/>
+
+                    <TextBlock Text="CAP径" FontSize="18" HorizontalAlignment="Left" Margin="208,650,0,0"  VerticalAlignment="Top" Grid.Row="1" Width="114"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="端部1のCAP径TEXTBOX" Margin="0,680,20,0"  Text="{Binding 端部1CAP径, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Row="1" HorizontalAlignment="Right" Width="160" Grid.Column="0"/>
+
+                    <TextBlock Text="スタラップ形" FontSize="18" HorizontalAlignment="Left" Margin="10,650,0,0"  VerticalAlignment="Top" Grid.Column="1" Grid.Row="1"/>
+                    <ComboBox x:Name="中央のスタラップ形COMBOBOX" ItemsSource="{Binding Validスタラップ形Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" SelectedItem="{Binding 中央スタラップ形, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Height="32" Width="160" Margin="10,680,0,0" VerticalAlignment="Top" Grid.Column="1" Grid.Row="1" HorizontalAlignment="Left"/>
+
+                    <TextBlock Text="CAP径" FontSize="18" HorizontalAlignment="Left" Margin="208,650,0,0"  VerticalAlignment="Top" Grid.Column="1" Grid.Row="1" Width="114"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="中央のCAP径TEXTBOX" Margin="0,680,19,0"  Text="{Binding 中央CAP径, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="1" Grid.Row="1" HorizontalAlignment="Right" Width="160"/>
+
+                    <TextBlock Text="スタラップ形" FontSize="18" HorizontalAlignment="Left" Margin="11,650,0,0"  VerticalAlignment="Top" Grid.Column="2" Grid.Row="1" Width="160"/>
+                    <ComboBox x:Name="端部2のスタラップ形COMBOBOX" ItemsSource="{Binding Validスタラップ形Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" SelectedItem="{Binding 端部2スタラップ形, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Height="32" Width="160" Margin="11,680,0,0" VerticalAlignment="Top" Grid.Column="2" Grid.Row="1" HorizontalAlignment="Left"/>
+
+                    <TextBlock Text="CAP径" FontSize="18" Margin="0,650,68,0"  VerticalAlignment="Top" Grid.Column="2" Grid.Row="1" HorizontalAlignment="Right" Width="112"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="端部2のCAP径TEXTBOX" Margin="0,680,20,0"  Text="{Binding 端部2CAP径, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="2" Grid.Row="1" HorizontalAlignment="Right" Width="160"/>
+
+                    <TextBlock Text="中子筋径" FontSize="18" HorizontalAlignment="Left" Margin="10,710,0,0"  VerticalAlignment="Top" Grid.Row="1"/>
+                    <ComboBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="端部1の中子筋径TEXTBOX" Margin="10,740,0,0"  ItemsSource="{Binding Valid径Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" SelectedItem="{Binding 端部1中子筋径, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Row="1" HorizontalAlignment="Left" Width="105" Grid.Column="0"/>
+
+                    <TextBlock Text="ピッチ" FontSize="18" HorizontalAlignment="Left" Margin="125,710,0,0"  VerticalAlignment="Top" Grid.Row="1"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="端部1の中子筋径ピッチTEXTBOX" HorizontalAlignment="Left" Margin="125,740,0,0"  Text="{Binding 端部1中子筋径ピッチ, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Row="1" Width="105" Grid.Column="0"/>
+
+                    <TextBlock Text="材質" FontSize="18" Margin="248,710,0,0"  VerticalAlignment="Top" Grid.Row="1" HorizontalAlignment="Left"/>
+                    <ComboBox x:Name="端部1の中子筋材質COMBOBOX" ItemsSource="{Binding Valid材質Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" SelectedItem="{Binding 端部1中子筋材質, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Height="32" Margin="0,740,20,0" VerticalAlignment="Top" Grid.Row="1" HorizontalAlignment="Right" Width="120" Grid.Column="0"/>
+
+                    <TextBlock Text="中子筋径" FontSize="18" HorizontalAlignment="Left" Margin="10,710,0,0"  VerticalAlignment="Top" Grid.Column="1" Grid.Row="1"/>
+                    <ComboBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="中央の中子筋径TEXTBOX" Margin="10,740,0,0"  ItemsSource="{Binding Valid径Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" SelectedItem="{Binding 中央中子筋径, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="1" Grid.Row="1" HorizontalAlignment="Left" Width="104"/>
+
+                    <TextBlock Text="ピッチ" FontSize="18" HorizontalAlignment="Left" Margin="126,710,0,0"  VerticalAlignment="Top" Grid.Column="1" Grid.Row="1" Width="104"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="中央の中子筋径ピッチTEXTBOX" HorizontalAlignment="Left" Margin="124,740,0,0"  Text="{Binding 中央中子筋径ピッチ, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="1" Grid.Row="1" Width="106"/>
+
+                    <TextBlock Text="材質" FontSize="18" Margin="0,710,20,0"  VerticalAlignment="Top" Grid.Column="1" Grid.Row="1" HorizontalAlignment="Right" Width="120"/>
+                    <ComboBox x:Name="中央の中子筋材質COMBOBOX" ItemsSource="{Binding Valid材質Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" SelectedItem="{Binding 中央中子筋材質, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Height="32" Margin="0,740,20,0" VerticalAlignment="Top" Grid.Column="1" Grid.Row="1" HorizontalAlignment="Right" Width="120"/>
+
+                    <TextBlock Text="中子筋径" FontSize="18" HorizontalAlignment="Left" Margin="10,710,0,0"  VerticalAlignment="Top" Grid.Column="2" Grid.Row="1"/>
+                    <ComboBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="端部2の中子筋径TEXTBOX" Margin="10,740,0,0"  ItemsSource="{Binding Valid径Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" SelectedItem="{Binding 端部2中子筋径, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="2" Grid.Row="1" HorizontalAlignment="Left" Width="105"/>
+
+                    <TextBlock Text="ピッチ" FontSize="18" HorizontalAlignment="Left" Margin="125,710,0,0"  VerticalAlignment="Top" Grid.Column="2" Grid.Row="1" Width="104"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="端部2の中子筋径ピッチTEXTBOX" HorizontalAlignment="Left" Margin="125,740,0,0"  Text="{Binding 端部2中子筋径ピッチ, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="2" Grid.Row="1" Width="105"/>
+
+                    <TextBlock Text="材質" FontSize="18" Margin="0,710,16,0"  VerticalAlignment="Top" Grid.Column="2" Grid.Row="1" HorizontalAlignment="Right" Width="122"/>
+                    <ComboBox x:Name="端部2の中子筋材質COMBOBOX" ItemsSource="{Binding Valid材質Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" SelectedItem="{Binding 端部2中子筋材質, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Height="32" Margin="0,740,20,0" VerticalAlignment="Top" Grid.Column="2" Grid.Row="1" HorizontalAlignment="Right" Width="120"/>
+
+                    <TextBlock Text="中子筋形" FontSize="18" HorizontalAlignment="Left" Margin="10,770,0,0"  VerticalAlignment="Top" Grid.Row="1"/>
+                    <ComboBox x:Name="端部1の中子筋形COMBOBOX" ItemsSource="{Binding Valid中子筋形Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" SelectedItem="{Binding 端部1中子筋形, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Height="32" Width="160" Margin="10,800,0,0" VerticalAlignment="Top" Grid.Row="1" HorizontalAlignment="Left" Grid.Column="0" SelectionChanged="端部1の中子筋形COMBOBOX_SelectionChanged"/>
+
+                    <TextBlock Text="本数" FontSize="18" HorizontalAlignment="Left" Margin="208,770,0,0"  VerticalAlignment="Top" Grid.Row="1" Width="94"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="端部1の中子筋本数TEXTBOX" Margin="0,800,20,0"  Text="{Binding 端部1中子筋本数, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Row="1" HorizontalAlignment="Right" Width="160" Grid.Column="0" TextChanged="端部1の中子筋本数TEXTBOX_TextChanged" />
+
+                    <TextBlock Text="中子筋形" FontSize="18" HorizontalAlignment="Left" Margin="10,770,0,0"  VerticalAlignment="Top" Grid.Column="1" Grid.Row="1"/>
+                    <ComboBox x:Name="中央の中子筋形COMBOBOX" ItemsSource="{Binding Valid中子筋形Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" SelectedItem="{Binding 中央中子筋形, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Height="32" Width="160" Margin="10,800,0,0" VerticalAlignment="Top" Grid.Column="1" Grid.Row="1" HorizontalAlignment="Left" SelectionChanged="中央の中子筋形COMBOBOX_SelectionChanged"/>
+
+                    <TextBlock Text="本数" FontSize="18" HorizontalAlignment="Left" Margin="208,770,0,0"  VerticalAlignment="Top" Grid.Column="1" Grid.Row="1" Width="92"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="中央の中子筋本数TEXTBOX" Margin="0,800,19,0"  Text="{Binding 中央中子筋本数, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="1" Grid.Row="1" HorizontalAlignment="Right" Width="160" TextChanged="中央の中子筋本数TEXTBOX_TextChanged" />
+
+                    <TextBlock Text="中子筋形" FontSize="18" HorizontalAlignment="Left" Margin="10,770,0,0"  VerticalAlignment="Top" Grid.Column="2" Grid.Row="1"/>
+                    <ComboBox x:Name="端部2の中子筋形COMBOBOX" ItemsSource="{Binding Valid中子筋形Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" SelectedItem="{Binding 端部2中子筋形, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Height="32" Width="160" Margin="10,800,0,0" VerticalAlignment="Top" Grid.Column="2" Grid.Row="1" HorizontalAlignment="Left" SelectionChanged="端部2の中子筋形COMBOBOX_SelectionChanged"/>
+
+                    <TextBlock Text="本数" FontSize="18" HorizontalAlignment="Left" Margin="208,770,0,0"  VerticalAlignment="Top" Grid.Column="2" Grid.Row="1" Width="93"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="端部2の中子筋本数TEXTBOX" Margin="0,800,20,0"  Text="{Binding 端部2中子筋本数, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="2" Grid.Row="1" HorizontalAlignment="Right" Width="160" TextChanged="端部2の中子筋本数TEXTBOX_TextChanged" />
+
+                    <TextBlock Text="腹筋径" FontSize="18" HorizontalAlignment="Left" Margin="10,835,0,0"  VerticalAlignment="Top" Grid.Row="1" Grid.Column="1"/>
+                    <ComboBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="端部1の腹筋径TEXTBOX" Margin="10,865,20,0"  ItemsSource="{Binding Valid径Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" SelectedItem="{Binding 端部1腹筋径, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Row="1" Grid.Column="1"/>
+
+                    <TextBlock Text="腹筋本数" FontSize="18" HorizontalAlignment="Left" Margin="10,895,0,0"  VerticalAlignment="Top" Grid.Row="1" Grid.Column="1"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="端部1の腹筋本数TEXTBOX" Margin="10,925,20,0"  Text="{Binding 端部1腹筋本数, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Row="1" Grid.Column="1"/>
+
+                    <TextBlock Text="幅止筋径" FontSize="18" HorizontalAlignment="Left" Margin="10,955,0,0"  VerticalAlignment="Top" Grid.Row="1" Grid.Column="1"/>
+                    <ComboBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="端部1の幅止筋径TEXTBOX" Margin="10,985,20,0"  ItemsSource="{Binding Valid径Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" SelectedItem="{Binding 端部1幅止筋径, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Row="1" Grid.Column="1"/>
+
+                    <TextBlock Text="幅止筋ピッチ" FontSize="18" HorizontalAlignment="Left" Margin="10,1015,0,0"  VerticalAlignment="Top" Grid.Row="1" Grid.Column="1"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="端部1の幅止筋ピッチTEXTBOX" Margin="10,1050,20,0"  Text="{Binding 端部1幅止筋ピッチ, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Row="1" Grid.Column="1"/>
+
+                    <Button x:Name="更新ボタン" Content="更新" FontSize="18" HorizontalAlignment="Right" Margin="0,10,100,0" VerticalAlignment="Top" Width="57"  Grid.Column="3" Grid.Row="2" Click="更新ボタン_Click" />
+
+                    <TextBlock Text="梁" FontSize="18" HorizontalAlignment="Left" Margin="10,50,0,0"  VerticalAlignment="Top" Grid.Row="2"/>
+                    <ComboBox x:Name="梁" ItemsSource="{Binding Valid梁Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" SelectedItem="{Binding 梁COMBOBOX, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Height="32" Margin="10,80,50,0" VerticalAlignment="Top" Grid.Row="2" Grid.ColumnSpan="4" />
+
+                    <Border BorderBrush="Silver" BorderThickness="1" Height="2" Margin="10,150,10,0" VerticalAlignment="Top" Grid.ColumnSpan="4" Grid.Row="2" />
+
+                    <Canvas x:Name="MyCanvas" Height="800" Width="800" Margin="375,200,375,0" VerticalAlignment="Top" Grid.Row="2"  Grid.ColumnSpan="4" Grid.RowSpan="2"  />
+
+                    <Border BorderBrush="Silver" BorderThickness="1" Height="2" Margin="10,900,10,0" VerticalAlignment="Top" Grid.ColumnSpan="4" Grid.Row="3" />
+                </Grid>
+
+                <Grid x:Name="GridBot"  Margin="0,2300,0,0" >
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <!--<RowDefinition Height="Auto"/>-->
+
+                    </Grid.RowDefinitions>
+
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="上" FontSize="18" HorizontalAlignment="Left" Margin="10,10,0,0"  VerticalAlignment="Top" Grid.Row="2"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="上TEXTBOX" Margin="10,44,20,0"  Text="{Binding 上TEXTBOX, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" TextChanged="TextBox_TextChanged" />
+
+                    <TextBlock Text="下" FontSize="18" HorizontalAlignment="Left" Margin="10,10,0,0"  VerticalAlignment="Top" Grid.Column="1" Grid.Row="2"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="下TEXTBOX" Margin="10,44,20,0"  Text="{Binding 下TEXTBOX, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="1" TextChanged="TextBox_TextChanged" />
+
+                    <TextBlock Text="左" FontSize="18" HorizontalAlignment="Left" Margin="10,10,0,0"  VerticalAlignment="Top" Grid.Column="2" Grid.Row="2"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="左TEXTBOX" Margin="10,44,20,0"  Text="{Binding 左TEXTBOX, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="2" TextChanged="TextBox_TextChanged" />
+
+                    <TextBlock Text="右" FontSize="18" HorizontalAlignment="Left" Margin="10,10,0,0"  VerticalAlignment="Top" Grid.Column="3" Grid.Row="2"/>
+                    <TextBox  PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="右TEXTBOX" Margin="10,44,20,0"  Text="{Binding 右TEXTBOX, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="3" TextChanged="TextBox_TextChanged" />
+
+                    <Border BorderBrush="Silver" BorderThickness="1" Height="2" Margin="10,100,10,0" VerticalAlignment="Top" Grid.ColumnSpan="4" />
+                    <Grid x:Name="筋宙本数" Margin="0,0,0,171" Grid.ColumnSpan="4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <Button x:Name="Reset上筋ボタン" Content="Reset上筋" FontSize="18" HorizontalAlignment="Left" Margin="10,120,0,0" VerticalAlignment="Top" Grid.Column="0" Click="Reset上筋ボタン_Click" />
+                        <Button x:Name="Reset上宙1ボタン" Content="Reset上宙1" FontSize="18" HorizontalAlignment="Left" Margin="10,120,0,0" VerticalAlignment="Top" Grid.Column="1" Click="Reset上宙1ボタン_Click" />
+                        
+                        <Button x:Name="Reset上宙2ボタン" Content="Reset上宙2" FontSize="18" Margin="10,120,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Column="2" Visibility="Collapsed" Click="Reset上宙2ボタン_Click"/>
+                        <Button x:Name="Reset下宙2ボタン" Content="Reset下宙2" FontSize="18" Margin="10,120,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Column="2" Visibility="Collapsed" Click="Reset下宙2ボタン_Click"/>
+
+                        <Button x:Name="Reset下宙1ボタン" Content="Reset下宙1" FontSize="18" HorizontalAlignment="Left" Margin="10,120,0,0" VerticalAlignment="Top" Grid.Column="2" Click="Reset下宙1ボタン_Click"/>
+                        <Button x:Name="Reset下筋ボタン" Content="Reset下筋" FontSize="18" HorizontalAlignment="Left" Margin="10,120,0,0" VerticalAlignment="Top" Grid.Column="3" Click="Reset下筋ボタン_Click"/>
+
+                        <TextBlock Text="上筋" FontSize="18" HorizontalAlignment="Left" Margin="11,164,0,0" VerticalAlignment="Top" Grid.Column="0"/>
+                        <ComboBox x:Name="上筋COMBOBOX" ItemsSource="{Binding Valid上筋本数Values}" SelectedItem="{Binding 上筋COMBOBOX, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Height="32" Margin="10,198,30,0" VerticalAlignment="Top" Grid.Column="0" SelectionChanged="上筋COMBOBOX_SelectionChanged" />
+
+                        <TextBlock Text="上宙1" FontSize="18" HorizontalAlignment="Left" Margin="10,164,0,0" VerticalAlignment="Top" Grid.Column="1" />
+                        <ComboBox x:Name="上宙1COMBOBOX" ItemsSource="{Binding Valid上宙1Values}" SelectedItem="{Binding 上宙1COMBOBOX, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Height="32" Margin="10,198,30,0" VerticalAlignment="Top" Grid.Column="1" SelectionChanged="上宙1COMBOBOX_SelectionChanged"/>
+
+                        <!-- Thêm các thành phần bị ẩn -->
+
+                        <TextBlock x:Name="上宙2Label" Text="上宙2" FontSize="18" HorizontalAlignment="Left" Margin="10,164,0,0" VerticalAlignment="Top" Grid.Column="2" Visibility="Collapsed"/>
+                        <ComboBox x:Name="上宙2COMBOBOX" ItemsSource="{Binding Valid上宙2Values}" SelectedItem="{Binding 上宙2COMBOBOX, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Height="32" Margin="10,198,30,0" VerticalAlignment="Top" Grid.Column="2" Visibility="Collapsed" SelectionChanged="上宙2COMBOBOX_SelectionChanged"/>
+
+                        <TextBlock x:Name="下宙2Label" Text="下宙2" FontSize="18" HorizontalAlignment="Left" Margin="10,164,0,0" VerticalAlignment="Top" Grid.Column="2" Visibility="Collapsed"/>
+                        <ComboBox x:Name="下宙2COMBOBOX" ItemsSource="{Binding Valid下宙2Values}" SelectedItem="{Binding 下宙2COMBOBOX, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Height="32" Margin="10,198,30,0" VerticalAlignment="Top" Grid.Column="2" Visibility="Collapsed" SelectionChanged="下宙2COMBOBOX_SelectionChanged"/>
+
+
+                        <TextBlock x:Name="上宙2左右Label" Text="左/右" FontSize="18" Margin="10,232,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Column="2" Visibility="Collapsed"/>
+                        <TextBox x:Name="上宙2左右TEXTBOX" Text="{Binding 上宙2左右, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Height="32" Width="120" Margin="10,262,20,0" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Column="2" Visibility="Collapsed"  TextChanged="上宙2左右TEXTBOX_TextChanged"/>
+
+                        <TextBlock x:Name="上宙2上下Label" Text="上/下" FontSize="18" Margin="190,234,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Column="2" Visibility="Collapsed"/>
+                        <TextBox x:Name="上宙2上下TEXTBOX" Text="{Binding 上宙2上下, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Height="32" Width="120" Margin="0,262,30,0" VerticalAlignment="Top" HorizontalAlignment="Right" Grid.Column="2" Visibility="Collapsed"  TextChanged="上宙2上下TEXTBOX_TextChanged"/>
+
+                        <TextBlock x:Name="下宙2左右Label" Text="左/右" FontSize="18" Margin="10,232,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Column="2" Visibility="Collapsed"/>
+                        <TextBox x:Name="下宙2左右TEXTBOX" Text="{Binding 下宙2左右, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Height="32" Width="120" Margin="10,262,20,0" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Column="2" Visibility="Collapsed"  TextChanged="下宙2左右TEXTBOX_TextChanged"/>
+
+                        <TextBlock x:Name="下宙2上下Label" Text="上/下" FontSize="18" Margin="190,234,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Column="2" Visibility="Collapsed"/>
+                        <TextBox x:Name="下宙2上下TEXTBOX" Text="{Binding 下宙2上下, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Height="32" Width="120" Margin="0,262,30,0" VerticalAlignment="Top" HorizontalAlignment="Right" Grid.Column="2" Visibility="Collapsed"  TextChanged="下宙2上下TEXTBOX_TextChanged"/>
+
+                        <!-- Các thành phần khác của grid -->
+
+                        <TextBlock x:Name="下宙1Label" Text="下宙1" FontSize="18" HorizontalAlignment="Left" Margin="11,164,0,0" VerticalAlignment="Top" Grid.Column="2" />
+                        <ComboBox x:Name="下宙1COMBOBOX" ItemsSource="{Binding Valid下宙1Values}" SelectedItem="{Binding 下宙1COMBOBOX, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Height="32" Margin="10,198,30,0" VerticalAlignment="Top" Grid.Column="2" SelectionChanged="下宙1COMBOBOX_SelectionChanged"/>
+
+                        <TextBlock x:Name="下筋Label" Text="下筋" FontSize="18" HorizontalAlignment="Left" Margin="10,164,0,0" VerticalAlignment="Top" Grid.Column="3" />
+                        <ComboBox x:Name="下筋COMBOBOX" ItemsSource="{Binding Valid下筋本数Values}" SelectedItem="{Binding 下筋COMBOBOX, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Height="32" Margin="10,198,30,0" VerticalAlignment="Top" Grid.Column="3" SelectionChanged="下筋COMBOBOX_SelectionChanged" />
+
+                        <TextBlock x:Name="上筋左右Label" Text="左/右" FontSize="18" HorizontalAlignment="Left" Margin="10,232,0,0" VerticalAlignment="Top" Grid.Column="0"/>
+                        <TextBox x:Name="上筋左右TEXTBOX" PreviewTextInput="TEXTBOX_PreviewTextInput" Margin="10,262,0,0" Text="{Binding 上筋左右, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18" Height="32" HorizontalAlignment="Left" Width="160" Grid.Column="0" TextChanged="上筋左右TEXTBOX_TextChanged"/>
+
+                        <TextBlock x:Name="上筋上下Label" Text="上/下" FontSize="18" HorizontalAlignment="Left" Margin="198,234,0,0" VerticalAlignment="Top" Grid.Column="0"/>
+                        <TextBox x:Name="上筋上下TEXTBOX" PreviewTextInput="TEXTBOX_PreviewTextInput" Margin="0,262,30,0" Text="{Binding 上筋上下, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18" Height="32" HorizontalAlignment="Right" Width="160" Grid.Column="0" TextChanged="上筋上下TEXTBOX_TextChanged"/>
+
+                        <TextBlock x:Name="上宙1左右Label" Text="左/右" FontSize="18" HorizontalAlignment="Left" Margin="10,232,0,0" VerticalAlignment="Top" Grid.Column="1"/>
+                        <TextBox x:Name="上宙1左右TEXTBOX" PreviewTextInput="TEXTBOX_PreviewTextInput" Margin="10,262,0,0" Text="{Binding 上宙1左右, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18" Height="32" HorizontalAlignment="Left" Width="160" Grid.Column="1" TextChanged="上宙1左右TEXTBOX_TextChanged"/>
+
+                        <TextBlock x:Name="上宙1上下Label" Text="上/下" FontSize="18" HorizontalAlignment="Left" Margin="198,232,0,0" VerticalAlignment="Top" Grid.Column="1"/>
+                        <TextBox x:Name="上宙1上下TEXTBOX" PreviewTextInput="TEXTBOX_PreviewTextInput" Margin="0,262,30,0" Text="{Binding 上宙1上下, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18" Height="32" HorizontalAlignment="Right" Width="160" Grid.Column="1" TextChanged="上宙1上下TEXTBOX_TextChanged"/>
+
+                        <TextBlock x:Name="下宙1左右Label" Text="左/右" FontSize="18" HorizontalAlignment="Left" Margin="10,232,0,0" VerticalAlignment="Top" Grid.Column="2"/>
+                        <TextBox x:Name="下宙1左右TEXTBOX" PreviewTextInput="TEXTBOX_PreviewTextInput" Margin="10,262,0,0" Text="{Binding 下宙1左右, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18" Height="32" HorizontalAlignment="Left" Width="168" Grid.Column="2" TextChanged="下宙1左右TEXTBOX_TextChanged"/>
+
+                        <TextBlock x:Name="下宙1上下Label" Text="上/下" FontSize="18" HorizontalAlignment="Left" Margin="198,232,0,0" VerticalAlignment="Top" Grid.Column="2"/>
+                        <TextBox x:Name="下宙1上下TEXTBOX" PreviewTextInput="TEXTBOX_PreviewTextInput" Margin="0,262,30,0" Text="{Binding 下宙1上下, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18" Height="32" HorizontalAlignment="Right" Width="160" Grid.Column="2" TextChanged="下宙1上下TEXTBOX_TextChanged"/>
+
+                        <TextBlock x:Name="下筋左右Label" Text="左/右" FontSize="18" HorizontalAlignment="Left" Margin="10,232,0,0" VerticalAlignment="Top" Grid.Column="3"/>
+                        <TextBox x:Name="下筋左右TEXTBOX" PreviewTextInput="TEXTBOX_PreviewTextInput" Margin="10,262,0,0" Text="{Binding 下筋左右, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18" Height="32" HorizontalAlignment="Left" Width="160" Grid.Column="3" TextChanged="下筋左右TEXTBOX_TextChanged"/>
+
+                        <TextBlock x:Name="下筋上下Label" Text="上/下" FontSize="18" HorizontalAlignment="Left" Margin="198,232,0,0" VerticalAlignment="Top" Grid.Column="3"/>
+                        <TextBox x:Name="下筋上下TEXTBOX" PreviewTextInput="TEXTBOX_PreviewTextInput" Margin="0,262,30,0" Text="{Binding 下筋上下, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18" Height="32"  Width="160" Grid.Column="3" HorizontalAlignment="Right" TextChanged="下筋上下TEXTBOX_TextChanged"/>
+                    </Grid>
+                    <Border BorderBrush="Silver" BorderThickness="1" Height="1" Margin="10,419,10,0" VerticalAlignment="Top" Grid.ColumnSpan="4" RenderTransformOrigin="0.5,0.5" />
+                    <Border BorderBrush="Silver" BorderThickness="1" Height="1" Margin="10,315,10,0" VerticalAlignment="Top" Grid.ColumnSpan="4" RenderTransformOrigin="0.5,0.5" />
+
+                    <TextBlock Text="フックの位置" FontSize="18" HorizontalAlignment="Left" Margin="9,329,0,0"  VerticalAlignment="Top"/>
+                    <ComboBox x:Name="フックの位置COMBOBOX" ItemsSource="{Binding Valid位置Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" SelectedItem="{Binding フックの位置COMBOBOX, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Height="32" Margin="9,358,22,0" VerticalAlignment="Top" SelectionChanged="フックの位置COMBOBOX_SelectionChanged"/>
+
+                    <TextBlock Text="中子筋の数" FontSize="18" HorizontalAlignment="Left" Margin="8,329,0,0"  VerticalAlignment="Top" Grid.Column="1"/>
+                    <ComboBox x:Name="中子筋の数COMBOBOX" ItemsSource="{Binding Valid数Values}" SelectedItem="{Binding 中子筋の数COMBOBOX, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Height="32" Margin="8,358,20,0" VerticalAlignment="Top" Grid.Column="1" SelectionChanged="中子筋の数COMBOBOX_SelectionChanged"/>
+
+                    <TextBlock Text="中子筋の位置" FontSize="18" HorizontalAlignment="Left" Margin="10,329,0,0"  VerticalAlignment="Top" Grid.Column="2"/>
+                    <ComboBox  x:Name="中子筋の位置COMBOBOX" Margin="10,358,20,0" ItemsSource="{Binding Valid中子筋の位置Values}" SelectedItem="{Binding 中子筋の位置COMBOBOX, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="2" SelectionChanged="中子筋の位置COMBOBOX_SelectionChanged"/>
+
+                    <CheckBox x:Name="中子筋_方向" IsChecked="{Binding 中子筋_方向, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Height="17" Margin="10,353,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Column="3" Checked="中子筋_方向_Checked" Unchecked="中子筋_方向_Unchecked" >
+                        <ContentControl Content="中子筋_方向" FontSize="15" Margin="0,-3"/>
+                    </CheckBox>
+                </Grid>
+            </Grid>
+        </ScrollViewer>
+    </Grid>
+</Window>

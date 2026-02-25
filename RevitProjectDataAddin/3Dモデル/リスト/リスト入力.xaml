@@ -1,0 +1,20 @@
+﻿<Window x:Class="RevitProjectDataAddin.リスト入力"
+            xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+            xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+            xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+            xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+            xmlns:local="clr-namespace:RevitProjectDataAddin"
+            mc:Ignorable="d" Height="415" Width="747" FontFamily="Yu Mincho" ResizeMode="NoResize">
+    <Grid Background="White">
+        <TextBlock Text="リスト入力" FontSize="40" Margin="0,37,0,0" HorizontalAlignment="Center" VerticalAlignment="Top"/>
+
+        <Border BorderBrush="Black" BorderThickness="1" Height="154" VerticalAlignment="Center" HorizontalAlignment="Center" Width="616">
+            <StackPanel Orientation="Horizontal">
+                <Button Content="基礎リストを入力" FontSize="24" HorizontalAlignment="Left" VerticalAlignment="Top" Click="Button_Click" Margin="15,48,20,0"/>
+                <Button Content="柱リストを入力" FontSize="24" Click="Button_Click_1" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,48,20,0"/>
+                <Button Content="梁リストを入力" FontSize="24" HorizontalAlignment="Right" VerticalAlignment="Top" Click="Button_Click_2" Margin="0,48,20,0"/>
+            </StackPanel>
+        </Border>
+
+    </Grid>
+</Window>

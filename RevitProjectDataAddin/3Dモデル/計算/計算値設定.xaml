@@ -1,0 +1,1152 @@
+﻿<Window x:Class="RevitProjectDataAddin.計算値設定"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:RevitProjectDataAddin"
+        Title="計算値設定"
+        Height="auto" Width="auto" ResizeMode="NoResize" FontFamily="Yu Mincho">
+    <!-- Định nghĩa tài nguyên màu -->
+    <Window.Resources>
+        <SolidColorBrush x:Key="TitleColor1" Color="Blue"/>
+        <SolidColorBrush x:Key="TitleColor2" Color="Orange"/>
+        <SolidColorBrush x:Key="Label" Color="Green"/>
+        <SolidColorBrush x:Key="注意" Color="Red"/>
+
+    </Window.Resources>
+    <Grid Background="White">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <Grid Margin="10" Height="auto">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="1*"/>
+                    <ColumnDefinition Width="1*"/>
+                    <ColumnDefinition Width="1*"/>
+                    <ColumnDefinition Width="1*"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" MinHeight="4779"/>
+                    <RowDefinition/>
+                    <RowDefinition Height="100"/>
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Text="一般梁 全般" FontSize="30" Foreground="{StaticResource TitleColor1}" HorizontalAlignment="Left" Margin="10,10,0,0"  VerticalAlignment="Top" />
+                <TextBlock Foreground="{StaticResource Label}" Grid.Row="0" Text="継手 上筋" FontSize="20" Margin="10,81,0,0" HorizontalAlignment="Left" VerticalAlignment="Top" />
+                <ComboBox x:Name="ComboBoxUwa" 
+          ItemsSource="{Binding ValidValues, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" 
+          SelectedItem="{Binding Kesan.Tsuuwa, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" 
+          SelectionChanged="ComboBoxUwa_SelectionChanged" 
+          Grid.Row="0" 
+          Margin="10,113,10,0" 
+          FontSize="18" 
+          VerticalAlignment="Top" 
+          Height="30" />
+                <TextBlock Foreground="{StaticResource Label}" Grid.Row="0" Text="継手 下筋" FontSize="20" Margin="10,150,0,0" HorizontalAlignment="Left" VerticalAlignment="Top" />
+
+                <ComboBox x:Name="ComboBoxShita" 
+          ItemsSource="{Binding ValidValues, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" 
+          SelectedItem="{Binding Kesan.Tsushita, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" 
+          SelectionChanged="ComboBoxShita_SelectionChanged" 
+          Margin="10,182,10,0" 
+          FontSize="18" 
+          VerticalAlignment="Top" 
+          Height="30" />
+                <TextBlock Foreground="{StaticResource Label}" Text="継手長 主筋1" FontSize="20" Margin="10,222,0,0" HorizontalAlignment="Left" VerticalAlignment="Top" />
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="TsuNaga1TextBox" Tag="TsuNaga1" Text="{Binding Kesan.Tsunaga1, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="10,254,10,0" FontSize="18" VerticalAlignment="Top" Height="26"/>
+                <TextBlock Foreground="{StaticResource Label}" Text="継手長 主筋2" FontSize="20" Margin="10,291,0,0" HorizontalAlignment="Left" VerticalAlignment="Top" />
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="TsuNaga2TextBox" Tag="TsuNaga2" Text="{Binding Kesan.Tsunaga2, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="10,323,10,0" FontSize="18" VerticalAlignment="Top" Height="26"/>
+                <TextBlock Foreground="{StaticResource Label}" Text="定着 上筋(単位:d)" FontSize="20" VerticalAlignment="Top" HorizontalAlignment="Left" Margin="10,357,0,0" />
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="TeichakuUwaTextBox" Tag="TeichakuUwa" Text="{Binding Kesan.TeichakuUwa, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="10,389,10,0" FontSize="18" VerticalAlignment="Top" Height="26"/>
+                <TextBlock Foreground="{StaticResource Label}" Text="定着 下筋(単位:d)" FontSize="20" VerticalAlignment="Top" HorizontalAlignment="Left" Margin="10,426,0,0"/>
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="TeichakuShitaTextBox" Tag="TeichakuShita" Text="{Binding Kesan.TeichakuShita, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="10,458,10,0" FontSize="18" VerticalAlignment="Top" Height="26"/>
+                <TextBlock Foreground="{StaticResource Label}" Text="にげ 上筋" FontSize="20" HorizontalAlignment="Left" Margin="10,492,0,0" VerticalAlignment="Top" />
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="NigeUwaTextBox" Tag="NigeUwa" Text="{Binding Kesan.NigeUwa, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="10,524,10,0" FontSize="18" VerticalAlignment="Top" Height="26" />
+                <TextBlock Foreground="{StaticResource Label}" Margin="10,562,0,0" Text="にげ 上宙1" FontSize="20" VerticalAlignment="Top" Grid.Row="0" HorizontalAlignment="Left" />
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="NigeUwaChu1TextBox" Tag="NigeUwaChu1" Text="{Binding Kesan.NigeUwaChu1, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="10,594,10,0" FontSize="18" VerticalAlignment="Top" Height="26" />
+                <TextBlock Foreground="{StaticResource Label}" Margin="10,631,0,0" Text="にげ 上宙2" FontSize="20" HorizontalAlignment="Left" VerticalAlignment="Top"/>
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="NigeUwaChu2TextBox" Tag="NigeUwaChu2" Text="{Binding Kesan.NigeUwaChu2, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="10,663,10,0" FontSize="18" VerticalAlignment="Top" Height="26" />
+                <TextBlock Foreground="{StaticResource Label}" Margin="10,697,0,0" Text="にげ 下宙2" FontSize="20" HorizontalAlignment="Left" VerticalAlignment="Top" />
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="NigeShitaChu1TextBox" Tag="NigeShitaChu1" Text="{Binding Kesan.NigeShitaChu1, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="9,729,11,0" FontSize="18" VerticalAlignment="Top" Height="26" />
+                <TextBlock Foreground="{StaticResource Label}" Margin="10,766,0,0" Text="にげ 下宙1" FontSize="20" HorizontalAlignment="Left" VerticalAlignment="Top" />
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="NigeShitaChu2TextBox" Tag="NigeShitaChu2" Text="{Binding Kesan.NigeShitaChu2, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="9,798,11,0" FontSize="18" VerticalAlignment="Top" Height="26"/>
+                <TextBlock Foreground="{StaticResource Label}" Margin="10,833,0,0" Text="にげ 下筋" FontSize="20" HorizontalAlignment="Left" VerticalAlignment="Top" />
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="NigeShitaTextBox" Tag="NigeShita" Text="{Binding Kesan.NigeShita, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="10,865,10,0" FontSize="18" VerticalAlignment="Top" Height="26" />
+                <TextBlock Foreground="{StaticResource TitleColor2}" HorizontalAlignment="Left" FontSize="20"  Text="定着板設定" VerticalAlignment="Top" Margin="10,971,0,0" Height="27" Width="100"/>
+                
+                <CheckBox x:Name="TeiUwaCheckBox" Tag="teiuwa" IsChecked="{Binding Kesan.Teiuwa, Mode=TwoWay}" Margin="11,1010,0,0"  FontSize="18" VerticalAlignment="Top" HorizontalAlignment="Left" Checked="CheckBox_Checked" Unchecked="CheckBox_Unchecked">
+                    <ContentControl Content="上筋 定着板を使用" FontSize="18" Margin="0,-5"/>
+                </CheckBox>
+                <CheckBox x:Name="TeiUwaChuCheckBox" Tag="teiuwachu" IsChecked="{Binding Kesan.Teiuwachu, Mode=TwoWay}" Margin="11,1038,0,0"  VerticalAlignment="Top" HorizontalAlignment="Left"  Checked="CheckBox_Checked" Unchecked="CheckBox_Unchecked">
+                    <ContentControl Content="上宙 定着板を使用" FontSize="18" Margin="0,-5"/>
+                </CheckBox>
+                <CheckBox x:Name="TeiShitaChuCheckBox" Tag="teishitachu" IsChecked="{Binding Kesan.Teishitachu, Mode=TwoWay}" Margin="11,1066,0,0"  VerticalAlignment="Top" HorizontalAlignment="Left" Checked="CheckBox_Checked" Unchecked="CheckBox_Unchecked">
+                    <ContentControl Content="下宙 定着板を使用" FontSize="18" Margin="0,-5"/>
+                </CheckBox>
+                <CheckBox x:Name="TeiShitaCheckBox" Tag="teishita" IsChecked="{Binding Kesan.Teishita, Mode=TwoWay}" Margin="11,1094,0,0"  VerticalAlignment="Top" HorizontalAlignment="Left" Checked="CheckBox_Checked" Unchecked="CheckBox_Unchecked">
+                    <ContentControl Content="下筋 定着板を使用" FontSize="18" Margin="0,-5"/>
+                </CheckBox>
+                <CheckBox x:Name="TeiHarigaibuCheckBox" Tag="teiharigaibu" IsChecked="{Binding Kesan.Teiharigaibu, Mode=TwoWay}" Margin="11,1122,0,0"  VerticalAlignment="Top" HorizontalAlignment="Left" Checked="CheckBox_Checked" Unchecked="CheckBox_Unchecked">
+                    <ContentControl Content="梁外端部のみに定着板を使用" FontSize="18" Margin="0,-5"/>
+                </CheckBox>
+                
+                <TextBlock Foreground="{StaticResource TitleColor2}" Margin="10,1152,0,0" Text="主筋アンカ長の指定" FontSize="20" VerticalAlignment="Top" HorizontalAlignment="Left" />
+                <TextBlock Foreground="{StaticResource Label}" Margin="10,1191,0,0" Text="アンカ長 上筋" FontSize="20" HorizontalAlignment="Left" VerticalAlignment="Top"  />
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="AnkaNagaUwaTextBox" Tag="AnkaNagaUwa" Text="{Binding Kesan.AnkaNagaUwa, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="9,1223,10,0" FontSize="18" VerticalAlignment="Top" Height="26"/>
+                <TextBlock Foreground="{StaticResource Label}" Margin="10,1265,0,0" Text="アンカ長 上宙" FontSize="20" HorizontalAlignment="Left" VerticalAlignment="Top"  />
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="AnkaNagaUwaChuTextBox" Tag="AnkaNagaUwaChu" Text="{Binding Kesan.AnkaNagaUwaChu, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="9,1297,10,0" FontSize="18" VerticalAlignment="Top" Height="26"/>
+                <TextBlock Foreground="{StaticResource Label}" Margin="10,1339,0,0" Text="アンカ長 下宙" FontSize="20" HorizontalAlignment="Left" VerticalAlignment="Top" />
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="AnkaNagaShitaChuTextBox" Text="{Binding Kesan.AnkaNagaShitaChu, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="9,1371,10,0" FontSize="18" VerticalAlignment="Top" Height="26"/>
+                <TextBlock Foreground="{StaticResource Label}" Margin="10,1409,0,0"  Text="アンカ長 下筋" FontSize="18" VerticalAlignment="Top" HorizontalAlignment="Left" />
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="AnkaNagaShitaTextBox" Tag="AnkaNagaShita" Text="{Binding Kesan.AnkaNagaShita, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="10,1438,10,0" FontSize="18" VerticalAlignment="Top" Height="26"/>
+                <TextBlock Foreground="{StaticResource TitleColor2}" Margin="10,1493,0,0"  FontSize="20" Text="腹筋にアンカを付ける" VerticalAlignment="Top" Height="32" HorizontalAlignment="Left" Width="297"/>
+                <TextBlock Foreground="{StaticResource Label}" Margin="9,1549,0,0"  Text="腹筋 アンカ長" FontSize="18" VerticalAlignment="Top" HorizontalAlignment="Left"  />
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="AnkaNagaHaraTextBox" Tag="AnkaNagaHara" Text="{Binding Kesan.AnkaNagaHara, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  Margin="10,1578,10,0" FontSize="18" VerticalAlignment="Top" Height="26" />
+                <TextBlock Foreground="{StaticResource Label}" Margin="10,1618,0,0"  Text="腹筋 にげ" FontSize="18" VerticalAlignment="Top" HorizontalAlignment="Left" />
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="NigeHaraTextBox" Tag="NigeHara" Text="{Binding Kesan.NigeHara, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  Margin="10,1647,10,0" FontSize="18" VerticalAlignment="Top" Height="26"/>
+                <TextBlock Foreground="{StaticResource TitleColor1}" FontSize="30" Margin="10,1805,0,0"  Text="アンカ" VerticalAlignment="Top" HorizontalAlignment="Left" />
+                <TextBlock Foreground="{StaticResource Label}" HorizontalAlignment="Left" FontSize="20"  Text="アンカ長さ 切り上げの単位(mm)" VerticalAlignment="Top" Margin="10,1853,0,0" Height="27"/>
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="AnkaNagaKiriageTextBox" Tag="AnkaNagaKiriage" Text="{Binding Kesan.AnkaNagaKiriage, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Margin="10,1885,10,0"  VerticalAlignment="Top" Height="26" Grid.ColumnSpan="2"/>
+                <StackPanel x:Name="RadioButton" Margin="10,1974,0,0" VerticalAlignment="Top" HorizontalAlignment="Left">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="20"  Text="最低アンカ長さの設定(大梁・基礎梁)" />
+                    <RadioButton x:Name="RadioButton1"  Margin="5" 
+                                 IsChecked="{Binding SaiteankaOption1, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="最低アンカ長さを必ず取る" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="RadioButton2"  Margin="5" 
+                                 IsChecked="{Binding SaiteankaOption2, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="直筋定着可能であれば最低アンカは取らない" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                </StackPanel>
+                <TextBlock Foreground="{StaticResource Label}" FontSize="20" Margin="10,2082,0,0"  Text="最低アンカ長さ" VerticalAlignment="Top" HorizontalAlignment="Left" />
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="AnkaNagaSaiteTextBox" Tag="AnkaNagaSaite" Text="{Binding Kesan.AnkaNagaSaite, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Margin="10,2118,10,0"  VerticalAlignment="Top" Height="26" Grid.ColumnSpan="2"/>
+                <TextBlock Foreground="{StaticResource Label}" FontSize="20" Margin="10,2158,0,0"  Text="最上階の上筋のアンカ長さ(単位:d)" VerticalAlignment="Top" Height="27" HorizontalAlignment="Left" />
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="AnkaNagaRFTextBox" Tag="AnkaNagaRF" Text="{Binding Kesan.AnkaNagaRF, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="10,2190,10,0"  FontSize="18" VerticalAlignment="Top" Height="26" Grid.ColumnSpan="2"/>
+                <TextBlock Foreground="{StaticResource TitleColor1}" FontSize="30" Margin="10,2283,0,0"  Text="定着" VerticalAlignment="Top" HorizontalAlignment="Left"/>
+                <StackPanel x:Name="harinaitei" Margin="10,2343,0,0" HorizontalAlignment="Left"  VerticalAlignment="Top">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="20" Margin="5"  Text="梁内への直筋定着可不" HorizontalAlignment="Left" Height="auto" Width="auto" />
+                    <RadioButton x:Name="harinaitei1"  Margin="5" HorizontalAlignment="Left" Height="auto" Width="auto" 
+                                 IsChecked="{Binding HarinaiteiOption1, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="梁内定着可とする" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="harinaitei2" Margin="5" HorizontalAlignment="Left" Height="auto" Width="auto" 
+                                 IsChecked="{Binding HarinaiteiOption2,  Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="梁内定着不可、アンカ定着とする" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="harinaitei3"  Margin="5" HorizontalAlignment="Left" Height="auto" Width="auto" Grid.ColumnSpan="2" 
+                                 IsChecked="{Binding HarinaiteiOption3,  Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="大梁から小梁への梁内定着は不可とする" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                </StackPanel>
+                <StackPanel x:Name="shukintei" Margin="10,2539,0,0" HorizontalAlignment="Left"  VerticalAlignment="Top" Grid.ColumnSpan="3">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="20" Margin="5"  Text="主筋の定着(にげが 柱せいの3/4 を超えている場合)" />
+                    <RadioButton x:Name="shukintei1"  Margin="5" HorizontalAlignment="Left" Height="auto" Width="auto" 
+                                 IsChecked="{Binding ShukinteiOption1,  Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="柱せいの3/4 まで飲み込んで定着する" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="shukintei2"  Margin="5" HorizontalAlignment="Left" Height="auto" Width="auto" 
+                                 IsChecked="{Binding ShukinteiOption2,  Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="設定したにげ まで飲み込んで定着する" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                </StackPanel>
+                <StackPanel x:Name="harinainaga" Margin="10,2719,0,0" HorizontalAlignment="Left"  VerticalAlignment="Top">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18" Margin="5"  Text="梁内への直筋定着の長さ" HorizontalAlignment="Left" Height="auto" Width="auto" />
+                    <RadioButton x:Name="harinainaga1"  Margin="5" HorizontalAlignment="Left" Height="auto" Width="auto" 
+                                 IsChecked="{Binding HarinainagaOption1, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="必ず柱せい+15dの定着を取る" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="harinainaga2"  Margin="5" HorizontalAlignment="Left" Height="auto" Width="auto" 
+                                 IsChecked="{Binding HarinainagaOption2,  Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="定着寸法分のみでよい" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="harinainaga3"  Margin="5" Height="auto" Width="auto" HorizontalAlignment="Left" Grid.ColumnSpan="2" 
+                                 IsChecked="{Binding HarinainagaOption3,  Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="最上階は柱せい+15dとし、一般階は定着寸法分のみ" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                </StackPanel>
+                <TextBlock Foreground="{StaticResource Label}" FontSize="20" Margin="10,2974,0,0"  Text="主筋と宙づり筋の間隔(mm)" VerticalAlignment="Top" HorizontalAlignment="Left" />
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="ShukinKankakuTextBox" Text="{Binding Kesan.ShukinKankaku, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Margin="10,3006,10,0"  VerticalAlignment="Top" Height="26" Grid.ColumnSpan="2"/>
+                <TextBlock Foreground="{StaticResource 注意}" FontSize="20" Margin="10,3041,0,0"  Text="※段差がついた場合、引き通し定着が可能かの判定に使用されます" VerticalAlignment="Top" Grid.ColumnSpan="2" HorizontalAlignment="Left" Height="27"  />
+                <Grid Grid.Column="1" Height="500" Margin="300,115,0,0" VerticalAlignment="Top" Grid.ColumnSpan="3" HorizontalAlignment="Left" Width="900">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="9*"/>
+                        <RowDefinition Height="491*"/>
+                    </Grid.RowDefinitions>
+                    <Canvas Margin="100,91,0,0" x:Name="page1_1_canvas" HorizontalAlignment="Left" Width="603" Height="205" VerticalAlignment="Top" Grid.Row="1"/>
+                    <StackPanel Height="auto" Margin="240,16,500,0" VerticalAlignment="Top" Grid.Row="1">
+                        <TextBlock Text="外端端部" Margin="5" FontSize="18"/>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="トップ余長" FontSize="15" Width="60" Height="20"/>
+                            <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="外端端部_textbox" Tag="外端端部" Text="{Binding Kesan.GaitanTanbuTopYochou, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Margin="5" Width="60" TextAlignment="Right"/>
+                            <TextBlock Text="d" FontSize="18" Width="19" Height="25"/>
+                        </StackPanel>
+                    </StackPanel>
+                    <StackPanel Margin="545,16,140,0" Height="auto" VerticalAlignment="Top" Grid.Row="1">
+                        <TextBlock Text="內端端部" FontSize="18" Margin="5"/>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="トップ余長" FontSize="15" Width="60" Height="20"/>
+                            <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="內端端部_textbox" Tag="內端端部" Text="{Binding Kesan.NaitanTanbuTopYochou, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Margin="5" Width="60" HorizontalAlignment="Left" TextAlignment="Right"/>
+                            <TextBlock Text="d" FontSize="18" Width="19" Height="25"/>
+                        </StackPanel>
+                    </StackPanel>
+                    <StackPanel Height="auto" Margin="240,391,500,0" VerticalAlignment="Top" Grid.Row="1">
+                        <TextBlock Text="外端中央部" FontSize="18" Margin="5"/>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="トップ余長" FontSize="15" Width="60" Height="20"/>
+                            <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="外端中央部_textbox" Tag="外端中央部" Text="{Binding Kesan.GaitanChubuTopYochou, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Width="60" Margin="5" HorizontalAlignment="Left" TextAlignment="Right"/>
+                            <TextBlock Text="d" FontSize="18" Width="19" Height="25"/>
+                        </StackPanel>
+                    </StackPanel>
+                    <StackPanel Margin="545,391,140,0" Height="auto" VerticalAlignment="Top" Grid.Row="1">
+                        <TextBlock Text="內端中央部" FontSize="18" Margin="5"/>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="トップ余長" FontSize="15" Width="60" Height="20"/>
+                            <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="內端中央部_textbox" Tag="內端中央部" Text="{Binding Kesan.NaitanChubuTopYochou, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Width="60" Margin="5" HorizontalAlignment="Left" TextAlignment="Right"/>
+                            <TextBlock Text="d" FontSize="18" Width="19" Height="25"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
+                <Canvas Grid.Column="1" Height="282" Margin="34,984,0,0" x:Name="myCanvas" VerticalAlignment="Top" HorizontalAlignment="Left" Width="458"/>
+                <Grid Grid.Column="1" HorizontalAlignment="Left" Height="500" Margin="300,1165,0,0" VerticalAlignment="Top" Width="900" Grid.ColumnSpan="3">
+                    <Canvas Margin="100,91,0,0" x:Name="page1_3_canvas" HorizontalAlignment="Left" Width="603" Height="205" VerticalAlignment="Top" Grid.Row="1"/>
+                    <StackPanel Height="auto" Margin="240,16,400,0" VerticalAlignment="Top" Grid.Row="1">
+                        <TextBlock Text="外端中央" Margin="5" FontSize="18"/>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="トップ余長" FontSize="15" Width="60" Height="20"/>
+                            <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="外端中央3_textbox" Text="{Binding Kesan.GaitanChubuTopYochou3, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Margin="5" Width="60" HorizontalAlignment="Left" TextAlignment="Right"/>
+                            <TextBlock Text="d" FontSize="18" Width="19" Height="25"/>
+                        </StackPanel>
+                    </StackPanel>
+                    <StackPanel Margin="545,16,140,0" Height="auto" VerticalAlignment="Top" Grid.Row="1">
+                        <TextBlock Text="內端中央" FontSize="18" Margin="5"/>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="トップ余長" FontSize="15" Width="60" Height="20"/>
+                            <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="內端中央3_textbox" Text="{Binding Kesan.NaitanChubuTopYochou3, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Margin="5" Width="60" HorizontalAlignment="Left" TextAlignment="Right"/>
+                            <TextBlock Text="d" FontSize="18" Width="19" Height="25"/>
+                        </StackPanel>
+                    </StackPanel>
+                    <StackPanel Height="auto" Margin="240,391,400,0" VerticalAlignment="Top" Grid.Row="1">
+                        <TextBlock Text="外端端部" FontSize="18" Margin="5"/>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="トップ余長" FontSize="15" Width="60" Height="20"/>
+                            <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="外端端部3_textbox" Text="{Binding Kesan.GaitanTanbuTopYochou3, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Width="60" Margin="5" HorizontalAlignment="Left" TextAlignment="Right"/>
+                            <TextBlock Text="d" FontSize="18" Width="19" Height="25"/>
+                        </StackPanel>
+                    </StackPanel>
+                    <StackPanel Margin="545,391,140,0" Height="auto" VerticalAlignment="Top" Grid.Row="1">
+                        <TextBlock Text="內端端部" FontSize="18" Margin="5"/>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="トップ余長" FontSize="15" Width="60" Height="20"/>
+                            <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="內端端部3_textbox" Text="{Binding Kesan.NaitanTanbuTopYochou3, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Width="60" Margin="5" HorizontalAlignment="Left" TextAlignment="Right"/>
+                            <TextBlock Text="d" FontSize="18" Width="19" Height="25"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
+                <Canvas x:Name="MainCanvas" Grid.Column="2" Height="420" Margin="180,1845,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Width="226"/>
+                <Canvas x:Name="MainCanvas1" Grid.Column="2" HorizontalAlignment="Left" Height="159" Margin="180,2270,0,0" VerticalAlignment="Top" Width="295" />
+                <Canvas x:Name="MainCanvas2" Grid.Column="2" HorizontalAlignment="Left" Height="165" Margin="180,2455,0,0" VerticalAlignment="Top" Width="295" />
+                <Canvas x:Name="MainCanvas3" Grid.Column="2" HorizontalAlignment="Left" Height="250" Margin="199,2625,0,0" VerticalAlignment="Top" Width="278" />
+                <Canvas x:Name="MainCanvas4" Grid.Column="2" HorizontalAlignment="Left" Height="220" Margin="180,2890,0,0" VerticalAlignment="Top" Width="278" />
+                <Border BorderBrush="Silver" BorderThickness="1" Grid.ColumnSpan="4" Height="1" Margin="11,1741,10,0" VerticalAlignment="Top"/>
+                <Border BorderBrush="Silver" BorderThickness="1" Grid.ColumnSpan="4" Height="1" Margin="11,2266,10,0" VerticalAlignment="Top"/>
+                <Border BorderBrush="Silver" BorderThickness="1" Grid.ColumnSpan="4" Height="1" Margin="10,3200,10,0" VerticalAlignment="Top" RenderTransformOrigin="0.5,0.5">
+                    <Border.RenderTransform>
+                        <TransformGroup>
+                            <ScaleTransform/>
+                            <SkewTransform/>
+                            <RotateTransform Angle="0"/>
+                            <TranslateTransform/>
+                        </TransformGroup>
+                    </Border.RenderTransform>
+                </Border>
+                <TextBlock Foreground="{StaticResource TitleColor1}" HorizontalAlignment="Left" Margin="10,3199,0,0"  Text="継手" VerticalAlignment="Top" FontSize="30" />
+                <TextBlock Foreground="{StaticResource TitleColor2}" HorizontalAlignment="Left" Margin="10,3259,0,0"  Text="継手長さ" VerticalAlignment="Top" FontSize="20" Height="27" />
+                <TextBlock Foreground="{StaticResource Label}" HorizontalAlignment="Left" Margin="10,3291,0,0"  Text="主筋の継手長さ(D16以下の場合)(単位:d)" VerticalAlignment="Top" FontSize="18"/>
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="TsuNaga16TextBox" Text="{Binding Kesan.Tsunaga16, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="10,3323,10,0"  FontSize="18" VerticalAlignment="Top" Height="26" Grid.ColumnSpan="2"/>
+                <TextBlock Foreground="{StaticResource Label}" Margin="10,3363,1,0"  Text="主筋の継手長さ(D19以上の場合)(単位:d)" VerticalAlignment="Top" FontSize="18" Grid.ColumnSpan="2" Height="24"/>
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="TsuNaga19TextBox" Text="{Binding Kesan.Tsunaga19, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="10,3395,10,0"  FontSize="18" VerticalAlignment="Top" Height="26" Grid.ColumnSpan="2"/>
+                <StackPanel x:Name="tsugite" Margin="10,3435,521,0"  VerticalAlignment="Top" Width="auto" Grid.ColumnSpan="2">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="全数継手、半数継手" />
+                    <RadioButton x:Name="tsugite1"  Margin="2" 
+                                 IsChecked="{Binding TsugiteOption1,  Mode=TwoWay}" 
+                                 Checked="tsugite1_Checked">
+                        <ContentControl Content="全数継手" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="tsugite2"  Margin="2" 
+                                 IsChecked="{Binding TsugiteOption2, Mode=TwoWay}" 
+                                 Checked="tsugite2_Checked">
+                        <ContentControl Content="半数継手" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                </StackPanel>
+                <StackPanel x:Name="shitatsuhook" Margin="10,3532,21,0"  VerticalAlignment="Top" Width="auto">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="下筋の重継手には" />
+                    <RadioButton x:Name="shitatsuhook1"  Margin="2" 
+                                 IsChecked="{Binding ShitatsuhookOption1, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="フックを付けない" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="shitatsuhook2"  Margin="2" 
+                                 IsChecked="{Binding ShitatsuhookOption2, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="フックを付ける" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                </StackPanel>
+                <StackPanel x:Name="jogetsuzurasu1" Margin="10,3645,521,0" VerticalAlignment="Top" Grid.ColumnSpan="2">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="上下方向(上筋と下筋間)の継手のずらすは" />
+                    <RadioButton x:Name="jogetsuzurasu11"  Margin="2" 
+                                 IsChecked="{Binding Jogetsuzurasu1Option1, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="しない" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="jogetsuzurasu12"  Margin="2" 
+                                 IsChecked="{Binding Jogetsuzurasu1Option2, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="する" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                </StackPanel>
+                <StackPanel x:Name="jogetsuzurasu2" Margin="10,3750,521,0" VerticalAlignment="Top" Grid.ColumnSpan="3">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="上下方向(上筋と上宙間、下筋と下宙間)の継手のずらすは" />
+                    <RadioButton x:Name="jogetsuzurasu21" Margin="2" 
+                                 IsChecked="{Binding Jogetsuzurasu2Option1, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl  Content="しない" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="jogetsuzurasu22"  Margin="2" 
+                                 IsChecked="{Binding Jogetsuzurasu2Option2, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="する" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                </StackPanel>
+                <TextBlock Foreground="{StaticResource TitleColor2}" HorizontalAlignment="Left" Margin="10,3863,0,0"  Text="隣合う継手の設定" VerticalAlignment="Top" FontSize="20"/>
+                <TextBlock Foreground="{StaticResource Label}" HorizontalAlignment="Left" Margin="10,3903,0,0"  Text="大梁の隣合う継手のずらす寸法" VerticalAlignment="Top" FontSize="18"/>
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="TonariOoTextBox" Tag="TonariOo" Text="{Binding Kesan.TonariOo, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="10,3935,10,0"  FontSize="18" VerticalAlignment="Top" Height="26" Grid.ColumnSpan="2"/>
+                <TextBlock Foreground="{StaticResource Label}" Margin="10,3975,1,0"  Text="小梁の隣合う継手のずらす寸法" VerticalAlignment="Top" FontSize="18" Grid.ColumnSpan="2" Height="24"/>
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="TonariKoTextBox" Tag="TonariKo" Text="{Binding Kesan.TonariKo, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="10,4007,10,0"  FontSize="18" VerticalAlignment="Top" Height="26" Grid.ColumnSpan="2"/>
+                <StackPanel x:Name="sizedifferent" Margin="10,4047,521,0"  VerticalAlignment="Top" Width="auto" Grid.ColumnSpan="2">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="サイズ違の鉄筋同士は" />
+                    <RadioButton x:Name="sizedifferent1"  Margin="2" 
+                                 IsChecked="{Binding SizedifferentOption1, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="圧接ない" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="sizedifferent2"  Margin="2" 
+                                 IsChecked="{Binding SizedifferentOption2, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="圧接する" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                </StackPanel>
+                <TextBlock Foreground="{StaticResource Label}" HorizontalAlignment="Left" Margin="10,4152,0,0"  Text="異形圧接可能なサイズ差" VerticalAlignment="Top" FontSize="20"/>
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="IkeAsetsuTextBox" Tag="IkeAsetsu" Text="{Binding Kesan.IkeAsetsu, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="10,4184,10,0"  FontSize="18" VerticalAlignment="Top" Height="26" Grid.ColumnSpan="2"/>
+                <Border BorderBrush="Silver" BorderThickness="1" Grid.ColumnSpan="4" Height="1" Margin="10,4252,10,0" VerticalAlignment="Top"/>
+                <Canvas x:Name="MainCanvas5" Grid.Column="2" Height="400" Margin="143,3300,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Width="387"/>
+                <TextBlock Foreground="{StaticResource Label}" Grid.Column="2" Margin="200,3898,0,0"  Text="大梁の場合" VerticalAlignment="Top" HorizontalAlignment="Left" FontSize="20"/>
+
+                <Canvas x:Name="MainCanvas7" Grid.Column="2" Height="145" Margin="118,3988,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Width="448"/>
+
+                <TextBlock Foreground="{StaticResource TitleColor1}" HorizontalAlignment="Left" Margin="10,4310,0,0"  Text="継手位置領域" VerticalAlignment="Top" FontSize="30"/>
+                <TextBlock Foreground="{StaticResource TitleColor2}" HorizontalAlignment="Left" Margin="10,4370,0,0"  Text="端部継手領域(一般階大梁)" VerticalAlignment="Top" FontSize="20" Height="27" />
+                <StackPanel x:Name="tanbutsuryoiki" Margin="10,4402,521,0"  VerticalAlignment="Top" Width="auto" Grid.ColumnSpan="2">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="下筋の端部継手領域は梁成を" />
+                    <RadioButton x:Name="tanbutsuryoiki1"  Margin="3" 
+                                 IsChecked="{Binding TanbutsuryoikiOption1, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="考慮しない" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="tanbutsuryoiki2"  Margin="3" 
+                                 IsChecked="{Binding TanbutsuryoikiOption2, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="一般階のみ考慮する (最上階は除く)" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="tanbutsuryoiki3"  Margin="3" 
+                                 IsChecked="{Binding TanbutsuryoikiOption3, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="考慮する (一般階及び最上階)" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                </StackPanel>
+                <TextBlock Foreground="{StaticResource TitleColor2}" HorizontalAlignment="Left" Margin="10,4535,0,0"  Text="各スパンの継手箇所" VerticalAlignment="Top" FontSize="20" Height="27" />
+                <TextBlock Foreground="{StaticResource Label}" HorizontalAlignment="Left" Margin="10,4575,0,0"  Text="継手箇所 上筋" VerticalAlignment="Top" FontSize="20" />
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="TsuKaUwaTextBox" Tag="TsuKaUwa" Text="{Binding Kesan.TsuKaUwa, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="10,4607,10,0"  FontSize="18" VerticalAlignment="Top" Height="26" Grid.ColumnSpan="2"/>
+                <TextBlock Foreground="{StaticResource Label}" HorizontalAlignment="Left" Margin="10,4647,0,0"  Text="継手箇所 下筋" VerticalAlignment="Top" FontSize="20" />
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="TsuKaShitaTextBox" Tag="TsuKaShita" Text="{Binding Kesan.TsuKaShita, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="10,4679,10,0"  FontSize="18" VerticalAlignment="Top" Height="26" Grid.ColumnSpan="2"/>
+                <Border BorderBrush="Silver" BorderThickness="1" Grid.ColumnSpan="4" Height="1" Margin="10,4727,10,0" VerticalAlignment="Top"/>
+                <Canvas Grid.Column="2" Height="313" Margin="164,4369,0,0" x:Name="tanbutsuryoiki4" VerticalAlignment="Top" HorizontalAlignment="Left" Width="319"/>
+                <TextBlock Foreground="{StaticResource TitleColor1}" HorizontalAlignment="Left" Margin="10,4779,0,0"  Text="主筋引き通し" VerticalAlignment="Top" FontSize="30"/>
+                <TextBlock Foreground="{StaticResource TitleColor2}" HorizontalAlignment="Left" Margin="10,4839,0,0"  Text="梁幅芯ズレ 主筋の接続" VerticalAlignment="Top" FontSize="20" />
+                <TextBlock Foreground="{StaticResource Label}" HorizontalAlignment="Left" Margin="10,4871,0,0"  Text="梁幅芯々のズレe (e以下で、eがB/6以下の場合、引き通すとする)" VerticalAlignment="Top" FontSize="18" Grid.ColumnSpan="2" Height="24"/>
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="HariHabaZureTextBox"  Text="{Binding Kesan.HariHabaZure, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="10,4903,200,0"  FontSize="18" VerticalAlignment="Top" Height="26" Grid.ColumnSpan="2"/>
+                <Canvas Grid.ColumnSpan="2" Height="200" Margin="150,4964,0,0" x:Name="drawBeamDiagram10" VerticalAlignment="Top" HorizontalAlignment="Left" Width="319"/>
+                <TextBlock Foreground="{StaticResource Label}" HorizontalAlignment="Left" Margin="10,4871,0,0"  Text="角にある主筋のズレe (e以下で、eがB/6以下の場合、引き通すとする)" VerticalAlignment="Top" FontSize="18" Grid.ColumnSpan="2" Grid.Column="2" Height="24"/>
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="KakuShukinZureTextBox" Text="{Binding Kesan.KakuShukinZure, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="10,4903,0,0"  FontSize="18" VerticalAlignment="Top" Height="26" Grid.Column="2" Grid.ColumnSpan="2" HorizontalAlignment="Left" Width="776"/>
+                <Canvas Grid.Column="2" Height="200" Margin="150,4964,0,0" x:Name="drawBeamDiagram11" VerticalAlignment="Top" HorizontalAlignment="Left" Width="319"/>
+                <TextBlock Foreground="{StaticResource TitleColor2}" HorizontalAlignment="Left" Margin="10,5179,0,0"  Text="段差 主筋の接続" VerticalAlignment="Top" FontSize="20" Height="27"/>
+                <TextBlock Foreground="{StaticResource Label}" HorizontalAlignment="Left" Margin="10,5211,0,0"  Text="段差の高低差e (e以下で、eがB/6以下の場合、引き通すとする)" VerticalAlignment="Top" FontSize="18" Grid.ColumnSpan="2" Height="24" />
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="DansaKoteisaTextBox" Text="{Binding Kesan.DansaKoteisa, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="10,5243,10,0"  FontSize="18" VerticalAlignment="Top" Height="26" Grid.ColumnSpan="2"/>
+                <Canvas Grid.Column="2" Height="200" Margin="150,5179,0,0" x:Name="drawBeamDiagramPhat" VerticalAlignment="Top" HorizontalAlignment="Left" Width="319"/>
+                <TextBlock Foreground="{StaticResource TitleColor2}" HorizontalAlignment="Left" Margin="10,5395,0,0"  Text="柱内の勾配頂点" VerticalAlignment="Top" FontSize="18" Grid.Column="1" Height="24"/>
+                <StackPanel x:Name="kobaichouten" Grid.Column="1" Margin="10,5427,0,0"  VerticalAlignment="Top" HorizontalAlignment="Left">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="20"  Text="下筋引き通し方法"/>
+                    <RadioButton x:Name="kobaichouten1"  Margin="5" 
+                                 IsChecked="{Binding KobaichoutenOption1, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="柱面で曲げて通す" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="kobaichouten2"  Margin="5" 
+                                 IsChecked="{Binding KobaichoutenOption2, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="延長した交点で曲げて通す" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                </StackPanel>
+                <Canvas x:Name="MainCanvas13" Grid.Column="1" Height="240" Margin="-90,5530,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Width="335"/>
+                <TextBlock Foreground="{StaticResource TitleColor2}" HorizontalAlignment="Left" Margin="10,5400,0,0"  Text="垂直ハンチ点の角鉄筋" VerticalAlignment="Top" FontSize="18" Grid.Column="2" Height="24"/>
+                <StackPanel x:Name="hanchishitakin" Grid.Column="2" Margin="10,5432,0,0"  VerticalAlignment="Top" Width="204" HorizontalAlignment="Left">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="20"  Text="角の下筋の配筋方法"/>
+                    <RadioButton x:Name="hanchishitakin1"  Margin="5" 
+                                 IsChecked="{Binding HanchishitakinOption1, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="角の下筋は折曲げとする" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="hanchishitakin2"  Margin="5" 
+                                 IsChecked="{Binding HanchishitakinOption2, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="全数切断定着にする" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                </StackPanel>
+                <Canvas x:Name="MainCanvas14" Grid.Column="2" Height="285" Margin="00,5520,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Width="270"/>
+                <Border BorderBrush="Silver" BorderThickness="1" Grid.ColumnSpan="4" Height="1" Margin="10,5860,10,0" VerticalAlignment="Top"/>
+                <TextBlock Foreground="{StaticResource TitleColor1}" HorizontalAlignment="Left" Height="40" Margin="10,5888,0,0"  Text="主筋長さの設定" VerticalAlignment="Top"  FontSize="30"/>
+                <TextBlock Foreground="{StaticResource TitleColor2}" Margin="10,5953,0,0"  Text="地中梁の追い出し・追い終い筋の長さの設定" VerticalAlignment="Top" FontSize="20" HorizontalAlignment="Left" Height="27"/>
+                <StackPanel x:Name="ChichuUwaDashiPanel" Margin="200,6010,0,0" Height="150" VerticalAlignment="Top" HorizontalAlignment="Left" >
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="上筋 追い出し筋の長さ"/>
+                    <RadioButton x:Name="chichudashiuwa1"  Margin="2" 
+                                 IsChecked="{Binding Chichudashiuwa1, Mode=TwoWay}" 
+                                 Checked="chichudashiuwa1_Checked">
+                        <ContentControl Content="最長定尺の長さまで使用" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="chichudashiuwa2"  Margin="2" 
+                                 IsChecked="{Binding Chichudashiuwa2, Mode=TwoWay}" 
+                                 Checked="chichudashiuwa2_Checked">
+                        <ContentControl Content="指定のL(mm)までとする" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                    <TextBlock Foreground="{StaticResource Label}" HorizontalAlignment="Left" Margin="0,0,0,0"  Text="上筋 追い出しの長さL" FontSize="20" Grid.ColumnSpan="2" Width="227" Height="27"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="ChichuUwaDashiTextBox" Tag="ChichuUwaDashi" Text="{Binding ChichuUwaDashi, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,0"  FontSize="18" VerticalAlignment="Top" Height="26" Grid.ColumnSpan="2"/>
+                </StackPanel>
+                <TextBlock Foreground="{StaticResource Label}" HorizontalAlignment="Left" Margin="266,5978,0,0"  Text="上筋 中間長さ 最短" VerticalAlignment="Top" FontSize="20" Grid.Column="1" Height="27"/>
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="ChichuUwaNakaTanTextBox" Tag="ChichuUwaNakaTan" Text="{Binding Kesan.ChichuUwaNakaTan, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="266,6023,0,0"  FontSize="18" VerticalAlignment="Top" Height="26" Grid.ColumnSpan="2" Grid.Column="1" Width="370" HorizontalAlignment="Left"/>
+                <TextBlock Foreground="{StaticResource Label}" HorizontalAlignment="Left" Margin="266,6061,0,0"  Text="上筋 中間長さ 最長" VerticalAlignment="Top" FontSize="20" Grid.Column="1" Height="27"/>
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="ChichuUwaNakaChoTextBox" Tag="ChichuUwaNakaCho" Text="{Binding Kesan.ChichuUwaNakaCho, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="266,6100,0,0"  FontSize="18" VerticalAlignment="Top" Height="26" Grid.ColumnSpan="2" Grid.Column="1" Width="370" HorizontalAlignment="Left"/>
+                <StackPanel x:Name="ChichuUwaShimaiPanel" Margin="29,6010,0,0"  VerticalAlignment="Top" Grid.Column="3" HorizontalAlignment="Left" >
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="上筋 追い終い筋の長さ"/>
+                    <RadioButton x:Name="chichushimaiuwa1"  Margin="2" 
+                                 IsChecked="{Binding Chichushimaiuwa1, Mode=TwoWay}" 
+                                 Checked="chichushimaiuwa1_Checked">
+                        <ContentControl Content="最長定尺の長さまで使用" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="chichushimaiuwa2"  Margin="2" 
+                                 IsChecked="{Binding Chichushimaiuwa2, Mode=TwoWay}" 
+                                 Checked="chichushimaiuwa2_Checked">
+                        <ContentControl Content="指定のL(mm)までとする" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="ChichuUwaShimaiTextBox" Tag="ChichuUwaShimai" Text="{Binding ChichuUwaShimai, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="0,40,0,0"  FontSize="18" VerticalAlignment="Top" Height="26" Grid.Column="3"/>
+                </StackPanel>
+                <TextBlock Foreground="{StaticResource Label}" HorizontalAlignment="Left" Margin="35,6083,0,0"  Text="上筋 追い終いの長さL" VerticalAlignment="Top" FontSize="20" Grid.Column="3"/>
+                <Canvas Name="MainCanvas15" Grid.Column="1" Grid.ColumnSpan="2" Height="313" Margin="150,6170,150,0" VerticalAlignment="Top"/>
+                <StackPanel x:Name="ChichuShitaDashiPanel" Margin="200,6544,0,0"  VerticalAlignment="Top" HorizontalAlignment="Left">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="下筋 追い出し筋の長さ"/>
+                    <RadioButton x:Name="chichudashishita1"  Margin="2" 
+                                 IsChecked="{Binding Chichudashishita1, Mode=TwoWay}" 
+                                 Checked="chichudashishita1_Checked">
+                        <ContentControl Content="最長定尺の長さまで使用" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="chichudashishita2"  Margin="2" 
+                                 IsChecked="{Binding Chichudashishita2, Mode=TwoWay}" 
+                                 Checked="chichudashishita2_Checked">
+                        <ContentControl Content="指定のL(mm)までとする" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="ChichuShitaDashiTextBox" Tag="ChichuShitaDashi" Text="{Binding ChichuShitaDashi, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="0,40,0,0"  FontSize="18" Height="26" Grid.ColumnSpan="2"/>
+                </StackPanel>
+                <TextBlock Foreground="{StaticResource Label}" HorizontalAlignment="Left" Margin="266,6544,0,0"  Text="下筋 中間長さ 最短" VerticalAlignment="Top" FontSize="20" Grid.Column="1" Height="27" />
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="ChichuShitaNakaTanTextBox" Tag="ChichuShitaNakaTan" Text="{Binding Kesan.ChichuShitaNakaTan, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="266,6589,0,0"  FontSize="18" VerticalAlignment="Top" Height="26" Grid.ColumnSpan="2" Grid.Column="1" Width="370" HorizontalAlignment="Left"/>
+                <TextBlock Foreground="{StaticResource Label}" HorizontalAlignment="Left" Margin="266,6627,0,0"  Text="下筋 中間長さ 最長" VerticalAlignment="Top" FontSize="20" Grid.Column="1" Height="27" />
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="ChichuShitaNakaChoTextBox" Tag="ChichuShitaNakaCho" Text="{Binding Kesan.ChichuShitaNakaCho, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="266,6666,0,0"  FontSize="18" VerticalAlignment="Top" Height="26" Grid.ColumnSpan="2" Grid.Column="1" Width="370" HorizontalAlignment="Left"/>
+                <TextBlock Margin="204,6618,0,0"  Text="下筋 追い出しの長さL" VerticalAlignment="Top" FontSize="20" HorizontalAlignment="Left" Height="27" />
+                <StackPanel x:Name="ChichuShitaShimaiPanel" Margin="29,6544,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Column="3">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="下筋 追い終い筋の長さ"/>
+                    <RadioButton x:Name="chichushimaishita1"  Margin="2" 
+                                 IsChecked="{Binding Chichushimaishita1, Mode=TwoWay}" 
+                                 Checked="chichushimaishita1_Checked">
+                        <ContentControl Content="最長定尺の長さまで使用" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="chichushimaishita2"  Margin="2" 
+                                 IsChecked="{Binding Chichushimaishita2, Mode=TwoWay}" 
+                                 Checked="chichushimaishita2_Checked">
+                        <ContentControl Content="指定のL(mm)までとする" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                    <TextBlock Foreground="{StaticResource Label}"  Text="下筋 追い終いの長さL" FontSize="20"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="ChichuShitaShimaiTextBox" Tag="ChichuShitaShimai" Text="{Binding ChichuShitaShimai, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  Height="26" FontSize="18"/>
+                </StackPanel>
+                <TextBlock Foreground="{StaticResource TitleColor2}" HorizontalAlignment="Left" Margin="10,6771,0,0"  Text="一般階大梁の追い出し・追い終い筋の長さの設定" VerticalAlignment="Top" FontSize="20" Height="27" />
+                <StackPanel x:Name="IppanUwaDashiPanel" Margin="200,6834,0,0" VerticalAlignment="Top" HorizontalAlignment="Left">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="20"  Text="上筋 追い出し筋の長さ"/>
+                    <RadioButton x:Name="ippandashiuwa1"  Margin="2" 
+                                 IsChecked="{Binding Ippandashiuwa1, Mode=TwoWay}" 
+                                 Checked="ippandashiuwa1_Checked">
+                        <ContentControl Content="最長定尺の長さまで使用" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="ippandashiuwa2"  Margin="2" 
+                                 IsChecked="{Binding Ippandashiuwa2, Mode=TwoWay}" 
+                                 Checked="ippandashiuwa2_Checked">
+                        <ContentControl Content="指定のL(mm)までとする" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="IppanUwaDashiTextBox" Tag="IppanUwaDashi" Text="{Binding IppanUwaDashi, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="0,40,0,0"  FontSize="18" Height="26" Grid.ColumnSpan="2"/>
+                </StackPanel>
+                <TextBlock Foreground="{StaticResource Label}" HorizontalAlignment="Left" Margin="205,6910,0,0"  Text="上筋 追い出しの長さL" VerticalAlignment="Top" FontSize="20" />
+                <TextBlock Foreground="{StaticResource Label}" HorizontalAlignment="Left" Margin="266,6841,0,0"  Text="上筋 中間長さ 最短" VerticalAlignment="Top" FontSize="20" Grid.Column="1" Height="27" />
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="IppanUwaNakaTanTextBox" Tag="IppanUwaNakaTan" Text="{Binding Kesan.IppanUwaNakaTan, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="266,6879,0,0"  FontSize="18" VerticalAlignment="Top" Height="26" Grid.ColumnSpan="2" Grid.Column="1" Width="370" HorizontalAlignment="Left"/>
+                <TextBlock Foreground="{StaticResource Label}" HorizontalAlignment="Left" Margin="266,6919,0,0"  Text="上筋 中間長さ 最長" VerticalAlignment="Top" FontSize="20" Grid.Column="1" Height="27" />
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="IppanUwaNakaChoTextBox" Tag="IppanUwaNakaCho" Text="{Binding Kesan.IppanUwaNakaCho, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="266,6951,0,0"  FontSize="18" VerticalAlignment="Top" Height="26" Grid.ColumnSpan="2" Grid.Column="1" Width="370" HorizontalAlignment="Left"/>
+                <StackPanel x:Name="IppanUwaShimaiPanel" Margin="29,6834,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Column="3">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="20"  Text="上筋 追い終い筋の長さ"/>
+                    <RadioButton x:Name="ippanshimaiuwa1"  Margin="2" 
+                                 IsChecked="{Binding Ippanshimaiuwa1, Mode=TwoWay}" 
+                                 Checked="ippanshimaiuwa1_Checked">
+                        <ContentControl Content="最長定尺の長さまで使用" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="ippanshimaiuwa2"  Margin="2" 
+                                 IsChecked="{Binding Ippanshimaiuwa2, Mode=TwoWay}" 
+                                 Checked="ippanshimaiuwa2_Checked">
+                        <ContentControl Content="指定のL(mm)までとする" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="IppanUwaShimaiTextBox" Tag="IppanUwaShimai" Text="{Binding IppanUwaShimai, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="0,40,0,0"  FontSize="18" VerticalAlignment="Top" Height="26" Grid.Column="3"/>
+                </StackPanel>
+                <TextBlock Foreground="{StaticResource Label}" HorizontalAlignment="Left" Margin="33,6910,0,0"  Text="上筋 追い終いの長さL" VerticalAlignment="Top" FontSize="20" Grid.Column="3"/>
+                <Canvas x:Name="MainCanvasKha16" Grid.Column="1" Grid.ColumnSpan="2" Height="313" Margin="150,6996,150,0" VerticalAlignment="Top"/>
+                <StackPanel x:Name="IppanShitaDashiPanel" Margin="200,7370,0,0"  VerticalAlignment="Top" HorizontalAlignment="Left" >
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="20"  Text="下筋 追い出し筋の長さ"/>
+                    <RadioButton x:Name="ippandashishita1"  Margin="2" 
+                                 IsChecked="{Binding Ippandashishita1, Mode=TwoWay}" 
+                                 Checked="ippandashishita1_Checked">
+                        <ContentControl Content="最長定尺の長さまで使用" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="ippandashishita2"  Margin="2" 
+                                 IsChecked="{Binding Ippandashishita2, Mode=TwoWay}" 
+                                 Checked="ippandashishita2_Checked">
+                        <ContentControl Content="指定のL(mm)までとする" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="IppanShitaDashiTextBox" Tag="IppanShitaDashi" Text="{Binding IppanShitaDashi, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="0,40,0,0"  FontSize="18" VerticalAlignment="Top" Height="26" Grid.ColumnSpan="2"/>
+                </StackPanel>
+                <TextBlock Foreground="{StaticResource Label}" HorizontalAlignment="Left" Margin="205,7444,0,0"  Text="下筋 追い出しの長さL" VerticalAlignment="Top" FontSize="20"/>
+                <TextBlock Foreground="{StaticResource Label}" HorizontalAlignment="Left" Margin="267,7377,0,0"  Text="下筋 中間長さ 最短" VerticalAlignment="Top" FontSize="20" Grid.Column="1" Height="27" />
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="IppanShitaNakaTanTextBox" Tag="IppanShitaNakaTan" Text="{Binding Kesan.IppanShitaNakaTan, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="266,7415,0,0"  FontSize="18" VerticalAlignment="Top" Height="26" Grid.ColumnSpan="2" Grid.Column="1" Width="370" HorizontalAlignment="Left"/>
+                <TextBlock Foreground="{StaticResource Label}" HorizontalAlignment="Left" Margin="266,7455,0,0"  Text="下筋 中間長さ 最長" VerticalAlignment="Top" FontSize="20" Grid.Column="1" Height="27" />
+                <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="IppanShitaNakaChoTextBox" Tag="IppanShitaNakaCho" Text="{Binding Kesan.IppanShitaNakaCho, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="266,7487,0,0"  FontSize="18" VerticalAlignment="Top" Height="26" Grid.ColumnSpan="2" Grid.Column="1" Width="370" HorizontalAlignment="Left"/>
+                <StackPanel x:Name="IppanShitaShimaiPanel" Margin="29,7370,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Column="3">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="20"  Text="下筋 追い終い筋の長さ"/>
+                    <RadioButton x:Name="ippanshimaishita1"  Margin="2" 
+                                 IsChecked="{Binding Ippanshimaishita1, Mode=TwoWay}" 
+                                 Checked="ippanshimaishita1_Checked">
+                        <ContentControl Content="最長定尺の長さまで使用" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="ippanshimaishita2"  Margin="2" 
+                                 IsChecked="{Binding Ippanshimaishita2, Mode=TwoWay}" 
+                                 Checked="ippanshimaishita2_Checked">
+                        <ContentControl Content="指定のL(mm)までとする" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="IppanShitaShimaiTextBox" Tag="IppanShitaShimai" Text="{Binding IppanShitaShimai, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="0,40,0,0"  FontSize="18" VerticalAlignment="Top" Height="26" Grid.Column="3"/>
+                </StackPanel>
+                <TextBlock Foreground="{StaticResource Label}" HorizontalAlignment="Left" Margin="37,7446,0,0"  Text="下筋 追い終いの長さL" VerticalAlignment="Top" FontSize="20" Grid.Column="3"/>
+                <TextBlock Foreground="{StaticResource TitleColor2}" HorizontalAlignment="Left" Margin="10,7592,0,0"  Text="切り上げ単位(基礎梁・一般階大梁共通)" VerticalAlignment="Top" FontSize="20" Height="27" />
+                <StackPanel Orientation="Horizontal" Margin="10,7619,0,0" Height="45" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.ColumnSpan="2">
+                    <TextBlock  Text="追い出し筋の長さが L=" FontSize="18" Height="24"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="DashiKiriageTextBox" MinWidth="70" Height="26" Text="{Binding Kesan.DashiKiriage, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Margin="4"/>
+                    <TextBlock  Text="(mm)未満の場合、" FontSize="18" Height="24"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="10,7669,0,0" Height="45" VerticalAlignment="Top" HorizontalAlignment="Left">
+                    <TextBlock  Text="a =" FontSize="18" Height="24"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="DashiLMimanTextBox" MinWidth="70" Height="26" Text="{Binding Kesan.DashiLMiman, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Margin="4"/>
+                    <TextBlock  Text="(mm)単位で切り上げる" FontSize="18" Height="24"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="11,7769,0,0" Height="45" VerticalAlignment="Top" HorizontalAlignment="Left">
+                    <TextBlock Text="b =" Height="24"  FontSize="18"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="DashiLIjoTextBox" MinWidth="70" Height="26" Text="{Binding Kesan.DashiLIjo, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Margin="4"/>
+                    <TextBlock Text="(mm)単位で切り上げる" Height="24"  FontSize="18"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="186,7619,0,0" Height="45" VerticalAlignment="Top" Grid.ColumnSpan="2" Grid.Column="1" HorizontalAlignment="Left" >
+                    <TextBlock Text="中間の主筋は c =" FontSize="18" Height="24"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="NakaKiriageTextBox" MinWidth="70" Height="26" Text="{Binding Kesan.NakaKiriage, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Margin="4"/>
+                    <TextBlock Text="(mm)単位で四捨五入する" FontSize="18" Height="24"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="300,7619,0,0" Height="45" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.ColumnSpan="2" Grid.Column="2">
+                    <TextBlock  Text="追い終い筋の長さがL=" Height="24" FontSize="18"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="ShimaiKiriageTextBox" MinWidth="70" Height="26" Text="{Binding Kesan.ShimaiKiriage, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Margin="4"/>
+                    <TextBlock  Text="(mm)未満の場合、" Height="24" FontSize="18"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="300,7669,0,0" Height="45" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Column="2" Grid.ColumnSpan="2">
+                    <TextBlock  Text="a =" Height="24" FontSize="18"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="ShimaiLMimanTextBox" MinWidth="70" Height="26" Text="{Binding Kesan.ShimaiLMiman, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Margin="4"/>
+                    <TextBlock  Text="(mm)単位で切り上げる" Height="24" FontSize="18"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="300,7769,0,0" Height="45" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Column="2" Grid.ColumnSpan="2">
+                    <TextBlock  Text="b =" FontSize="18" Height="24"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="ShimaiLIjoTextBox" MinWidth="70" Height="26" Text="{Binding Kesan.ShimaiLIjo, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Margin="4"/>
+                    <TextBlock  Text="(mm)単位で切り上げる" FontSize="18" Height="24"/>
+                </StackPanel>
+                <TextBlock Foreground="{StaticResource TitleColor2}" HorizontalAlignment="Left" Margin="10,7900,0,0"  Text="両アンカの主筋長さの制限" VerticalAlignment="Top" FontSize="20" Height="27" />
+
+                <StackPanel Orientation="Horizontal" Margin="10,7950,0,0" Height="45" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.ColumnSpan="2">
+                    <TextBlock  Text="D6~D16で主筋長さが L=" FontSize="18" Height="24"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="D6D16RyoankaTextBox" Tag="D6D16Ryoanka" Text="{Binding Kesan.D6D16Ryoanka, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="30" MinWidth="70"/>
+                    <TextBlock  Text="(mm)以内でおさまれば両アンカとする" FontSize="18" Height="24"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="10,8014,0,0" Height="45" VerticalAlignment="Top" Grid.ColumnSpan="2" HorizontalAlignment="Left" >
+                    <TextBlock Text="D19~D51で主筋長さが L =" FontSize="18" Height="24"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="D19D51RyoankaTextBox" Tag="D19D51Ryoanka" Text="{Binding Kesan.D19D51Ryoanka, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="30" MinWidth="70"/>
+                    <TextBlock Text="(mm)以内でおさまれば両アンカとする" FontSize="18" Height="24"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="300,7950,0,0" Height="45" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.ColumnSpan="2" Grid.Column="2">
+                    <TextBlock  Text="両アンカの主筋長さが L=" Height="24" FontSize="18"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="RyoankaKiriageTextBox" Tag="RyoankaKiriage" Text="{Binding Kesan.RyoankaKiriage, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="30" MinWidth="70"/>
+                    <TextBlock  Text="(mm)未満の場合、" Height="24" FontSize="18"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="300,8000,0,0" Height="45" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Column="2" Grid.ColumnSpan="2">
+                    <TextBlock  Text="a =" Height="24" FontSize="18"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="RyoankaLMimanTextBox" Tag="RyoankaLMiman" Text="{Binding Kesan.RyoankaLMiman, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="26" Width="70"/>
+                    <TextBlock  Text="(mm)単位で切り上げる" Height="24" FontSize="18"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="300,8050,0,0" Height="45" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.ColumnSpan="2" Grid.Column="2">
+                    <TextBlock  Text="両アンカの主筋長さが L=" Height="24" FontSize="18"/>
+                    <TextBlock  Text="(mm)以上の場合、" Height="24" FontSize="18"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="300,8100,0,0" Height="45" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.ColumnSpan="2" Grid.Column="2">
+                    <TextBlock  Text="b =" FontSize="18" Height="24"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="RyoankaLIjoTextBox" Tag="RyoankaLIjo" Text="{Binding Kesan.RyoankaLIjo, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="26" Width="70"/>
+                    <TextBlock  Text="(mm)単位で切り上げる" FontSize="18" Height="24"/>
+                </StackPanel>
+                <TextBlock Foreground="{StaticResource 注意}" HorizontalAlignment="Left" Margin="10,8192,0,0"  Text="※指定された長さを超える場合は継手分割になります" VerticalAlignment="Top" FontSize="18" Height="24" />
+                <TextBlock Foreground="{StaticResource TitleColor2}" HorizontalAlignment="Left" Margin="10,8232,0,0"  Text="両定着板の主筋長さの制限" VerticalAlignment="Top" FontSize="20" Height="27" />
+                <StackPanel Orientation="Horizontal" Margin="10,8272,0,0" Height="45" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.ColumnSpan="2">
+                    <TextBlock  Text="D6~D16で主筋長さが L=" FontSize="18" Height="24"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="D6D16RyoteiTextBox" Tag="D6D16Ryotei" Text="{Binding Kesan.D6D16Ryotei, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="30" Width="70"/>
+                    <TextBlock  Text="(mm)以内でおさまれば両定着板とする" FontSize="18" Height="24"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="10,8322,0,0" Height="45" VerticalAlignment="Top" Grid.ColumnSpan="2" HorizontalAlignment="Left" >
+                    <TextBlock Text="D19~D51で主筋長さが L =" FontSize="18" Height="24"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="D19D51RyoteiTextBox" Tag="D19D51Ryotei" Text="{Binding Kesan.D19D51Ryotei, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="30" Width="70"/>
+                    <TextBlock Text="(mm)以内でおさまれば両定着板とする" FontSize="18" Height="24"/>
+                </StackPanel>
+                <TextBlock Foreground="{StaticResource 注意}" Margin="312,8283,184,0"  Text="注意点" VerticalAlignment="Top" FontSize="18" Grid.Column="1" Grid.ColumnSpan="2" Height="24"/>
+                <TextBlock Margin="300,8310,0,0"  Text="・片方が定着板、もう片方がアンカの場合もこの長さ制限が適用されます" VerticalAlignment="Top" FontSize="18" Grid.Column="1" Grid.ColumnSpan="2" Height="24" HorizontalAlignment="Left"/>
+                <TextBlock HorizontalAlignment="Left" Margin="300,8338,0,0"  Text="・両アンカの先端に定着板が付く場合、両アンカの主筋長さの制限が適用されます" VerticalAlignment="Top" FontSize="18" Grid.ColumnSpan="2" Grid.Column="1" Height="24" />
+                <TextBlock Foreground="{StaticResource 注意}" HorizontalAlignment="Left" Margin="10,8380,0,0"  Text="※指定された長さを超える場合は継手分割になります" VerticalAlignment="Top" FontSize="18" Height="24" />
+                <TextBlock Foreground="{StaticResource TitleColor2}" HorizontalAlignment="Left" Margin="10,8430,0,0"  Text="トップ筋長さの設定" VerticalAlignment="Top" FontSize="20" Height="27" />
+                <StackPanel Orientation="Horizontal" Margin="10,8470,0,0" Height="45" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.ColumnSpan="2">
+                    <TextBlock  Text="トップ筋の長さが L=" FontSize="18" Height="24"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="TopKiriageTextBox" Tag="TopKiriage" Text="{Binding Kesan.TopKiriage, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="30" Width="70"/>
+                    <TextBlock  Text="(mm)未満の場合、" FontSize="18" Height="24"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="10,8510,0,0" Height="45" VerticalAlignment="Top" HorizontalAlignment="Left">
+                    <TextBlock  Text="a =" FontSize="18" Height="24"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="TopLMimanTextBox" Tag="TopLMiman" Text="{Binding Kesan.TopLMiman, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="26" Width="70"/>
+                    <TextBlock  Text="(mm)単位で切り上げる" FontSize="18" Height="24"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="10,8560,0,0" Height="45" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.ColumnSpan="2">
+                    <TextBlock  Text="トップ筋の長さがL(mm)以上の場合、" FontSize="18" Height="24"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="10,8600,0,0" Height="45" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.ColumnSpan="2">
+                    <TextBlock Text="b =" Height="24"  FontSize="18"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="TopLIjoTextBox" Tag="TopLIjo" Text="{Binding Kesan.TopLIjo, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="26" Width="70"/>
+                    <TextBlock Text="(mm)単位で切り上げる" Height="24"  FontSize="18"/>
+                </StackPanel>
+                <TextBlock HorizontalAlignment="Left" Margin="300,8470,0,0"  Text="トップ余長を梁成寸法とした場合のかぶり寸法の考慮" VerticalAlignment="Top" FontSize="18" Grid.Column="1" Grid.ColumnSpan="3" Height="24" Width="377"/>
+                <StackPanel x:Name="topkinuekaburikoryo" Margin="300,8502,0,0"  VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Column="1" Grid.ColumnSpan="3" >
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="トップ余長を梁成寸法とした場合、梁かぶり分の寸法減寸"/>
+                    <RadioButton x:Name="topkinuekaburikoryo1"  Margin="2" 
+                 IsChecked="{Binding Topkinuekaburikoryo1, Mode=TwoWay}" 
+                 Checked="RadioButton_Checked">
+                        <ContentControl Content="しない" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="topkinuekaburikoryo2"  Margin="2,5" 
+                 IsChecked="{Binding Topkinuekaburikoryo2, Mode=TwoWay}" 
+                 Checked="RadioButton_Checked">
+                        <ContentControl Content="する" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                </StackPanel>
+                <TextBlock Foreground="{StaticResource 注意}" HorizontalAlignment="Left" Margin="0,8470,0,0"  Text="※考慮する場合" VerticalAlignment="Top" FontSize="18" Grid.Column="3" />
+                <TextBlock Foreground="{StaticResource 注意}" HorizontalAlignment="Left" Margin="0,8502,0,0"  VerticalAlignment="Top" FontSize="18" Grid.Column="3" Height="57" Width="542"><Run Text="余長寸法は梁成寸法から上下STPかぶり÷2の寸法を"/><LineBreak/><Run Text="減寸した長さになります"/></TextBlock>
+                <TextBlock Foreground="{StaticResource TitleColor2}" HorizontalAlignment="Left" Margin="10,8670,0,0"  Text="ハンチの主筋長さの設定" VerticalAlignment="Top" FontSize="20"/>
+                <StackPanel Orientation="Horizontal" Margin="10,8700,0,0" Height="45" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.ColumnSpan="2">
+                    <TextBlock  Text="ハンチの船底型主筋の最初のはたらきは" FontSize="18" Height="24"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="10,8740,0,0" Height="45" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.ColumnSpan="2">
+                    <TextBlock Text="c =" Height="24"  FontSize="18"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="HanchiHatarakiTextBox" Tag="HanchiHataraki" Text="{Binding Kesan.HanchiHataraki, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="30" Width="70"/>
+                    <TextBlock Text="(mm)単位で切り上げる" Height="24"  FontSize="18"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="300,8700,0,0" Height="45" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.ColumnSpan="3" Grid.Column="1">
+                    <TextBlock  Text="ハンチの船底型主筋の切り寸法が L=" Height="24" FontSize="18"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="HanchiKiriageTextBox" Tag="HanchiKiriage" Text="{Binding Kesan.HanchiKiriage, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="30" Width="70"/>
+                    <TextBlock  Text="(mm)未満の場合、" Height="24" FontSize="18"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="300,8740,0,0" Height="45" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Column="1" Grid.ColumnSpan="3" >
+                    <TextBlock  Text="a =" Height="24" FontSize="18"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="HanchiLMimanTextBox" Tag="HanchiLMiman" Text="{Binding Kesan.HanchiLMiman, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="26" Width="70"/>
+                    <TextBlock  Text="(mm)単位で切り上げる" Height="24" FontSize="18"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="300,8780,0,0" Height="45" VerticalAlignment="Top" HorizontalAlignment="Left"  Grid.Column="1" Grid.ColumnSpan="3">
+                    <TextBlock  Text="ハンチの船底型主筋の切り寸法がL(mm)以上の場合、" Height="24" FontSize="18"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="300,8820,0,0" Height="45" VerticalAlignment="Top" HorizontalAlignment="Left"  Grid.Column="1" Grid.ColumnSpan="3">
+                    <TextBlock  Text="b =" FontSize="18" Height="24"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="HanchiLIjoTextBox" Tag="HanchiLIjo" Text="{Binding Kesan.HanchiLIjo, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="26" Width="70"/>
+                    <TextBlock  Text="(mm)単位で切り上げる" FontSize="18" Height="24"/>
+                </StackPanel>
+                <Border BorderBrush="Silver" BorderThickness="1" Grid.ColumnSpan="4" Height="1" Margin="10,8890,10,0" VerticalAlignment="Top"/>
+                <TextBlock Foreground="{StaticResource TitleColor1}" HorizontalAlignment="Left" Margin="10,8904,0,0" Text="梁の主筋の位置の設定" VerticalAlignment="Top"  FontSize="30"/>
+                <StackPanel  x:Name="梁の主筋の位置"  Margin="10,8954,0,0"  VerticalAlignment="Top" HorizontalAlignment="Left" Width="33">
+                    <RadioButton x:Name="梁の主筋の位置1"  Margin="2" GroupName="ImageGroup" Tag="Image1" 
+                                 IsChecked="{Binding 梁の主筋の位置1, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="1" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="梁の主筋の位置2"  Margin="2" GroupName="ImageGroup" Tag="Image2" 
+                                 IsChecked="{Binding 梁の主筋の位置2, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="2" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="梁の主筋の位置3"  Margin="2" GroupName="ImageGroup" Tag="Image3" 
+                                 IsChecked="{Binding 梁の主筋の位置3, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="3" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="梁の主筋の位置4"  Margin="2" GroupName="ImageGroup" Tag="Image4" 
+                                 IsChecked="{Binding 梁の主筋の位置4, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="4" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                </StackPanel>
+                <StackPanel Grid.ColumnSpan="4" HorizontalAlignment="Left"  Margin="344,8916,0,0" VerticalAlignment="Top"  Orientation="Horizontal" Grid.Column="0" Width="1391">
+                    <Canvas Height="217" x:Name="Canvas15" Width="1135" RenderTransformOrigin="0.5,0.5"/>
+                </StackPanel>
+
+                <Border BorderBrush="Silver" BorderThickness="1" Grid.ColumnSpan="4" Height="1" Margin="10,9303,10,0" VerticalAlignment="Top" RenderTransformOrigin="0.5,0.5">
+                    <Border.RenderTransform>
+                        <TransformGroup>
+                            <ScaleTransform ScaleY="-1"/>
+                            <SkewTransform/>
+                            <RotateTransform/>
+                            <TranslateTransform/>
+                        </TransformGroup>
+                    </Border.RenderTransform>
+                </Border>
+                <TextBlock Foreground="{StaticResource TitleColor1}" HorizontalAlignment="Left" Height="40" Margin="10,9328,0,0"  Text="スタラップ・中子筋の設定" VerticalAlignment="Top" FontSize="30"/>
+                <TextBlock Foreground="{StaticResource TitleColor2}" HorizontalAlignment="Left" Margin="10,9378,0,0"  Text="スタラップのかぶり厚さの設定" VerticalAlignment="Top" FontSize="20"/>
+                <TextBlock Foreground="{StaticResource 注意}" HorizontalAlignment="Left" Margin="250,9378,0,0" Grid.ColumnSpan="2" Grid.Column="1" Text="※上下又は左右のかぶりを合わせた寸法で入力します" VerticalAlignment="Top" FontSize="20"/>
+
+                <TextBlock HorizontalAlignment="Left" Margin="10,9418,0,0"  Text="地中梁" VerticalAlignment="Top" FontSize="18" Height="24" Width="54"/>
+                <Canvas Height="275" Margin="372,9519,0,0" x:Name="drawBeamDiagram1Phat" VerticalAlignment="Top" Grid.Column="1" Grid.ColumnSpan="2" HorizontalAlignment="Left" Width="206"/>
+                <StackPanel Margin="10,9450,0,0"  VerticalAlignment="Top" HorizontalAlignment="Left" Width="300">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="大梁(上+下かぶり)"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="ChichuOoJogeKaburiTextBox" Tag="ChichuOoJogeKaburi" Text="{Binding Kesan.ChichuOoJogeKaburi, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="auto" Width="300"/>
+                </StackPanel>
+                <StackPanel Margin="366,9450,0,0"  VerticalAlignment="Top" HorizontalAlignment="Left" Grid.ColumnSpan="2" Width="300">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="大梁(左+右かぶり)"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="ChichuOoSayuKaburiTextBox" Tag="ChichuOoSayuKaburi" Text="{Binding Kesan.ChichuOoSayuKaburi, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="auto" Width="300"/>
+                </StackPanel>
+                <StackPanel Margin="250,9450,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Column="2" Grid.ColumnSpan="2" Width="300">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="小梁(上+下かぶり)"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="ChichuKoJogeKaburiTextBox" Tag="ChichuKoJogeKaburi" Text="{Binding Kesan.ChichuKoJogeKaburi, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="auto" Width="300"/>
+                </StackPanel>
+                <StackPanel Margin="0,9450,10,0"  VerticalAlignment="Top" Grid.Column="3" HorizontalAlignment="Right" Width="300">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="小梁(左+右かぶり)"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="ChichuKoSayuKaburiTextBox" Tag="ChichuKoSayuKaburi" Text="{Binding Kesan.ChichuKoSayuKaburi, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="auto" Width="300"/>
+                </StackPanel>
+                <TextBlock HorizontalAlignment="Left" Margin="11,9527,0,0"  Text="地中片持梁" VerticalAlignment="Top" FontSize="20" Height="27" Width="100"/>
+                <StackPanel Margin="10,9567,0,0"  VerticalAlignment="Top" HorizontalAlignment="Left" Width="300">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="大梁(上+下かぶり)"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="ChichuKataOoJogeKaburiTextBox" Tag="ChichuKataOoJogeKaburi" Text="{Binding Kesan.ChichuKataOoJogeKaburi, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="auto" Width="300"/>
+                </StackPanel>
+                <StackPanel Margin="366,9567,0,0"  VerticalAlignment="Top" HorizontalAlignment="Left" Grid.ColumnSpan="2" Width="300">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="大梁(左+右かぶり)"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="ChichuKataOoSayuKaburiTextBox" Tag="ChichuKataOoSayuKaburi" Text="{Binding Kesan.ChichuKataOoSayuKaburi, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="auto" Width="300"/>
+                </StackPanel>
+                <StackPanel Margin="250,9567,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Column="2" Grid.ColumnSpan="2" Width="300">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="小梁(上+下かぶり)"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="ChichuKataKoJogeKaburiTextBox" Tag="ChichuKataKoJogeKaburi" Text="{Binding Kesan.ChichuKataKoJogeKaburi, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="auto" Width="300"/>
+                </StackPanel>
+                <StackPanel Margin="0,9567,10,0"  VerticalAlignment="Top" Grid.Column="3" HorizontalAlignment="Right" Width="300">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="小梁(左+右かぶり)"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="ChichuKataKoSayuKaburiTextBox" Tag="ChichuKataKoSayuKaburi" Text="{Binding Kesan.ChichuKataKoSayuKaburi, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="auto" Width="300"/>
+                </StackPanel>
+                <TextBlock HorizontalAlignment="Left" Margin="11,9644,0,0"  Text="一般階梁" VerticalAlignment="Top" FontSize="18" Height="24" Width="72"/>
+                <StackPanel Margin="10,9684,0,0"  VerticalAlignment="Top" HorizontalAlignment="Left" Width="300">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="大梁(上+下かぶり)"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="IppanOoJogeKaburiTextBox" Tag="IppanOoJogeKaburi" Text="{Binding Kesan.IppanOoJogeKaburi, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="auto" Width="300"/>
+                </StackPanel>
+                <StackPanel Margin="366,9684,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.ColumnSpan="2" Width="300">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="大梁(左+右かぶり)"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="IppanOoSayuKaburiTextBox" Tag="IppanOoSayuKaburi" Text="{Binding Kesan.IppanOoSayuKaburi, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="auto" Width="300"/>
+                </StackPanel>
+                <StackPanel Margin="250,9684,0,0"  VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Column="2" Grid.ColumnSpan="2" Width="300">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="小梁(上+下かぶり)"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="IppanKoJogeKaburiTextBox" Tag="IppanKoJogeKaburi" Text="{Binding Kesan.IppanKoJogeKaburi, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Grid.ColumnSpan="2" Height="auto" Width="300"/>
+                </StackPanel>
+                <StackPanel Margin="0,9684,10,0"  VerticalAlignment="Top" Grid.Column="3" HorizontalAlignment="Right" Width="300">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="小梁(左+右かぶり)"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="IppanKoSayuKaburiTextBox" Tag="IppanKoSayuKaburi" Text="{Binding Kesan.IppanKoSayuKaburi, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="auto" Width="300"/>
+                </StackPanel>
+                <TextBlock HorizontalAlignment="Left" Margin="10,9762,0,0"  Text="一般階片持梁" FontSize="18" VerticalAlignment="Top" Height="24" Width="108"/>
+                <StackPanel Margin="10,9802,0,0"  VerticalAlignment="Top" HorizontalAlignment="Left" Width="300">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="大梁(上+下かぶり)"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="IppanKataOoJogeKaburiTextBox" Tag="IppanKataOoJogeKaburi" Text="{Binding Kesan.IppanKataOoJogeKaburi, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="auto" Width="300"/>
+                </StackPanel>
+                <StackPanel Margin="366,9802,0,0"  VerticalAlignment="Top" HorizontalAlignment="Left" Grid.ColumnSpan="2" Width="300">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="大梁(左+右かぶり)"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="IppanKataOoSayuKaburiTextBox" Tag="IppanKataOoSayuKaburi" Text="{Binding Kesan.IppanKataOoSayuKaburi, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="auto" Width="300"/>
+                </StackPanel>
+                <StackPanel Margin="250,9802,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Column="2" Grid.ColumnSpan="2" Width="300">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="小梁(上+下かぶり)"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="IppanKataKoJogeKaburiTextBox" Tag="IppanKataKoJogeKaburi" Text="{Binding Kesan.IppanKataKoJogeKaburi, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="auto" Width="300"/>
+                </StackPanel>
+                <StackPanel Margin="0,9802,10,0" VerticalAlignment="Top" Grid.Column="3" HorizontalAlignment="Right" Width="300">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="小梁(左+右かぶり)"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="IppanKataKoSayuKaburiTextBox" Tag="IppanKataKoSayuKaburi" Text="{Binding Kesan.IppanKataKoSayuKaburi, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="auto" Width="300"/>
+                </StackPanel>
+                <TextBlock HorizontalAlignment="Left" Margin="11,7,0,0"  Text="壁構造" VerticalAlignment="Top" FontSize="18" Grid.Row="1" Height="24" Width="54"/>
+                <StackPanel Margin="10,47,0,0"  VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Row="1" Width="300">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="地中梁(上+下かぶり)"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="KabeChichuJogeKaburiTextBox" Tag="KabeChichuJogeKaburi" Text="{Binding Kesan.KabeChichuJogeKaburi, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="auto" Width="300"/>
+                </StackPanel>
+                <StackPanel Margin="366,47,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.ColumnSpan="2" Grid.Row="1" Width="300">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="地中梁(左+右かぶり)"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="KabeChichuSayuKaburiTextBox" Tag="KabeChichuSayuKaburi" Text="{Binding Kesan.KabeChichuSayuKaburi, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="auto" Width="300"/>
+                </StackPanel>
+                <StackPanel Margin="250,47,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Column="2" Grid.ColumnSpan="2" Grid.Row="1" Width="300">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="一般階梁(上+下かぶり)"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="KabeIppanJogeKaburiTextBox" Tag="KabeIppanJogeKaburi" Text="{Binding Kesan.KabeIppanJogeKaburi, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Grid.ColumnSpan="2" Height="auto" Width="300"/>
+                </StackPanel>
+                <StackPanel Margin="0,47,10,0"  VerticalAlignment="Top" Grid.Column="3" HorizontalAlignment="Right" Width="300" Grid.Row="1">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="一般階梁(左+右かぶり)"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="KabeIppanSayuKaburiTextBox" Tag="KabeIppanSayuKaburi" Text="{Binding Kesan.KabeIppanSayuKaburi, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="auto" Width="300"/>
+                </StackPanel>
+                <TextBlock Foreground="{StaticResource TitleColor2}" HorizontalAlignment="Left" Margin="10,124,0,0"  Text="スタラップ寸法の減寸の設定(初期値)" VerticalAlignment="Top" FontSize="20" Grid.Row="1"  />
+                <TextBlock HorizontalAlignment="Left" Margin="10,164,0,0"  Text="柱主筋によって梁主筋が内側に追い込まれる場合のスタラップを減寸する値を入力します" VerticalAlignment="Top" FontSize="18" Grid.ColumnSpan="2" Grid.Row="1"  />
+                <Grid Margin="383,196,91,0" VerticalAlignment="Top" Height="399" Grid.ColumnSpan="3" Grid.Row="1">
+                    <Canvas x:Name="drawBeamDiagramPhatSaigo" Margin="195,159,0,0" HorizontalAlignment="Left" Width="752" Height="233" VerticalAlignment="Top"/>
+                    <StackPanel Margin="195,49,0,0"  VerticalAlignment="Top" HorizontalAlignment="Left">
+                        <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="幅減寸値(mm)"/>
+                        <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="STPHabaHerisunTextBox" Text="{Binding Kesan.STPHabaHerisun, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="auto" Width="300"/>
+                    </StackPanel>
+                    <StackPanel Margin="602,49,0,0"  VerticalAlignment="Top" HorizontalAlignment="Left">
+                        <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="成減寸値(mm)"/>
+                        <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="STPSeiHerisunTextBox" Text="{Binding Kesan.STPSeiHerisun, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="auto" Width="300"/>
+                    </StackPanel>
+                </Grid>
+                <TextBlock Foreground="{StaticResource TitleColor2}" HorizontalAlignment="Left" Margin="10,595,0,0"  Text="２つ割りスタラップ" VerticalAlignment="Top" FontSize="20" Grid.Row="1" />
+                <Grid Margin="122,735,0,0" VerticalAlignment="Top" Height="399" Grid.ColumnSpan="2" HorizontalAlignment="Left" Grid.Column="1" Width="532" Grid.Row="1">
+                    <Canvas x:Name="Canvas19" Margin="137,120,0,0" HorizontalAlignment="Left" Width="206" Height="250" VerticalAlignment="Top"/>
+                    <StackPanel Margin="10,55,0,0"  VerticalAlignment="Top" HorizontalAlignment="Left">
+                        <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="スタラップ重継手(mm)"/>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="STPTsuTextBox" Tag="STPTsu" Text="{Binding Kesan.STPTsu, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="auto" Width="80"/>
+                            <TextBlock Text=" d" FontSize="18" Width="14" Height="25"/>
+                        </StackPanel>
+                    </StackPanel>
+                    <StackPanel Margin="376,55,0,0"  VerticalAlignment="Top" HorizontalAlignment="Left" >
+                        <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="中子筋重継手(mm)"/>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="NakagoTsuTextBox" Tag="NakagoTsu" Text="{Binding Kesan.NakagoTsu, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="auto" Width="80"/>
+                            <TextBlock Text=" d" FontSize="18" Width="88" Height="25"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
+                <TextBlock Foreground="{StaticResource TitleColor2}" HorizontalAlignment="Left" Margin="10,1188,0,0"  Text="ハンチ点の補強スタラップ" VerticalAlignment="Top" FontSize="20" Grid.Row="1"  />
+                <StackPanel x:Name="hanchihokyoSTP" Margin="10,1235,0,0"  VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Row="1" Width="358">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="ハンチ点にかけるスタラップは"/>
+                    <RadioButton x:Name="hanchihokyoSTP1" Margin="0,5"
+                                 IsChecked="{Binding HanchihokyoSTP1, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="一般部のあばら筋１本掛け" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="hanchihokyoSTP2" Margin="0,5" 
+                                 IsChecked="{Binding HanchihokyoSTP2, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="一般部のあばら筋２本掛け" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="hanchihokyoSTP3" Margin="0,5"  
+                                 IsChecked="{Binding HanchihokyoSTP3, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="一般部のあばら筋を１サイズアップして１本掛け" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="hanchihokyoSTP4" Margin="0,5" 
+                                 IsChecked="{Binding HanchihokyoSTP4, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="一般部のあばら筋を１サイズアップして２本掛け" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                </StackPanel>
+                <TextBlock Foreground="{StaticResource TitleColor2}" HorizontalAlignment="Left" Margin="10,1377,0,0"  Text="スタラップを+１本する許容範囲" VerticalAlignment="Top" FontSize="18" Grid.Row="1" />
+                <StackPanel Margin="10,1417,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Row="1" >
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="許容範囲a(mm)" />
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="STPHaniTextBox" Tag="STPHani" Text="{Binding Kesan.STPHani, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="auto" Width="300"/>
+                </StackPanel>
+                <TextBlock Foreground="{StaticResource TitleColor2}" HorizontalAlignment="Left" Margin="10,1596,0,0"  Text="中子筋のはたらき寸法" VerticalAlignment="Top" FontSize="18" Grid.Row="1" />
+                <StackPanel Margin="10,1636,0,0"  VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Row="1" >
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="中子筋のはたらき寸法のプラス値(mm)" />
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="NakagoHatarakiTextBox" Tag="NakagoHataraki" Text="{Binding Kesan.NakagoHataraki, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="auto" Width="300"/>
+                </StackPanel>
+                <TextBlock Foreground="{StaticResource 注意}" HorizontalAlignment="Left" Margin="4,1696,0,0"  Text="※0mmの場合はスタラップの縦寸法と同寸法で計算されます" VerticalAlignment="Top" FontSize="18" Grid.Row="1" Grid.ColumnSpan="2" Height="24" />
+                <Canvas x:Name="MainCanvasKha17" Height="504" Margin="340,1212,0,0" VerticalAlignment="Top" Grid.Column="1" Grid.ColumnSpan="2" HorizontalAlignment="Left" Width="280" Grid.Row="1"/>
+                <Border BorderBrush="Silver" BorderThickness="1" Grid.ColumnSpan="4" Height="1" Margin="10,1748,10,0" VerticalAlignment="Top" Grid.Row="1"/>
+                <TextBlock Foreground="{StaticResource TitleColor1}" HorizontalAlignment="Left" Margin="10,1802,0,0"  Text="腹筋の設定" VerticalAlignment="Top"  FontSize="30" Grid.Row="1"/>
+                <TextBlock Foreground="{StaticResource TitleColor2}" HorizontalAlignment="Left" Margin="10,1852,0,0"  Text="腹筋の継手・長さの設定" VerticalAlignment="Top" FontSize="20" Grid.Row="1" Height="27" />
+                <TextBlock HorizontalAlignment="Left" Margin="10,1892,0,0"  Text="柱への定着長さ・長さの制限" VerticalAlignment="Top" FontSize="18" Grid.Row="1" Height="24" />
+                <StackPanel Margin="10,1924,0,0"   VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Row="1" Width="300">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="腹筋の定着長さ(mm)" />
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="HaraTeiNagaTextBox" Tag="HaraTeiNaga" Text="{Binding Kesan.HaraTeiNaga, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="auto" Width="300"/>
+                </StackPanel>
+                <StackPanel Margin="366,1924,0,0"   VerticalAlignment="Top" HorizontalAlignment="Left" Grid.ColumnSpan="2" Grid.Row="1" Width="300">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="腹筋長さの制限(mm)" />
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="HaraNagaSeiTextBox" Tag="HaraNagaSei" Text="{Binding Kesan.HaraNagaSei, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="auto" Width="300"/>
+                </StackPanel>
+                <TextBlock HorizontalAlignment="Left" Margin="230,1889,0,0"  Text="腹筋の長さがL(mm)未満の場合、a(mm)単位で切り上げる" VerticalAlignment="Top" FontSize="20" Grid.Column="1" Grid.ColumnSpan="2" Grid.Row="1" />
+                <StackPanel Margin="230,1924,0,0"   VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Column="1" Grid.ColumnSpan="2" Grid.Row="1" Width="300">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="L =" />
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="HaraKiriageTextBox" Tag="HaraKiriage" Text="{Binding Kesan.HaraKiriage, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="auto" Width="300"/>
+                </StackPanel>
+                <StackPanel Margin="100,1924,0,0"   HorizontalAlignment="Left" VerticalAlignment="Top" Grid.Column="2" Grid.ColumnSpan="2" Grid.Row="1" Width="300">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="a =" />
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="HaraLMimanTextBox" Tag="HaraLMiman" Text="{Binding Kesan.HaraLMiman, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="auto" Width="300"/>
+                </StackPanel>
+                <TextBlock HorizontalAlignment="Left" Margin="430,1889,0,0"  Text="腹筋長さがL(mm)以上の場合、b(mm)単位で切り上げる" VerticalAlignment="Top" FontSize="20" Grid.ColumnSpan="3" Grid.Column="2" Grid.Row="1" Height="27" />
+
+                <StackPanel Margin="430,1924,0,0"   VerticalAlignment="Top" Grid.Column="2" HorizontalAlignment="Left" Width="300" Grid.Row="1" Grid.ColumnSpan="3">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="b =" />
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="HaraLIjoTextBox" Tag="HaraLIjo" Text="{Binding Kesan.HaraLIjo, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="auto" Width="300"/>
+                </StackPanel>
+                <TextBlock HorizontalAlignment="Left" Margin="10,2003,0,0"  Text="腹筋幅止の最後に掛けた位置と柱面までの許容範囲" VerticalAlignment="Top" FontSize="20" Grid.Row="1" Grid.ColumnSpan="2" />
+                <StackPanel Margin="10,2043,0,0"   VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Row="1" Width="300">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="許容範囲a(mm)" />
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="HabadomeHaniTextBox" Tag="HabadomeHani" Text="{Binding Kesan.HabadomeHani, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="auto" Width="300"/>
+                </StackPanel>
+                <TextBlock Foreground="{StaticResource 注意}" HorizontalAlignment="Left" Margin="10,2122,0,0"  Text="※指定された長さを超える場合は継手分割になります" VerticalAlignment="Top" FontSize="20" Grid.Row="1" Grid.ColumnSpan="2" Height="28" />
+
+                <Canvas x:Name="MainCanvasKha18" Height="170" Margin="289,2012,376,0" VerticalAlignment="Top" Grid.Column="1" Grid.ColumnSpan="2" Grid.Row="1"/>
+                <Border BorderBrush="Silver" BorderThickness="2" Grid.ColumnSpan="4" Height="2" Margin="10,2241,10,0" VerticalAlignment="Top" Grid.Row="1"/>
+                <TextBlock Foreground="{StaticResource TitleColor1}" HorizontalAlignment="Left" Height="40" Margin="10,2270,0,0"  Text="ふかしの設定" VerticalAlignment="Top" FontSize="30" Grid.Row="1"/>
+                <TextBlock Foreground="{StaticResource TitleColor2}" HorizontalAlignment="Left" Margin="10,2320,0,0"  Text="ふかしスタラップの設定" VerticalAlignment="Top" FontSize="20" Grid.Row="1" Height="27" />
+                <StackPanel x:Name="fukashiSTPteichakutenba" Margin="10,2360,0,0"  VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Row="1" >
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="基準の定着天端は" />
+                    <RadioButton x:Name="fukashiSTPteichakutenba1"  Margin="2" 
+                                 IsChecked="{Binding FukashiSTPteichakutenba1, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="梁天端より" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="fukashiSTPteichakutenba2"  Margin="2" 
+                                 IsChecked="{Binding FukashiSTPteichakutenba2, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="梁上筋天端より" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                </StackPanel>
+                <StackPanel Margin="32,2360,0,0"   VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Column="1" Grid.Row="1" Width="300">
+                    <TextBlock FontSize="18"  Text="ふかしスタラップの定着長さ" />
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="FukashiSTPTeiNagaTextBox" Tag="FukashiSTPTeiNaga" Text="{Binding Kesan.FukashiSTPTeiNaga, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="auto" Width="300"/>
+                </StackPanel>
+                <StackPanel x:Name="fukashishukinteichaku" Margin="35,2334,0,0"  VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Column="2" Grid.Row="1" >
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="ふかし主筋の定着は" />
+                    <RadioButton x:Name="fukashishukinteichaku1"  Margin="2" 
+                                 IsChecked="{Binding Fukashishukinteichaku1, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="柱内でアンカ定着とする" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="fukashishukinteichaku2"  Margin="2" 
+                                 IsChecked="{Binding Fukashishukinteichaku2, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="引き通してもよい" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="fukashishukinteichaku3"  Margin="2" 
+                                 IsChecked="{Binding Fukashishukinteichaku3, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="柱手前でアンカ定着とする" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                </StackPanel>
+                <StackPanel Margin="32,2360,0,0"   VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Column="3" Grid.Row="1" Width="300">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="ふかし主筋の梁本体への定着長さ" />
+                    <TextBox InputMethod.IsInputMethodEnabled="False" x:Name="FukashiShukinTeiNagaTextBox" Tag="FukashiShukinTeiNaga" Text="{Binding Kesan.FukashiShukinTeiNaga, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="auto" Width="300"/>
+                </StackPanel>
+                <Canvas Height="179" Margin="163,2484,0,0" x:Name="drawBeamDiagramPhatSaigo1" VerticalAlignment="Top" Grid.Column="1" Grid.ColumnSpan="2" HorizontalAlignment="Left" Width="695" Grid.Row="1"/>
+                <Border BorderBrush="Silver" BorderThickness="1" Grid.ColumnSpan="4" Height="1" Margin="10,2715,10,0" VerticalAlignment="Top" Grid.Row="1"/>
+                <TextBlock Foreground="{StaticResource TitleColor1}" HorizontalAlignment="Left" Height="40" Margin="10,2770,0,0"  Text="施工図の設定" VerticalAlignment="Top" Width="207" FontSize="30" Grid.Row="1"/>
+                <TextBlock Foreground="{StaticResource TitleColor2}" HorizontalAlignment="Left" Margin="10,2820,0,0"  Text="表示" VerticalAlignment="Top" FontSize="20" Grid.Row="1" Height="27" Width="40"/>
+                <StackPanel x:Name="hatarakion" Margin="10,2860,0,0" Height="100" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Row="1" >
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="はたらき寸法を表示" />
+                    <RadioButton x:Name="hatarakion1"  Margin="2" 
+                                 IsChecked="{Binding Hatarakion1, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="する" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="hatarakion2"  Margin="2" 
+                                 IsChecked="{Binding Hatarakion2, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="しない" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                </StackPanel>
+                <StackPanel x:Name="ankanagaon" Margin="10,2970,0,0" Height="100" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Row="1" >
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="アンカ長さを表示" />
+                    <RadioButton x:Name="ankanagaon1"  Margin="2" 
+                                 IsChecked="{Binding Ankanagaon1, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="する" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="ankanagaon2"  Margin="2" 
+                                 IsChecked="{Binding Ankanagaon2, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="しない" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                </StackPanel>
+                <StackPanel x:Name="nigeon" Margin="10,3080,0,0" Height="100" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Row="1" >
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="にげ寸法を表示" />
+                    <RadioButton x:Name="nigeon1"  Margin="2" 
+                                 IsChecked="{Binding Nigeon1, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="する" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="nigeon2"  Margin="2" 
+                                 IsChecked="{Binding Nigeon2, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="しない" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                </StackPanel>
+                <Canvas x:Name="MainCanvasKha19" Height="200" Margin="350,2900,0,0" VerticalAlignment="Top" Grid.ColumnSpan="2" HorizontalAlignment="Left" Width="312" Grid.Row="1"/>
+                <StackPanel x:Name="topkindimon" Margin="64,2918,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Column="2" Grid.Row="1" >
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="トップ筋位置寸法を表示"/>
+                    <RadioButton x:Name="topkindimon1"  Margin="2" 
+                                 IsChecked="{Binding Topkindimon1,Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="する" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="topkindimon2"  Margin="2" 
+                                 IsChecked="{Binding Topkindimon2, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="しない" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                </StackPanel>
+                <Canvas Height="200" Margin="279,2900,0,0" x:Name="Canvas21" VerticalAlignment="Top" HorizontalAlignment="Left" Width="312" Grid.Column="2" Grid.Row="1"/>
+                <StackPanel x:Name="nakagozuon" Margin="10,3270,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Row="1" >
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="中子筋図を表示"/>
+                    <RadioButton x:Name="nakagozuon1"  Margin="2" 
+                                 IsChecked="{Binding Nakagozuon1, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="する" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="nakagozuon2"  Margin="2" 
+                                 IsChecked="{Binding Nakagozuon2, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="しない" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                </StackPanel>
+                <Canvas x:Name="MainCanvasKha20" Height="196" Margin="350,3270,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Width="312" Grid.ColumnSpan="2" Grid.Row="1"/>
+                <StackPanel x:Name="nakago2on" Margin="64,3270,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Column="2" Grid.Row="1" >
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="中子筋2を表示"/>
+                    <RadioButton x:Name="nakago2on1"  Margin="2" 
+                                 IsChecked="{Binding Nakago2on1,  Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="する" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="nakago2on2"  Margin="2" 
+                                 IsChecked="{Binding Nakago2on2,  Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="しない" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                </StackPanel>
+                <Canvas x:Name="MainCanvasKha24" Height="179" Margin="279,3270,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Width="285" Grid.Column="2" Grid.Row="1"/>
+                <StackPanel x:Name="STPzaishitsuon" Margin="10,3620,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Row="1" >
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="スタラップ・中子筋の材質を表示"/>
+                    <RadioButton x:Name="STPzaishitsuon1"  Margin="2" 
+                                 IsChecked="{Binding STPzaishitsuon1, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="する" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="STPzaishitsuon2"  Margin="2" 
+                                 IsChecked="{Binding STPzaishitsuon2,  Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="しない" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                </StackPanel>
+                <Canvas x:Name="MainCanvasKha21" Height="210" Margin="350,3620,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Width="312" Grid.ColumnSpan="2" Grid.Row="1"/>
+                <StackPanel x:Name="tsuryoikion" Margin="64,3620,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Column="2" Grid.Row="1">
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="継手可能領域を表示"/>
+                    <RadioButton x:Name="tsuryoikion1"  Margin="2" 
+                                 IsChecked="{Binding Tsuryoikion1,  Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="する" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="tsuryoikion2"  Margin="2" 
+                                 IsChecked="{Binding Tsuryoikion2,  Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="しない" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                </StackPanel>
+                <Canvas x:Name="MainCanvasKha23" Height="179" Margin="279,3620,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Width="285" Grid.Column="2" Grid.Row="1"/>
+                <TextBlock Foreground="{StaticResource TitleColor2}" HorizontalAlignment="Left" Margin="208,3870,0,0"  Text="印刷" VerticalAlignment="Top" FontSize="20" Grid.Row="1" Height="27" Width="40"/>
+                <StackPanel x:Name="printsize" Margin="208,3937,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Row="1" >
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="施工図を印刷する用紙サイズ" />
+                    <RadioButton x:Name="printsize1"  Margin="2" 
+                                 IsChecked="{Binding Printsize1,Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="A4" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="printsize2"  Margin="2" 
+                                 IsChecked="{Binding Printsize2,  Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="A3" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                </StackPanel>
+                <StackPanel x:Name="printmuki" Margin="208,4052,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Row="1" >
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="施工図を印刷する用紙の向き" />
+                    <RadioButton x:Name="printmuki1"  Margin="2" 
+                                 IsChecked="{Binding Printmuki1,  Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="縦向き" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="printmuki2"  Margin="2" 
+                                 IsChecked="{Binding Printmuki2,  Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="横向き" FontSize="18" Margin=" 0,-5"/>
+                    </RadioButton>
+                </StackPanel>
+                <StackPanel x:Name="tsuryoikiprint" Margin="208,4167,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Row="1" >
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="継手可能領域を印刷" />
+                    <RadioButton x:Name="tsuryoikiprint1"  Margin="2" 
+                                 IsChecked="{Binding Tsuryoikiprint1,  Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="する" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="tsuryoikiprint2"  Margin="2" 
+                                 IsChecked="{Binding Tsuryoikiprint2,  Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="しない" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                </StackPanel>
+                <StackPanel x:Name="matomeprint" Margin="232,3937,0,0"  VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Column="1" Grid.ColumnSpan="2" Grid.Row="1" >
+                    <TextBlock Foreground="{StaticResource Label}" FontSize="18"  Text="主筋の印刷方法" />
+                    <RadioButton x:Name="matomeprint1"  Margin="2" 
+                                 IsChecked="{Binding matomeprint1, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="鉄筋１本ずつのまま印刷する" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                    <RadioButton x:Name="matomeprint2"  Margin="2" 
+                                 IsChecked="{Binding matomeprint2, Mode=TwoWay}" 
+                                 Checked="RadioButton_Checked">
+                        <ContentControl Content="同配筋の鉄筋を本数でまとめて印刷する" FontSize="18" Margin="0,-5"/>
+                    </RadioButton>
+                </StackPanel>
+                <Canvas x:Name="MainCanvasKha22" Height="179" Margin="232,4066,0,0" VerticalAlignment="Top" Grid.ColumnSpan="2" HorizontalAlignment="Left" Width="312" Grid.Column="1" Grid.Row="1"/>
+                <TextBlock HorizontalAlignment="Left" Margin="10,7734,0,0"  Text="追い出し筋の長さがL(mm)以上の場合、" VerticalAlignment="Top" FontSize="18"/>
+                <TextBlock Grid.Column="2" Grid.ColumnSpan="2" FontSize="18" HorizontalAlignment="Left" Margin="300,7734,0,0" Text="追い終い筋の長さがL(mm)以上の場合、" VerticalAlignment="Top"/>
+            </Grid>
+        </ScrollViewer>
+    </Grid>
+</Window>

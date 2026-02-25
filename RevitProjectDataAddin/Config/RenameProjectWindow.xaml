@@ -1,0 +1,14 @@
+﻿<Window x:Class="RevitProjectDataAddin.RenameProjectWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Đổi tên dự án" Height="150" Width="300" WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
+    <StackPanel Margin="10">
+        <TextBlock Text="Tên mới cho dự án:" Margin="0,0,0,5"/>
+        <TextBox Name="NewNameBox" Margin="0,0,0,10"/>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="OK" Width="80" Margin="0,0,10,0" Click="OkButton_Click"/>
+            <Button Content="Hủy" Width="80" Click="CancelButton_Click"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

@@ -1,0 +1,85 @@
+﻿<Window x:Class="RevitProjectDataAddin.基礎の配置"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="基礎リストを入力" 
+        Height="auto" Width="1000" ResizeMode="NoResize" FontFamily="Yu Mincho">
+    <Grid>
+        <Grid Background="White">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="5,0,5,0">
+                <Grid Height="auto">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="1*"/>
+                        <ColumnDefinition Width="1*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="1*"/>
+                        <RowDefinition Height="100"/>
+
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="基礎の配置" FontSize="30" HorizontalAlignment="Center" VerticalAlignment="Top" Grid.ColumnSpan="2"/>
+                    <TextBlock Text="水平方向はかま筋径" FontSize="20" Margin="10,50,0,0" VerticalAlignment="Top"/>
+                    <TextBox InputMethod.IsInputMethodEnabled="False" PreviewTextInput="TEXTBOX_PreviewTextInput"  x:Name="水平方向はかま筋径TEXTBOX" Text="{Binding 水平方向はかま筋径, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="10,92,22,0"  VerticalAlignment="Top" FontSize="18"  Height="32" Grid.ColumnSpan="2"/>
+
+                    <TextBlock Text="水平方向はかま筋形" FontSize="20" Margin="9,141,1,0" VerticalAlignment="Top" />
+                    <ComboBox x:Name="水平方向はかま筋形COMBOBOX" ItemsSource="{Binding Valid筋形Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" SelectedItem="{Binding 水平方向はかま筋形, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Height="32" Margin="10,172,22,0" VerticalAlignment="Top" />
+
+                    <TextBlock Text="水平方向はかま筋材質" FontSize="20" Margin="10,140,0,0" VerticalAlignment="Top" Grid.Column="1" />
+                    <ComboBox x:Name="水平方向はかま筋材質COMBOBOX"  ItemsSource="{Binding Valid材質Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" SelectedItem="{Binding 水平方向はかま筋材質, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="32" Margin="10,172,22,0" VerticalAlignment="Top" Grid.Column="1" />
+                    <TextBlock Text="ピッチ" FontSize="20" Margin="11,220,394,0" VerticalAlignment="Top" Grid.ColumnSpan="2" />
+                    <TextBox InputMethod.IsInputMethodEnabled="False" PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="ピッチTEXTBOX" Text="{Binding ピッチ, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  Margin="10,252,22,0"  VerticalAlignment="Top" FontSize="18"  Height="32" Grid.ColumnSpan="2"/>
+
+                    <TextBlock Text="縦向きはかま筋径" FontSize="20" Margin="11,298,394,0" VerticalAlignment="Top" Grid.ColumnSpan="2" />
+                    <TextBox InputMethod.IsInputMethodEnabled="False" PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="縦向きはかま筋径TEXTBOX" Text="{Binding 縦向きはかま筋径, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  Margin="10,332,22,0"  VerticalAlignment="Top" FontSize="18"  Height="32"/>
+
+                    <TextBlock Text="縦向きはかま筋本数" FontSize="20" Margin="11,299,-1,0" VerticalAlignment="Top" Grid.Column="1" />
+                    <TextBox InputMethod.IsInputMethodEnabled="False" PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="縦向きはかま筋本数TEXTBOX" Text="{Binding 縦向きはかま筋本数, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  Margin="10,332,22,0"  VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="1"/>
+
+                    <TextBlock Text="縦向きはかま筋形" FontSize="20" Margin="10,379,0,0" VerticalAlignment="Top" />
+                    <ComboBox x:Name="縦向きはかま筋形COMBOBOX" ItemsSource="{Binding Valid筋形Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" SelectedItem="{Binding 縦向きはかま筋形, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="32" Margin="10,412,22,0" VerticalAlignment="Top" />
+
+                    <TextBlock Text="縦向きはかま筋材質" FontSize="20" Margin="10,378,0,0" VerticalAlignment="Top" Grid.Column="1" HorizontalAlignment="Left" />
+                    <ComboBox x:Name="縦向きはかま筋材質COMBOBOX"  ItemsSource="{Binding Valid材質Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}"  SelectedItem="{Binding 縦向きはかま筋材質, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="32" Margin="10,412,22,0" VerticalAlignment="Top" Grid.Column="1" />
+
+                    <TextBlock Text="縦向き下端筋径" FontSize="20" Margin="10,459,0,0" VerticalAlignment="Top" />
+                    <TextBox InputMethod.IsInputMethodEnabled="False" PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="縦向き下端筋径TEXTBOX" Text="{Binding 縦向き下端筋径, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  Margin="10,492,22,0"  VerticalAlignment="Top" FontSize="18"  Height="32"/>
+
+                    <TextBlock Text="縦向き下端筋本数" FontSize="20" Margin="13,461,-3,0" VerticalAlignment="Top" Grid.Column="1" />
+                    <TextBox InputMethod.IsInputMethodEnabled="False" PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="縦向き下端筋本数TEXTBOX" Text="{Binding 縦向き下端筋本数, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"  Margin="10,492,22,0"   VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="1"/>
+
+                    <TextBlock Text="縦向き下端筋形" FontSize="20" Margin="10,539,0,0" VerticalAlignment="Top" />
+                    <ComboBox x:Name="縦向き下端筋形COMBOBOX"  ItemsSource="{Binding Valid筋形Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}"  SelectedItem="{Binding 縦向き下端筋形, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="32" Margin="10,572,22,0" VerticalAlignment="Top" />
+
+                    <TextBlock Text="縦向き下端筋材質" FontSize="20" Margin="11,539,-1,0" VerticalAlignment="Top" Grid.Column="1" />
+                    <ComboBox x:Name="縦向き下端筋材質COMBOBOX"  ItemsSource="{Binding Valid材質Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" SelectedItem="{Binding 縦向き下端筋材質, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="32" Margin="10,572,22,0" VerticalAlignment="Top" Grid.Column="1" />
+
+                    <TextBlock Text="横向きはかま筋径" FontSize="20" Margin="10,620,0,0" VerticalAlignment="Top" />
+                    <TextBox InputMethod.IsInputMethodEnabled="False" PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="横向きはかま筋径TEXTBOX"   Margin="10,652,22,0"  Text="{Binding 横向きはかま筋径, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32"/>
+
+                    <TextBlock Text="横向きはかま筋本数" FontSize="20" Margin="10,620,0,0" VerticalAlignment="Top" Grid.Column="1" />
+                    <TextBox InputMethod.IsInputMethodEnabled="False" PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="横向きはかま筋本数TEXTBOX"   Margin="10,652,22,0"  Text="{Binding 横向きはかま筋本数, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="1"/>
+
+                    <TextBlock Text="横向きはかま筋形" FontSize="20" Margin="10,699,0,0" VerticalAlignment="Top" />
+                    <ComboBox x:Name="横向きはかま筋形COMBOBOX"  ItemsSource="{Binding Valid筋形Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}"  SelectedItem="{Binding 横向きはかま筋形, UpdateSourceTrigger=PropertyChanged}" FontSize="18" Height="32" Margin="10,732,22,0" VerticalAlignment="Top" />
+
+                    <TextBlock Text="横向きはかま筋材質" FontSize="20" Margin="10,701,0,0" VerticalAlignment="Top" Grid.Column="1" />
+                    <ComboBox x:Name="横向きはかま筋材質COMBOBOX"  ItemsSource="{Binding Valid材質Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}"  SelectedItem="{Binding 横向きはかま筋材質, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="32" Margin="10,732,22,0" VerticalAlignment="Top" Grid.Column="1" />
+
+                    <TextBlock Text="横向き下端筋径" FontSize="20" Margin="10,780,0,0" VerticalAlignment="Top" />
+                    <TextBox InputMethod.IsInputMethodEnabled="False" PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="横向き下端筋径TEXTBOX"   Margin="10,812,22,0"  Text="{Binding 横向き下端筋径, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32"/>
+
+                    <TextBlock Text="横向き下端筋本数" FontSize="20" Margin="10,780,0,0" VerticalAlignment="Top" Grid.Column="1" />
+                    <TextBox InputMethod.IsInputMethodEnabled="False" PreviewTextInput="TEXTBOX_PreviewTextInput" x:Name="横向き下端筋本数TEXTBOX"   Margin="10,812,22,0"  Text="{Binding 横向き下端筋本数, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Top" FontSize="18"  Height="32" Grid.Column="1"/>
+
+                    <TextBlock Text="横向き下端筋形" FontSize="20" Margin="10,860,0,0" VerticalAlignment="Top" />
+                    <ComboBox x:Name="横向き下端筋形COMBOBOX"  ItemsSource="{Binding Valid筋形Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}"  SelectedItem="{Binding 横向き下端筋形, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="32" Margin="10,892,22,0" VerticalAlignment="Top" />
+
+                    <TextBlock Text="横向き下端筋材質" FontSize="20" Margin="10,860,0,0" VerticalAlignment="Top" Grid.Column="1" />
+                    <ComboBox x:Name="横向き下端筋材質COMBOBOX"  ItemsSource="{Binding Valid材質Values, RelativeSource={RelativeSource AncestorType={x:Type Window}}}"  SelectedItem="{Binding 横向き下端筋材質, UpdateSourceTrigger=PropertyChanged}"  FontSize="18" Height="32" Margin="10,892,22,0" VerticalAlignment="Top" Grid.Column="1" />
+
+                    <!--<Button Content="基礎を追加" FontSize="18" HorizontalAlignment="Left" Margin="10,988,0,0" VerticalAlignment="Top" Click="AddButton_Click"/>-->
+
+                </Grid>
+            </ScrollViewer>
+        </Grid>
+    </Grid>
+</Window>
