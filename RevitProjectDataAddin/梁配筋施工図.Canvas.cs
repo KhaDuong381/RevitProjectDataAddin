@@ -8386,6 +8386,22 @@ namespace RevitProjectDataAddin
             if (canvases.Count == 0)
             { MessageBox.Show("Không tìm thấy canvas để xuất."); return; }
 
+            var sources = new List<PdfExportSource>();
+            foreach (var canvas in canvases)
+            {
+                if (canvas?.DataContext is GridBotsecozu item)
+                {
+                    var key = BuildDxfGeometry(item).fileKey;
+                    sources.Add(new PdfExportSource(item, canvas, key));
+                }
+            }
+
+            if (sources.Count == 0)
+            { MessageBox.Show("Không có dữ liệu để xuất PDF."); return; }
+
+            var exportOptions = ShowPdfExportOptionsDialog(sources);
+            if (exportOptions == null) return;
+
             var dlg = new SaveFileDialog
             {
                 Filter = "PDF files (*.pdf)|*.pdf",
@@ -8393,24 +8409,26 @@ namespace RevitProjectDataAddin
             };
             if (dlg.ShowDialog() != true) return;
 
+            var selectedKeys = new HashSet<string>(exportOptions.SelectedKeys ?? new List<string>(), StringComparer.Ordinal);
             var vectorPages = new List<PdfVectorPage>();
-            foreach (var canvas in canvases)
+            foreach (var src in sources)
             {
-                if (canvas?.DataContext is GridBotsecozu item)
-                {
-                    if (!_sceneByItem.TryGetValue(item, out var scene) || scene == null || scene.Count == 0)
-                    {
-                        try { Redraw(canvas, item); }
-                        catch { /* ignore redraw failures, will fallback if scene still empty */ }
-                    }
+                if (selectedKeys.Count > 0 && !selectedKeys.Contains(src.Key))
+                    continue;
 
-                    var (lines, texts, circles, arcs, solids, key) = BuildDxfGeometry(item);
-                    var page = PdfVectorBuilder.Create(key, lines, texts, circles, arcs, solids,
-                                                        this.FontFamily?.Source ?? "Yu Mincho");
-                    if (page != null)
-                    {
-                        vectorPages.Add(page);
-                    }
+                if (!_sceneByItem.TryGetValue(src.Item, out var scene) || scene == null || scene.Count == 0)
+                {
+                    try { Redraw(src.Canvas, src.Item); }
+                    catch { }
+                }
+
+                var (lines, texts, circles, arcs, solids, key) = BuildDxfGeometry(src.Item);
+                var page = PdfVectorBuilder.Create(key, lines, texts, circles, arcs, solids,
+                                                   this.FontFamily?.Source ?? "Yu Mincho",
+                                                   exportOptions.PaperSize);
+                if (page != null)
+                {
+                    vectorPages.Add(page);
                 }
             }
 
@@ -8426,6 +8444,156 @@ namespace RevitProjectDataAddin
             {
                 MessageBox.Show($"Xuất PDF thất bại: {ex.Message}");
             }
+        }
+
+        private sealed class PdfExportSource
+        {
+            public PdfExportSource(GridBotsecozu item, Canvas canvas, string key)
+            {
+                Item = item;
+                Canvas = canvas;
+                Key = string.IsNullOrWhiteSpace(key) ? "(No name)" : key;
+            }
+
+            public GridBotsecozu Item { get; }
+            public Canvas Canvas { get; }
+            public string Key { get; }
+        }
+
+        private sealed class PdfExportOptions
+        {
+            public PdfPaperSize PaperSize { get; set; }
+            public List<string> SelectedKeys { get; set; } = new List<string>();
+        }
+
+        private PdfExportOptions ShowPdfExportOptionsDialog(IReadOnlyList<PdfExportSource> sources)
+        {
+            var optionWindow = new Window
+            {
+                Owner = this,
+                Title = "Thiết lập xuất PDF",
+                Width = 520,
+                Height = 520,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                ResizeMode = ResizeMode.NoResize,
+                Background = Brushes.White
+            };
+
+            var root = new Grid { Margin = new Thickness(16) };
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            optionWindow.Content = root;
+
+            var title = new TextBlock
+            {
+                Text = "Xuất file PDF",
+                FontSize = 22,
+                FontWeight = FontWeights.Bold,
+                Margin = new Thickness(0, 0, 0, 12)
+            };
+            root.Children.Add(title);
+
+            var paperPanel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 10) };
+            Grid.SetRow(paperPanel, 1);
+            paperPanel.Children.Add(new TextBlock { Text = "Khổ giấy:", Width = 100, VerticalAlignment = VerticalAlignment.Center, FontSize = 14 });
+            var paperCombo = new ComboBox { Width = 150, FontSize = 14 };
+            paperCombo.Items.Add("A4");
+            paperCombo.Items.Add("A3");
+            paperCombo.SelectedIndex = 0;
+            paperPanel.Children.Add(paperCombo);
+            root.Children.Add(paperPanel);
+
+            var rangeTitle = new TextBlock
+            {
+                Text = "Phạm vi in (theo vị trí chọn):",
+                FontSize = 14,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 6)
+            };
+            Grid.SetRow(rangeTitle, 2);
+            root.Children.Add(rangeTitle);
+
+            var positionList = new ListBox
+            {
+                SelectionMode = SelectionMode.Multiple,
+                BorderBrush = Brushes.Silver,
+                BorderThickness = new Thickness(1),
+                FontSize = 13
+            };
+            foreach (var src in sources)
+                positionList.Items.Add(src.Key);
+            positionList.SelectAll();
+            Grid.SetRow(positionList, 3);
+            root.Children.Add(positionList);
+
+            var footer = new Grid { Margin = new Thickness(0, 12, 0, 0) };
+            footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetRow(footer, 4);
+            root.Children.Add(footer);
+
+            var previewText = new TextBlock
+            {
+                Text = "Chưa preview",
+                VerticalAlignment = VerticalAlignment.Center,
+                Foreground = Brushes.DimGray,
+                Margin = new Thickness(0, 0, 10, 0),
+                TextWrapping = TextWrapping.Wrap
+            };
+            footer.Children.Add(previewText);
+
+            var previewButton = new Button { Content = "Review", Width = 90, Height = 30, Margin = new Thickness(0, 0, 8, 0) };
+            Grid.SetColumn(previewButton, 1);
+            footer.Children.Add(previewButton);
+
+            var okButton = new Button { Content = "Xuất", Width = 90, Height = 30, Margin = new Thickness(0, 0, 8, 0) };
+            Grid.SetColumn(okButton, 2);
+            footer.Children.Add(okButton);
+
+            var cancelButton = new Button { Content = "Hủy", Width = 90, Height = 30 };
+            Grid.SetColumn(cancelButton, 3);
+            footer.Children.Add(cancelButton);
+
+            PdfExportOptions result = null;
+
+            previewButton.Click += (s, e) =>
+            {
+                var selected = positionList.SelectedItems.Cast<string>().ToList();
+                var paper = (paperCombo.SelectedItem as string) ?? "A4";
+                previewText.Text = $"Khổ: {paper} | Số vị trí sẽ in: {selected.Count}/{sources.Count}";
+            };
+
+            okButton.Click += (s, e) =>
+            {
+                var selected = positionList.SelectedItems.Cast<string>().ToList();
+                if (selected.Count == 0)
+                {
+                    MessageBox.Show(optionWindow, "Vui lòng chọn ít nhất 1 vị trí để in.");
+                    return;
+                }
+
+                result = new PdfExportOptions
+                {
+                    PaperSize = ((paperCombo.SelectedItem as string) == "A3") ? PdfPaperSize.A3 : PdfPaperSize.A4,
+                    SelectedKeys = selected
+                };
+                optionWindow.DialogResult = true;
+                optionWindow.Close();
+            };
+
+            cancelButton.Click += (s, e) =>
+            {
+                optionWindow.DialogResult = false;
+                optionWindow.Close();
+            };
+
+            var dialogResult = optionWindow.ShowDialog();
+            return dialogResult == true ? result : null;
         }
 
         private void ExportItemDxf_Click(object sender, RoutedEventArgs e)
@@ -8750,6 +8918,12 @@ namespace RevitProjectDataAddin
             }
         }
 
+        private enum PdfPaperSize
+        {
+            A4,
+            A3
+        }
+
         private static class PdfVectorBuilder
         {
             private const double MmToPt = 72.0 / 25.4;
@@ -8758,6 +8932,8 @@ namespace RevitProjectDataAddin
             private const double PageMarginMm = 10.0;
             private const double A4WidthMm = 297.0;
             private const double A4HeightMm = 210.0;
+            private const double A3WidthMm = 420.0;
+            private const double A3HeightMm = 297.0;
             private const double LineWidthScale = 1.15;
             private const double MinLineWidthMm = 0.18;
             private const double TextFlattenTolerance = 0.02;
@@ -8768,9 +8944,10 @@ namespace RevitProjectDataAddin
                                                IEnumerable<DxfCircle> circles,
                                                IEnumerable<DxfArc> arcs,
                                                IEnumerable<DxfSolid> solids,
-                                               string fallbackFont)
+                                               string fallbackFont,
+                                               PdfPaperSize paperSize)
             {
-                var builder = new PdfVectorContentBuilder(fallbackFont);
+                var builder = new PdfVectorContentBuilder(fallbackFont, paperSize);
                 builder.AddLines(lines);
                 builder.AddCircles(circles);
                 builder.AddArcs(arcs);
@@ -8783,14 +8960,16 @@ namespace RevitProjectDataAddin
             {
                 private readonly List<Action<StringBuilder, PdfDrawState>> _actions = new List<Action<StringBuilder, PdfDrawState>>();
                 private readonly string _fallbackFont;
+                private readonly PdfPaperSize _paperSize;
                 private double _minX = double.PositiveInfinity;
                 private double _minY = double.PositiveInfinity;
                 private double _maxX = double.NegativeInfinity;
                 private double _maxY = double.NegativeInfinity;
 
-                public PdfVectorContentBuilder(string fallbackFont)
+                public PdfVectorContentBuilder(string fallbackFont, PdfPaperSize paperSize)
                 {
                     _fallbackFont = string.IsNullOrWhiteSpace(fallbackFont) ? "Yu Mincho" : fallbackFont;
+                    _paperSize = paperSize;
                 }
 
                 public void AddLines(IEnumerable<DxfLine> lines)
@@ -9158,8 +9337,11 @@ namespace RevitProjectDataAddin
                             return (true, pageWidthMm, pageHeightMm, scaleCandidate, marginLeft, marginBottom);
                         }
 
-                        var landscape = Evaluate(A4WidthMm, A4HeightMm);
-                        var portrait = Evaluate(A4HeightMm, A4WidthMm);
+                        double baseWidth = _paperSize == PdfPaperSize.A3 ? A3WidthMm : A4WidthMm;
+                        double baseHeight = _paperSize == PdfPaperSize.A3 ? A3HeightMm : A4HeightMm;
+
+                        var landscape = Evaluate(baseWidth, baseHeight);
+                        var portrait = Evaluate(baseHeight, baseWidth);
 
                         var best = landscape;
                         if (!best.valid || (portrait.valid && portrait.scale > best.scale))
@@ -14100,6 +14282,39 @@ namespace RevitProjectDataAddin
                 return 0;
             }
         }
+
+        private double MeasureTextWidthDxfMm(Canvas canvas, string text, Typeface typeface, double fontPx, double targetHeightMm)
+        {
+            text = text ?? string.Empty;
+            if (targetHeightMm <= 0) return 0;
+
+            try
+            {
+                var dpi = VisualTreeHelper.GetDpi(canvas);
+                var ft = new FormattedText(
+                    text,
+                    CultureInfo.CurrentCulture,
+                    FlowDirection.LeftToRight,
+                    typeface,
+                    fontPx,
+                    Brushes.Black,
+                    dpi.PixelsPerDip);
+
+                var geometry = ft.BuildGeometry(new Point(0, 0));
+                var bounds = geometry?.Bounds ?? Rect.Empty;
+                if (!bounds.IsEmpty && bounds.Width > 0 && bounds.Height > 0)
+                {
+                    // PDF vector export normalizes text to DxfText.Height (mm),
+                    // so horizontal spacing must follow the same width/height ratio.
+                    return (bounds.Width / bounds.Height) * targetHeightMm;
+                }
+            }
+            catch
+            {
+            }
+
+            return 0;
+        }
         private void DrawCentralStirrupTripletPx(
     Canvas canvas, WCTransform T, GridBotsecozu item,
     double centerXmm, double yMm,
@@ -14120,12 +14335,18 @@ namespace RevitProjectDataAddin
             double effectiveFontPx = fontPx * combinedScale;
             double scalePxPerMm = Math.Abs(T.Scale) < 1e-9 ? 1.0 : Math.Abs(T.Scale);
             double gapMm = gapPx / scalePxPerMm;
+            const double dxfTextHeightMm = 150.0;
             string fontFamilyName = this.FontFamily?.Source ?? "Yu Mincho";
             var typeface = new Typeface(new FontFamily(fontFamilyName), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
 
-            double wDiaMm = MeasureTextWidthPx(canvas, diaText, typeface, effectiveFontPx) / scalePxPerMm;
-            double wPitchMm = MeasureTextWidthPx(canvas, pitchText, typeface, effectiveFontPx) / scalePxPerMm;
-            double wMatMm = hasMat ? (MeasureTextWidthPx(canvas, matText, typeface, effectiveFontPx) / scalePxPerMm) : 0;
+            double wDiaMm = MeasureTextWidthDxfMm(canvas, diaText, typeface, effectiveFontPx, dxfTextHeightMm);
+            double wPitchMm = MeasureTextWidthDxfMm(canvas, pitchText, typeface, effectiveFontPx, dxfTextHeightMm);
+            double wMatMm = hasMat ? MeasureTextWidthDxfMm(canvas, matText, typeface, effectiveFontPx, dxfTextHeightMm) : 0;
+
+            // Fallback for environments where geometry measurement can fail.
+            if (wDiaMm <= 0) wDiaMm = MeasureTextWidthPx(canvas, diaText, typeface, effectiveFontPx) / scalePxPerMm;
+            if (wPitchMm <= 0) wPitchMm = MeasureTextWidthPx(canvas, pitchText, typeface, effectiveFontPx) / scalePxPerMm;
+            if (hasMat && wMatMm <= 0) wMatMm = MeasureTextWidthPx(canvas, matText, typeface, effectiveFontPx) / scalePxPerMm;
 
             double totalMm = wDiaMm + gapMm + wPitchMm + (hasMat ? gapMm + wMatMm : 0);
             double xStart = centerXmm - totalMm / 2.0;
