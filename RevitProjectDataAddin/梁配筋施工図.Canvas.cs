@@ -332,7 +332,7 @@ namespace RevitProjectDataAddin
             double combinedScale = ResolveTextCombinedScale(T, owner);
 
             double effectiveFontPx = fontPx * combinedScale;
-            double effectiveHeightMm = heightMm * combinedScale;
+            double effectiveHeightMm = heightMm;
 
             var textColor = ColorFromBrush(color ?? Brushes.Black, Colors.Black);
             string fontFamily = this.FontFamily?.Source ?? "Yu Mincho";
