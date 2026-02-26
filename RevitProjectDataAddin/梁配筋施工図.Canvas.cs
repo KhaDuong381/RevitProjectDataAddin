@@ -8391,7 +8391,7 @@ namespace RevitProjectDataAddin
             {
                 if (canvas?.DataContext is GridBotsecozu item)
                 {
-                    var key = BuildDxfGeometry(item).key;
+                    var key = BuildDxfGeometry(item).fileKey;
                     sources.Add(new PdfExportSource(item, canvas, key));
                 }
             }
