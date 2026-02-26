@@ -3144,6 +3144,25 @@ namespace RevitProjectDataAddin
         private readonly Dictionary<GridBotsecozu, Dictionary<(int spanIndex, bool isRightAbdominal, bool isRightEnd), double>>
         _tanbuHookOverrides = new Dictionary<GridBotsecozu, Dictionary<(int spanIndex, bool isRightAbdominal, bool isRightEnd), double>>();
 
+        private static string MakeTanbuHookKey(int spanIndex, bool isRightAbdominal, bool isRightEnd)
+            => $"{spanIndex}|{(isRightAbdominal ? 1 : 0)}|{(isRightEnd ? 1 : 0)}";
+
+        private static bool TryParseTanbuHookKey(string key, out (int spanIndex, bool isRightAbdominal, bool isRightEnd) parsed)
+        {
+            parsed = default;
+            if (string.IsNullOrWhiteSpace(key)) return false;
+
+            var parts = key.Split('|');
+            if (parts.Length != 3) return false;
+
+            if (!int.TryParse(parts[0], out var spanIndex)) return false;
+            if (!int.TryParse(parts[1], out var abdominalFlag)) return false;
+            if (!int.TryParse(parts[2], out var endFlag)) return false;
+
+            parsed = (spanIndex, abdominalFlag != 0, endFlag != 0);
+            return true;
+        }
+
         private string FormatTanbuLabel(string dia, double hookLength)
         {
             dia = string.IsNullOrWhiteSpace(dia) ? string.Empty : dia;
@@ -3160,6 +3179,14 @@ namespace RevitProjectDataAddin
             {
                 return val;
             }
+
+            if (item?.TanbuHookOverrides != null
+                && item.TanbuHookOverrides.TryGetValue(MakeTanbuHookKey(spanIndex, isRightAbdominal, isRightEnd), out var persisted)
+                && persisted > 0)
+            {
+                return persisted;
+            }
+
             return fallback;
         }
 
@@ -3179,6 +3206,19 @@ namespace RevitProjectDataAddin
                            || Math.Abs(existing - newLength) > 1e-6;
 
             spanDict[(spanIndex, isRightAbdominal, isRightEnd)] = newLength;
+
+            if (item.TanbuHookOverrides == null)
+                item.TanbuHookOverrides = new Dictionary<string, double>();
+
+            var persistedKey = MakeTanbuHookKey(spanIndex, isRightAbdominal, isRightEnd);
+            changed = changed
+                      || !item.TanbuHookOverrides.TryGetValue(persistedKey, out var persistedExisting)
+                      || Math.Abs(persistedExisting - newLength) > 1e-6;
+            item.TanbuHookOverrides[persistedKey] = newLength;
+
+            if (changed)
+                PropertyChangeTracker.MarkChanged();
+
             return changed;
         }
         private void ShowComboEditor(Canvas canvas, TextBlock tb, WCTransform T,
@@ -13958,20 +13998,45 @@ namespace RevitProjectDataAddin
         {
             if (spanIndex < 0) return;
 
+            bool changed = false;
+
             foreach (var beamKvp in _tanbuHookOverrides.ToList())
             {
                 var dict = beamKvp.Value;
                 if (dict == null) continue;
 
                 // remove 4 keys per span:
-                dict.Remove((spanIndex, false, false)); // 左の腹筋 - 左端
-                dict.Remove((spanIndex, false, true));  // 左の腹筋 - 右端
-                dict.Remove((spanIndex, true, false));  // 右の腹筋 - 左端
-                dict.Remove((spanIndex, true, true));   // 右の腹筋 - 右端
+                changed = dict.Remove((spanIndex, false, false)) || changed; // 左の腹筋 - 左端
+                changed = dict.Remove((spanIndex, false, true)) || changed;  // 左の腹筋 - 右端
+                changed = dict.Remove((spanIndex, true, false)) || changed;  // 右の腹筋 - 左端
+                changed = dict.Remove((spanIndex, true, true)) || changed;   // 右の腹筋 - 右端
 
                 if (dict.Count == 0)
                     _tanbuHookOverrides.Remove(beamKvp.Key);
             }
+
+            if (_currentSecoList?.GridBotsecozuMap != null)
+            {
+                foreach (var grids in _currentSecoList.GridBotsecozuMap.Values)
+                {
+                    if (grids == null) continue;
+                    foreach (var grid in grids)
+                    {
+                        if (grid?.TanbuHookOverrides == null || grid.TanbuHookOverrides.Count == 0)
+                            continue;
+
+                        var toDelete = grid.TanbuHookOverrides.Keys
+                            .Where(k => TryParseTanbuHookKey(k, out var parsed) && parsed.spanIndex == spanIndex)
+                            .ToList();
+
+                        foreach (var key in toDelete)
+                            changed = grid.TanbuHookOverrides.Remove(key) || changed;
+                    }
+                }
+            }
+
+            if (changed)
+                PropertyChangeTracker.MarkChanged();
         }
 
         private void CloseTaggedPopup(FrameworkElement target)
