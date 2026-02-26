@@ -332,7 +332,7 @@ namespace RevitProjectDataAddin
             double combinedScale = ResolveTextCombinedScale(T, owner);
 
             double effectiveFontPx = fontPx * combinedScale;
-            double effectiveHeightMm = heightMm * combinedScale;
+            double effectiveHeightMm = heightMm;
 
             var textColor = ColorFromBrush(color ?? Brushes.Black, Colors.Black);
             string fontFamily = this.FontFamily?.Source ?? "Yu Mincho";
@@ -14100,6 +14100,39 @@ namespace RevitProjectDataAddin
                 return 0;
             }
         }
+
+        private double MeasureTextWidthDxfMm(Canvas canvas, string text, Typeface typeface, double fontPx, double targetHeightMm)
+        {
+            text = text ?? string.Empty;
+            if (targetHeightMm <= 0) return 0;
+
+            try
+            {
+                var dpi = VisualTreeHelper.GetDpi(canvas);
+                var ft = new FormattedText(
+                    text,
+                    CultureInfo.CurrentCulture,
+                    FlowDirection.LeftToRight,
+                    typeface,
+                    fontPx,
+                    Brushes.Black,
+                    dpi.PixelsPerDip);
+
+                var geometry = ft.BuildGeometry(new Point(0, 0));
+                var bounds = geometry?.Bounds ?? Rect.Empty;
+                if (!bounds.IsEmpty && bounds.Width > 0 && bounds.Height > 0)
+                {
+                    // PDF vector export normalizes text to DxfText.Height (mm),
+                    // so horizontal spacing must follow the same width/height ratio.
+                    return (bounds.Width / bounds.Height) * targetHeightMm;
+                }
+            }
+            catch
+            {
+            }
+
+            return 0;
+        }
         private void DrawCentralStirrupTripletPx(
     Canvas canvas, WCTransform T, GridBotsecozu item,
     double centerXmm, double yMm,
@@ -14120,12 +14153,18 @@ namespace RevitProjectDataAddin
             double effectiveFontPx = fontPx * combinedScale;
             double scalePxPerMm = Math.Abs(T.Scale) < 1e-9 ? 1.0 : Math.Abs(T.Scale);
             double gapMm = gapPx / scalePxPerMm;
+            const double dxfTextHeightMm = 150.0;
             string fontFamilyName = this.FontFamily?.Source ?? "Yu Mincho";
             var typeface = new Typeface(new FontFamily(fontFamilyName), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
 
-            double wDiaMm = MeasureTextWidthPx(canvas, diaText, typeface, effectiveFontPx) / scalePxPerMm;
-            double wPitchMm = MeasureTextWidthPx(canvas, pitchText, typeface, effectiveFontPx) / scalePxPerMm;
-            double wMatMm = hasMat ? (MeasureTextWidthPx(canvas, matText, typeface, effectiveFontPx) / scalePxPerMm) : 0;
+            double wDiaMm = MeasureTextWidthDxfMm(canvas, diaText, typeface, effectiveFontPx, dxfTextHeightMm);
+            double wPitchMm = MeasureTextWidthDxfMm(canvas, pitchText, typeface, effectiveFontPx, dxfTextHeightMm);
+            double wMatMm = hasMat ? MeasureTextWidthDxfMm(canvas, matText, typeface, effectiveFontPx, dxfTextHeightMm) : 0;
+
+            // Fallback for environments where geometry measurement can fail.
+            if (wDiaMm <= 0) wDiaMm = MeasureTextWidthPx(canvas, diaText, typeface, effectiveFontPx) / scalePxPerMm;
+            if (wPitchMm <= 0) wPitchMm = MeasureTextWidthPx(canvas, pitchText, typeface, effectiveFontPx) / scalePxPerMm;
+            if (hasMat && wMatMm <= 0) wMatMm = MeasureTextWidthPx(canvas, matText, typeface, effectiveFontPx) / scalePxPerMm;
 
             double totalMm = wDiaMm + gapMm + wPitchMm + (hasMat ? gapMm + wMatMm : 0);
             double xStart = centerXmm - totalMm / 2.0;
