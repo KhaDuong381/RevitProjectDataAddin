@@ -8502,7 +8502,26 @@ namespace RevitProjectDataAddin
             var paperCombo = new ComboBox { Width = 150, FontSize = 14 };
             paperCombo.Items.Add("A4");
             paperCombo.Items.Add("A3");
-            paperCombo.SelectedIndex = 0;
+
+            var kesan = _projectData?.Kesan;
+            if (kesan?.Printsize2 == true)
+            {
+                paperCombo.SelectedItem = "A3";
+            }
+            else
+            {
+                paperCombo.SelectedItem = "A4";
+            }
+
+            paperCombo.SelectionChanged += (s, e) =>
+            {
+                var selectedPaper = (paperCombo.SelectedItem as string) ?? "A4";
+                if (_projectData?.Kesan == null) return;
+
+                _projectData.Kesan.Printsize1 = selectedPaper == "A4";
+                _projectData.Kesan.Printsize2 = selectedPaper == "A3";
+            };
+
             paperPanel.Children.Add(paperCombo);
             root.Children.Add(paperPanel);
 
