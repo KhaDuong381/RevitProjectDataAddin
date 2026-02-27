@@ -8585,6 +8585,7 @@ namespace RevitProjectDataAddin
                 var selected = positionList.SelectedItems.Cast<string>().ToList();
                 var paper = (paperCombo.SelectedItem as string) ?? "A4";
                 previewText.Text = $"Khổ: {paper} | Số vị trí sẽ in: {selected.Count}/{sources.Count}";
+                ShowPdfExportReviewWindow(optionWindow, selected, paper);
             };
 
             okButton.Click += (s, e) =>
@@ -8613,6 +8614,81 @@ namespace RevitProjectDataAddin
 
             var dialogResult = optionWindow.ShowDialog();
             return dialogResult == true ? result : null;
+        }
+
+        private void ShowPdfExportReviewWindow(Window owner, IReadOnlyList<string> selectedKeys, string paper)
+        {
+            var reviewWindow = new Window
+            {
+                Owner = owner,
+                Title = "Review vùng sẽ xuất PDF",
+                Width = 560,
+                Height = 480,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                ResizeMode = ResizeMode.CanResize,
+                Background = Brushes.White
+            };
+
+            var root = new Grid { Margin = new Thickness(16) };
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            reviewWindow.Content = root;
+
+            var header = new TextBlock
+            {
+                Text = "Danh sách phần sẽ được xuất",
+                FontSize = 20,
+                FontWeight = FontWeights.Bold,
+                Margin = new Thickness(0, 0, 0, 8)
+            };
+            root.Children.Add(header);
+
+            var summary = new TextBlock
+            {
+                Text = $"Khổ giấy: {paper} | Số vị trí: {selectedKeys.Count}",
+                FontSize = 14,
+                Foreground = Brushes.DimGray,
+                Margin = new Thickness(0, 0, 0, 8)
+            };
+            Grid.SetRow(summary, 1);
+            root.Children.Add(summary);
+
+            var previewList = new ListBox
+            {
+                BorderBrush = Brushes.Silver,
+                BorderThickness = new Thickness(1),
+                FontSize = 13
+            };
+            if (selectedKeys.Count == 0)
+            {
+                previewList.Items.Add("(Chưa chọn vị trí nào)");
+            }
+            else
+            {
+                for (int i = 0; i < selectedKeys.Count; i++)
+                {
+                    previewList.Items.Add($"{i + 1}. {selectedKeys[i]}");
+                }
+            }
+
+            Grid.SetRow(previewList, 2);
+            root.Children.Add(previewList);
+
+            var closeButton = new Button
+            {
+                Content = "Đóng",
+                Width = 90,
+                Height = 30,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 10, 0, 0)
+            };
+            closeButton.Click += (_, __) => reviewWindow.Close();
+            Grid.SetRow(closeButton, 3);
+            root.Children.Add(closeButton);
+
+            reviewWindow.ShowDialog();
         }
 
         private void ExportItemDxf_Click(object sender, RoutedEventArgs e)
