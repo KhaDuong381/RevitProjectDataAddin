@@ -8502,7 +8502,26 @@ namespace RevitProjectDataAddin
             var paperCombo = new ComboBox { Width = 150, FontSize = 14 };
             paperCombo.Items.Add("A4");
             paperCombo.Items.Add("A3");
-            paperCombo.SelectedIndex = 0;
+
+            var kesan = _projectData?.Kesan;
+            if (kesan?.Printsize2 == true)
+            {
+                paperCombo.SelectedItem = "A3";
+            }
+            else
+            {
+                paperCombo.SelectedItem = "A4";
+            }
+
+            paperCombo.SelectionChanged += (s, e) =>
+            {
+                var selectedPaper = (paperCombo.SelectedItem as string) ?? "A4";
+                if (_projectData?.Kesan == null) return;
+
+                _projectData.Kesan.Printsize1 = selectedPaper == "A4";
+                _projectData.Kesan.Printsize2 = selectedPaper == "A3";
+            };
+
             paperPanel.Children.Add(paperCombo);
             root.Children.Add(paperPanel);
 
@@ -8566,6 +8585,12 @@ namespace RevitProjectDataAddin
                 var selected = positionList.SelectedItems.Cast<string>().ToList();
                 var paper = (paperCombo.SelectedItem as string) ?? "A4";
                 previewText.Text = $"Khổ: {paper} | Số vị trí sẽ in: {selected.Count}/{sources.Count}";
+
+                var selectedSet = new HashSet<string>(selected, StringComparer.Ordinal);
+                var selectedSources = sources
+                    .Where(src => selectedSet.Contains(src.Key))
+                    .ToList();
+                ShowPdfExportReviewWindow(optionWindow, selectedSources, paper);
             };
 
             okButton.Click += (s, e) =>
@@ -8594,6 +8619,171 @@ namespace RevitProjectDataAddin
 
             var dialogResult = optionWindow.ShowDialog();
             return dialogResult == true ? result : null;
+        }
+
+        private void ShowPdfExportReviewWindow(Window owner, IReadOnlyList<PdfExportSource> selectedSources, string paper)
+        {
+            var reviewWindow = new Window
+            {
+                Owner = owner,
+                Title = "Review nội dung sẽ xuất PDF",
+                Width = 960,
+                Height = 700,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                ResizeMode = ResizeMode.CanResize,
+                Background = Brushes.White
+            };
+
+            var root = new Grid { Margin = new Thickness(16) };
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            reviewWindow.Content = root;
+
+            var header = new TextBlock
+            {
+                Text = "Review bản vẽ sẽ xuất ra PDF",
+                FontSize = 20,
+                FontWeight = FontWeights.Bold,
+                Margin = new Thickness(0, 0, 0, 8)
+            };
+            root.Children.Add(header);
+
+            var summary = new TextBlock
+            {
+                Text = $"Khổ giấy: {paper} | Số bản vẽ sẽ xuất: {selectedSources.Count}",
+                FontSize = 14,
+                Foreground = Brushes.DimGray,
+                Margin = new Thickness(0, 0, 0, 8)
+            };
+            Grid.SetRow(summary, 1);
+            root.Children.Add(summary);
+
+            UIElement reviewBody;
+            if (selectedSources.Count == 0)
+            {
+                reviewBody = new Border
+                {
+                    BorderBrush = Brushes.Silver,
+                    BorderThickness = new Thickness(1),
+                    Padding = new Thickness(16),
+                    Child = new TextBlock
+                    {
+                        Text = "(Chưa chọn bản vẽ nào để xuất)",
+                        FontSize = 14,
+                        Foreground = Brushes.DimGray
+                    }
+                };
+            }
+            else
+            {
+                var scroll = new ScrollViewer
+                {
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+                };
+
+                var stack = new StackPanel();
+                for (int i = 0; i < selectedSources.Count; i++)
+                {
+                    var src = selectedSources[i];
+                    var card = new Border
+                    {
+                        BorderBrush = Brushes.Silver,
+                        BorderThickness = new Thickness(1),
+                        CornerRadius = new CornerRadius(4),
+                        Margin = new Thickness(0, 0, 0, 10),
+                        Padding = new Thickness(10)
+                    };
+
+                    var cardStack = new StackPanel();
+                    cardStack.Children.Add(new TextBlock
+                    {
+                        Text = $"{i + 1}. {src.Key}",
+                        FontSize = 14,
+                        FontWeight = FontWeights.SemiBold,
+                        Margin = new Thickness(0, 0, 0, 8)
+                    });
+
+                    var previewImage = CreateCanvasPreviewImage(src.Canvas, 860, 230);
+                    if (previewImage != null)
+                    {
+                        cardStack.Children.Add(previewImage);
+                    }
+                    else
+                    {
+                        cardStack.Children.Add(new TextBlock
+                        {
+                            Text = "(Không thể tạo preview từ canvas)",
+                            FontSize = 12,
+                            Foreground = Brushes.Gray
+                        });
+                    }
+
+                    card.Child = cardStack;
+                    stack.Children.Add(card);
+                }
+
+                scroll.Content = stack;
+                reviewBody = scroll;
+            }
+
+            Grid.SetRow(reviewBody, 2);
+            root.Children.Add(reviewBody);
+
+            var closeButton = new Button
+            {
+                Content = "Đóng",
+                Width = 90,
+                Height = 30,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 10, 0, 0)
+            };
+            closeButton.Click += (_, __) => reviewWindow.Close();
+            Grid.SetRow(closeButton, 3);
+            root.Children.Add(closeButton);
+
+            reviewWindow.ShowDialog();
+        }
+
+        private Image CreateCanvasPreviewImage(Canvas canvas, double maxWidth, double maxHeight)
+        {
+            if (canvas == null)
+            {
+                return null;
+            }
+
+            canvas.UpdateLayout();
+
+            double width = canvas.ActualWidth;
+            double height = canvas.ActualHeight;
+            if (width <= 1 || height <= 1)
+            {
+                width = canvas.Width > 1 ? canvas.Width : 1200;
+                height = canvas.Height > 1 ? canvas.Height : 320;
+            }
+
+            int pixelWidth = Math.Max(1, (int)Math.Ceiling(width));
+            int pixelHeight = Math.Max(1, (int)Math.Ceiling(height));
+
+            var rtb = new RenderTargetBitmap(pixelWidth, pixelHeight, 96, 96, PixelFormats.Pbgra32);
+            rtb.Render(canvas);
+
+            double scale = Math.Min(maxWidth / width, maxHeight / height);
+            if (double.IsNaN(scale) || double.IsInfinity(scale) || scale <= 0)
+            {
+                scale = 1;
+            }
+
+            return new Image
+            {
+                Source = rtb,
+                Stretch = Stretch.Uniform,
+                Width = width * scale,
+                Height = height * scale,
+                SnapsToDevicePixels = true
+            };
         }
 
         private void ExportItemDxf_Click(object sender, RoutedEventArgs e)
