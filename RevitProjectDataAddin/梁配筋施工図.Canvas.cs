@@ -8585,7 +8585,12 @@ namespace RevitProjectDataAddin
                 var selected = positionList.SelectedItems.Cast<string>().ToList();
                 var paper = (paperCombo.SelectedItem as string) ?? "A4";
                 previewText.Text = $"Khổ: {paper} | Số vị trí sẽ in: {selected.Count}/{sources.Count}";
-                ShowPdfExportReviewWindow(optionWindow, selected, paper);
+
+                var selectedSet = new HashSet<string>(selected, StringComparer.Ordinal);
+                var selectedSources = sources
+                    .Where(src => selectedSet.Contains(src.Key))
+                    .ToList();
+                ShowPdfExportReviewWindow(optionWindow, selectedSources, paper);
             };
 
             okButton.Click += (s, e) =>
@@ -8616,14 +8621,14 @@ namespace RevitProjectDataAddin
             return dialogResult == true ? result : null;
         }
 
-        private void ShowPdfExportReviewWindow(Window owner, IReadOnlyList<string> selectedKeys, string paper)
+        private void ShowPdfExportReviewWindow(Window owner, IReadOnlyList<PdfExportSource> selectedSources, string paper)
         {
             var reviewWindow = new Window
             {
                 Owner = owner,
-                Title = "Review vùng sẽ xuất PDF",
-                Width = 560,
-                Height = 480,
+                Title = "Review nội dung sẽ xuất PDF",
+                Width = 960,
+                Height = 700,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
                 ResizeMode = ResizeMode.CanResize,
                 Background = Brushes.White
@@ -8638,7 +8643,7 @@ namespace RevitProjectDataAddin
 
             var header = new TextBlock
             {
-                Text = "Danh sách phần sẽ được xuất",
+                Text = "Review bản vẽ sẽ xuất ra PDF",
                 FontSize = 20,
                 FontWeight = FontWeights.Bold,
                 Margin = new Thickness(0, 0, 0, 8)
@@ -8647,7 +8652,7 @@ namespace RevitProjectDataAddin
 
             var summary = new TextBlock
             {
-                Text = $"Khổ giấy: {paper} | Số vị trí: {selectedKeys.Count}",
+                Text = $"Khổ giấy: {paper} | Số bản vẽ sẽ xuất: {selectedSources.Count}",
                 FontSize = 14,
                 Foreground = Brushes.DimGray,
                 Margin = new Thickness(0, 0, 0, 8)
@@ -8655,26 +8660,77 @@ namespace RevitProjectDataAddin
             Grid.SetRow(summary, 1);
             root.Children.Add(summary);
 
-            var previewList = new ListBox
+            UIElement reviewBody;
+            if (selectedSources.Count == 0)
             {
-                BorderBrush = Brushes.Silver,
-                BorderThickness = new Thickness(1),
-                FontSize = 13
-            };
-            if (selectedKeys.Count == 0)
-            {
-                previewList.Items.Add("(Chưa chọn vị trí nào)");
+                reviewBody = new Border
+                {
+                    BorderBrush = Brushes.Silver,
+                    BorderThickness = new Thickness(1),
+                    Padding = new Thickness(16),
+                    Child = new TextBlock
+                    {
+                        Text = "(Chưa chọn bản vẽ nào để xuất)",
+                        FontSize = 14,
+                        Foreground = Brushes.DimGray
+                    }
+                };
             }
             else
             {
-                for (int i = 0; i < selectedKeys.Count; i++)
+                var scroll = new ScrollViewer
                 {
-                    previewList.Items.Add($"{i + 1}. {selectedKeys[i]}");
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+                };
+
+                var stack = new StackPanel();
+                for (int i = 0; i < selectedSources.Count; i++)
+                {
+                    var src = selectedSources[i];
+                    var card = new Border
+                    {
+                        BorderBrush = Brushes.Silver,
+                        BorderThickness = new Thickness(1),
+                        CornerRadius = new CornerRadius(4),
+                        Margin = new Thickness(0, 0, 0, 10),
+                        Padding = new Thickness(10)
+                    };
+
+                    var cardStack = new StackPanel();
+                    cardStack.Children.Add(new TextBlock
+                    {
+                        Text = $"{i + 1}. {src.Key}",
+                        FontSize = 14,
+                        FontWeight = FontWeights.SemiBold,
+                        Margin = new Thickness(0, 0, 0, 8)
+                    });
+
+                    var previewImage = CreateCanvasPreviewImage(src.Canvas, 860, 230);
+                    if (previewImage != null)
+                    {
+                        cardStack.Children.Add(previewImage);
+                    }
+                    else
+                    {
+                        cardStack.Children.Add(new TextBlock
+                        {
+                            Text = "(Không thể tạo preview từ canvas)",
+                            FontSize = 12,
+                            Foreground = Brushes.Gray
+                        });
+                    }
+
+                    card.Child = cardStack;
+                    stack.Children.Add(card);
                 }
+
+                scroll.Content = stack;
+                reviewBody = scroll;
             }
 
-            Grid.SetRow(previewList, 2);
-            root.Children.Add(previewList);
+            Grid.SetRow(reviewBody, 2);
+            root.Children.Add(reviewBody);
 
             var closeButton = new Button
             {
@@ -8689,6 +8745,45 @@ namespace RevitProjectDataAddin
             root.Children.Add(closeButton);
 
             reviewWindow.ShowDialog();
+        }
+
+        private Image CreateCanvasPreviewImage(Canvas canvas, double maxWidth, double maxHeight)
+        {
+            if (canvas == null)
+            {
+                return null;
+            }
+
+            canvas.UpdateLayout();
+
+            double width = canvas.ActualWidth;
+            double height = canvas.ActualHeight;
+            if (width <= 1 || height <= 1)
+            {
+                width = canvas.Width > 1 ? canvas.Width : 1200;
+                height = canvas.Height > 1 ? canvas.Height : 320;
+            }
+
+            int pixelWidth = Math.Max(1, (int)Math.Ceiling(width));
+            int pixelHeight = Math.Max(1, (int)Math.Ceiling(height));
+
+            var rtb = new RenderTargetBitmap(pixelWidth, pixelHeight, 96, 96, PixelFormats.Pbgra32);
+            rtb.Render(canvas);
+
+            double scale = Math.Min(maxWidth / width, maxHeight / height);
+            if (double.IsNaN(scale) || double.IsInfinity(scale) || scale <= 0)
+            {
+                scale = 1;
+            }
+
+            return new Image
+            {
+                Source = rtb,
+                Stretch = Stretch.Uniform,
+                Width = width * scale,
+                Height = height * scale,
+                SnapsToDevicePixels = true
+            };
         }
 
         private void ExportItemDxf_Click(object sender, RoutedEventArgs e)
