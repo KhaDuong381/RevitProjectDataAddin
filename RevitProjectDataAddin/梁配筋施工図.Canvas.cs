@@ -30,6 +30,7 @@ using Control = System.Windows.Controls.Control;
 using Ellipse = System.Windows.Shapes.Ellipse;
 using FormattedText = System.Windows.Media.FormattedText;
 using Grid = System.Windows.Controls.Grid;
+using Image = System.Windows.Controls.Image;
 using Line = System.Windows.Shapes.Line;
 using LineSegment = System.Windows.Media.LineSegment;
 using MediaColor = System.Windows.Media.Color;
