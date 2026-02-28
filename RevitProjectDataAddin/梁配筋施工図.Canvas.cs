@@ -8624,12 +8624,16 @@ namespace RevitProjectDataAddin
 
         private void ShowPdfExportReviewWindow(Window owner, IReadOnlyList<PdfExportSource> selectedSources, string paper)
         {
+            // Khung review theo tỷ lệ A4 dọc để dễ quan sát đúng bố cục trang in.
+            const double a4FrameWidth = 700;
+            const double a4FrameHeight = a4FrameWidth * 297.0 / 210.0;
+
             var reviewWindow = new Window
             {
                 Owner = owner,
                 Title = "Review nội dung sẽ xuất PDF",
-                Width = 960,
-                Height = 700,
+                Width = 1180,
+                Height = 920,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
                 ResizeMode = ResizeMode.CanResize,
                 Background = Brushes.White
@@ -8653,7 +8657,7 @@ namespace RevitProjectDataAddin
 
             var summary = new TextBlock
             {
-                Text = $"Khổ giấy: {paper} | Số bản vẽ sẽ xuất: {selectedSources.Count}",
+                Text = $"Khổ giấy xuất: {paper} | Số bản vẽ sẽ xuất: {selectedSources.Count}",
                 FontSize = 14,
                 Foreground = Brushes.DimGray,
                 Margin = new Thickness(0, 0, 0, 8)
@@ -8679,55 +8683,93 @@ namespace RevitProjectDataAddin
             }
             else
             {
-                var scroll = new ScrollViewer
+                var bodyGrid = new Grid();
+                bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(280) });
+                bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+                var sourceList = new ListBox
                 {
-                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                    HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+                    BorderBrush = Brushes.Silver,
+                    BorderThickness = new Thickness(1),
+                    FontSize = 13,
+                    Margin = new Thickness(0, 0, 12, 0)
                 };
-
-                var stack = new StackPanel();
-                for (int i = 0; i < selectedSources.Count; i++)
+                foreach (var src in selectedSources)
                 {
-                    var src = selectedSources[i];
-                    var card = new Border
-                    {
-                        BorderBrush = Brushes.Silver,
-                        BorderThickness = new Thickness(1),
-                        CornerRadius = new CornerRadius(4),
-                        Margin = new Thickness(0, 0, 0, 10),
-                        Padding = new Thickness(10)
-                    };
+                    sourceList.Items.Add(src.Key);
+                }
+                sourceList.SelectedIndex = 0;
+                bodyGrid.Children.Add(sourceList);
 
-                    var cardStack = new StackPanel();
-                    cardStack.Children.Add(new TextBlock
-                    {
-                        Text = $"{i + 1}. {src.Key}",
-                        FontSize = 14,
-                        FontWeight = FontWeights.SemiBold,
-                        Margin = new Thickness(0, 0, 0, 8)
-                    });
+                var previewPanel = new StackPanel();
+                Grid.SetColumn(previewPanel, 1);
+                bodyGrid.Children.Add(previewPanel);
 
-                    var previewImage = CreateCanvasPreviewImage(src.Canvas, 860, 230);
-                    if (previewImage != null)
+                var pageTitle = new TextBlock
+                {
+                    FontSize = 14,
+                    FontWeight = FontWeights.SemiBold,
+                    Margin = new Thickness(0, 0, 0, 8)
+                };
+                previewPanel.Children.Add(pageTitle);
+
+                var a4Frame = new Border
+                {
+                    BorderBrush = Brushes.DimGray,
+                    BorderThickness = new Thickness(1.5),
+                    Width = a4FrameWidth,
+                    Height = a4FrameHeight,
+                    Background = Brushes.White,
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    VerticalAlignment = VerticalAlignment.Top,
+                    SnapsToDevicePixels = true
+                };
+                var previewImage = new Image
+                {
+                    Stretch = Stretch.Uniform,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    SnapsToDevicePixels = true
+                };
+                a4Frame.Child = previewImage;
+                previewPanel.Children.Add(a4Frame);
+
+                var note = new TextBlock
+                {
+                    Text = "Khung review theo tỷ lệ A4 để dễ đối chiếu khi xuất PDF.",
+                    FontSize = 12,
+                    Foreground = Brushes.Gray,
+                    Margin = new Thickness(0, 8, 0, 0)
+                };
+                previewPanel.Children.Add(note);
+
+                void UpdatePreview(int index)
+                {
+                    if (index < 0 || index >= selectedSources.Count)
                     {
-                        cardStack.Children.Add(previewImage);
+                        pageTitle.Text = "";
+                        previewImage.Source = null;
+                        return;
                     }
-                    else
+
+                    var src = selectedSources[index];
+                    pageTitle.Text = $"Xem trước: {src.Key}";
+
+                    // Đồng bộ với dữ liệu đang dùng khi xuất PDF để đảm bảo review phản ánh nội dung xuất.
+                    if (!_sceneByItem.TryGetValue(src.Item, out var scene) || scene == null || scene.Count == 0)
                     {
-                        cardStack.Children.Add(new TextBlock
-                        {
-                            Text = "(Không thể tạo preview từ canvas)",
-                            FontSize = 12,
-                            Foreground = Brushes.Gray
-                        });
+                        try { Redraw(src.Canvas, src.Item); }
+                        catch { }
                     }
 
-                    card.Child = cardStack;
-                    stack.Children.Add(card);
+                    var imageSource = CreateCanvasPreviewImageSource(src.Canvas);
+                    previewImage.Source = imageSource;
                 }
 
-                scroll.Content = stack;
-                reviewBody = scroll;
+                sourceList.SelectionChanged += (s, e) => UpdatePreview(sourceList.SelectedIndex);
+                UpdatePreview(sourceList.SelectedIndex);
+
+                reviewBody = bodyGrid;
             }
 
             Grid.SetRow(reviewBody, 2);
@@ -8748,7 +8790,7 @@ namespace RevitProjectDataAddin
             reviewWindow.ShowDialog();
         }
 
-        private Image CreateCanvasPreviewImage(Canvas canvas, double maxWidth, double maxHeight)
+        private ImageSource CreateCanvasPreviewImageSource(Canvas canvas)
         {
             if (canvas == null)
             {
@@ -8770,21 +8812,7 @@ namespace RevitProjectDataAddin
 
             var rtb = new RenderTargetBitmap(pixelWidth, pixelHeight, 96, 96, PixelFormats.Pbgra32);
             rtb.Render(canvas);
-
-            double scale = Math.Min(maxWidth / width, maxHeight / height);
-            if (double.IsNaN(scale) || double.IsInfinity(scale) || scale <= 0)
-            {
-                scale = 1;
-            }
-
-            return new Image
-            {
-                Source = rtb,
-                Stretch = Stretch.Uniform,
-                Width = width * scale,
-                Height = height * scale,
-                SnapsToDevicePixels = true
-            };
+            return rtb;
         }
 
         private void ExportItemDxf_Click(object sender, RoutedEventArgs e)
