@@ -8899,41 +8899,82 @@ namespace RevitProjectDataAddin
 
             if (scene == null) return false;
 
-            void Extend(double x, double y)
-            {
-                if (x < minX) minX = x;
-                if (y < minY) minY = y;
-                if (x > maxX) maxX = x;
-                if (y > maxY) maxY = y;
-            }
-
             foreach (var entity in scene)
             {
                 if (entity is SceneLine ln)
                 {
-                    Extend(ln.X1, ln.Y1);
-                    Extend(ln.X2, ln.Y2);
+                    if (ln.X1 < minX) minX = ln.X1;
+                    if (ln.Y1 < minY) minY = ln.Y1;
+                    if (ln.X1 > maxX) maxX = ln.X1;
+                    if (ln.Y1 > maxY) maxY = ln.Y1;
+
+                    if (ln.X2 < minX) minX = ln.X2;
+                    if (ln.Y2 < minY) minY = ln.Y2;
+                    if (ln.X2 > maxX) maxX = ln.X2;
+                    if (ln.Y2 > maxY) maxY = ln.Y2;
                 }
                 else if (entity is DxfText tx)
                 {
-                    Extend(tx.X, tx.Y);
+                    if (tx.X < minX) minX = tx.X;
+                    if (tx.Y < minY) minY = tx.Y;
+                    if (tx.X > maxX) maxX = tx.X;
+                    if (tx.Y > maxY) maxY = tx.Y;
                 }
                 else if (entity is DxfCircle c)
                 {
-                    Extend(c.X - c.R, c.Y - c.R);
-                    Extend(c.X + c.R, c.Y + c.R);
+                    double x1 = c.X - c.R;
+                    double y1 = c.Y - c.R;
+                    double x2 = c.X + c.R;
+                    double y2 = c.Y + c.R;
+
+                    if (x1 < minX) minX = x1;
+                    if (y1 < minY) minY = y1;
+                    if (x1 > maxX) maxX = x1;
+                    if (y1 > maxY) maxY = y1;
+
+                    if (x2 < minX) minX = x2;
+                    if (y2 < minY) minY = y2;
+                    if (x2 > maxX) maxX = x2;
+                    if (y2 > maxY) maxY = y2;
                 }
                 else if (entity is DxfArc arc)
                 {
-                    Extend(arc.X - arc.R, arc.Y - arc.R);
-                    Extend(arc.X + arc.R, arc.Y + arc.R);
+                    double x1 = arc.X - arc.R;
+                    double y1 = arc.Y - arc.R;
+                    double x2 = arc.X + arc.R;
+                    double y2 = arc.Y + arc.R;
+
+                    if (x1 < minX) minX = x1;
+                    if (y1 < minY) minY = y1;
+                    if (x1 > maxX) maxX = x1;
+                    if (y1 > maxY) maxY = y1;
+
+                    if (x2 < minX) minX = x2;
+                    if (y2 < minY) minY = y2;
+                    if (x2 > maxX) maxX = x2;
+                    if (y2 > maxY) maxY = y2;
                 }
                 else if (entity is DxfSolid solid)
                 {
-                    Extend(solid.X1, solid.Y1);
-                    Extend(solid.X2, solid.Y2);
-                    Extend(solid.X3, solid.Y3);
-                    Extend(solid.X4, solid.Y4);
+                    if (solid.X1 < minX) minX = solid.X1;
+                    if (solid.Y1 < minY) minY = solid.Y1;
+                    if (solid.X1 > maxX) maxX = solid.X1;
+                    if (solid.Y1 > maxY) maxY = solid.Y1;
+
+                    if (solid.X2 < minX) minX = solid.X2;
+                    if (solid.Y2 < minY) minY = solid.Y2;
+                    if (solid.X2 > maxX) maxX = solid.X2;
+                    if (solid.Y2 > maxY) maxY = solid.Y2;
+
+                    if (solid.X3 < minX) minX = solid.X3;
+                    if (solid.Y3 < minY) minY = solid.Y3;
+                    if (solid.X3 > maxX) maxX = solid.X3;
+                    if (solid.Y3 > maxY) maxY = solid.Y3;
+
+                    if (solid.X4 < minX) minX = solid.X4;
+                    if (solid.Y4 < minY) minY = solid.Y4;
+                    if (solid.X4 > maxX) maxX = solid.X4;
+                    if (solid.Y4 > maxY) maxY = solid.Y4;
                 }
             }
 
