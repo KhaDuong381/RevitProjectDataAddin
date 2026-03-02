@@ -8842,12 +8842,12 @@ namespace RevitProjectDataAddin
                     {
                         var pen = new Pen(new SolidColorBrush(ln.StrokeColor), Math.Max(1.0, ln.Thickness));
                         dc.DrawLine(pen,
-                            WorldToReviewPoint(ln.X1, ln.Y1, minX, maxY, scale, offsetX, offsetY, mmToPx),
-                            WorldToReviewPoint(ln.X2, ln.Y2, minX, maxY, scale, offsetX, offsetY, mmToPx));
+                            WorldToReviewPoint(ln.X1, ln.Y1, maxX, minY, scale, offsetX, offsetY, mmToPx),
+                            WorldToReviewPoint(ln.X2, ln.Y2, maxX, minY, scale, offsetX, offsetY, mmToPx));
                     }
                     else if (entity is DxfCircle c)
                     {
-                        var center = WorldToReviewPoint(c.X, c.Y, minX, maxY, scale, offsetX, offsetY, mmToPx);
+                        var center = WorldToReviewPoint(c.X, c.Y, maxX, minY, scale, offsetX, offsetY, mmToPx);
                         double rPx = Math.Max(0.5, c.R * scale * mmToPx);
                         var strokePen = new Pen(new SolidColorBrush(c.StrokeColor), Math.Max(1.0, c.StrokeThicknessPx));
                         var fillBrush = c.Filled ? new SolidColorBrush(c.FillColor) : null;
@@ -8855,24 +8855,24 @@ namespace RevitProjectDataAddin
                     }
                     else if (entity is DxfArc arc)
                     {
-                        DrawDxfArcToReview(dc, arc, minX, maxY, scale, offsetX, offsetY, mmToPx);
+                        DrawDxfArcToReview(dc, arc, maxX, minY, scale, offsetX, offsetY, mmToPx);
                     }
                     else if (entity is DxfSolid solid)
                     {
                         var geo = new StreamGeometry();
                         using (var gctx = geo.Open())
                         {
-                            gctx.BeginFigure(WorldToReviewPoint(solid.X1, solid.Y1, minX, maxY, scale, offsetX, offsetY, mmToPx), true, true);
-                            gctx.LineTo(WorldToReviewPoint(solid.X2, solid.Y2, minX, maxY, scale, offsetX, offsetY, mmToPx), true, false);
-                            gctx.LineTo(WorldToReviewPoint(solid.X3, solid.Y3, minX, maxY, scale, offsetX, offsetY, mmToPx), true, false);
-                            gctx.LineTo(WorldToReviewPoint(solid.X4, solid.Y4, minX, maxY, scale, offsetX, offsetY, mmToPx), true, false);
+                            gctx.BeginFigure(WorldToReviewPoint(solid.X1, solid.Y1, maxX, minY, scale, offsetX, offsetY, mmToPx), true, true);
+                            gctx.LineTo(WorldToReviewPoint(solid.X2, solid.Y2, maxX, minY, scale, offsetX, offsetY, mmToPx), true, false);
+                            gctx.LineTo(WorldToReviewPoint(solid.X3, solid.Y3, maxX, minY, scale, offsetX, offsetY, mmToPx), true, false);
+                            gctx.LineTo(WorldToReviewPoint(solid.X4, solid.Y4, maxX, minY, scale, offsetX, offsetY, mmToPx), true, false);
                         }
                         geo.Freeze();
                         dc.DrawGeometry(new SolidColorBrush(solid.FillColor), null, geo);
                     }
                     else if (entity is DxfText tx)
                     {
-                        DrawDxfTextToReview(dc, tx, minX, maxY, scale, offsetX, offsetY, mmToPx);
+                        DrawDxfTextToReview(dc, tx, maxX, minY, scale, offsetX, offsetY, mmToPx);
                     }
                 }
             }
@@ -8882,11 +8882,13 @@ namespace RevitProjectDataAddin
             return rtb;
         }
 
-        private static Point WorldToReviewPoint(double x, double y, double minX, double maxY,
+        private static Point WorldToReviewPoint(double x, double y, double maxX, double minY,
                                                  double scaleMmToMm, double offsetMmX, double offsetMmY, double mmToPx)
         {
-            double px = ((x - minX) * scaleMmToMm + offsetMmX) * mmToPx;
-            double py = ((maxY - y) * scaleMmToMm + offsetMmY) * mmToPx;
+            // Map theo hệ trục preview cần hiển thị cùng chiều với canvas review,
+            // tránh bị đảo 180 độ khi scene dùng quy ước trục ngược.
+            double px = ((maxX - x) * scaleMmToMm + offsetMmX) * mmToPx;
+            double py = ((y - minY) * scaleMmToMm + offsetMmY) * mmToPx;
             return new Point(px, py);
         }
 
@@ -8982,13 +8984,13 @@ namespace RevitProjectDataAddin
         }
 
         private static void DrawDxfArcToReview(DrawingContext dc, DxfArc arc,
-                                               double minX, double maxY, double scale, double offsetX, double offsetY, double mmToPx)
+                                               double maxX, double minY, double scale, double offsetX, double offsetY, double mmToPx)
         {
             double startRad = arc.StartDeg * Math.PI / 180.0;
             double endRad = arc.EndDeg * Math.PI / 180.0;
 
-            Point p0 = WorldToReviewPoint(arc.X + arc.R * Math.Cos(startRad), arc.Y + arc.R * Math.Sin(startRad), minX, maxY, scale, offsetX, offsetY, mmToPx);
-            Point p1 = WorldToReviewPoint(arc.X + arc.R * Math.Cos(endRad), arc.Y + arc.R * Math.Sin(endRad), minX, maxY, scale, offsetX, offsetY, mmToPx);
+            Point p0 = WorldToReviewPoint(arc.X + arc.R * Math.Cos(startRad), arc.Y + arc.R * Math.Sin(startRad), maxX, minY, scale, offsetX, offsetY, mmToPx);
+            Point p1 = WorldToReviewPoint(arc.X + arc.R * Math.Cos(endRad), arc.Y + arc.R * Math.Sin(endRad), maxX, minY, scale, offsetX, offsetY, mmToPx);
 
             double delta = NormalizeDeltaCCW(arc.StartDeg, arc.EndDeg);
             bool isLarge = delta > 180.0;
@@ -9010,7 +9012,7 @@ namespace RevitProjectDataAddin
         }
 
         private static void DrawDxfTextToReview(DrawingContext dc, DxfText tx,
-                                                double minX, double maxY, double scale, double offsetX, double offsetY, double mmToPx)
+                                                double maxX, double minY, double scale, double offsetX, double offsetY, double mmToPx)
         {
             if (string.IsNullOrEmpty(tx.Value)) return;
 
@@ -9024,7 +9026,7 @@ namespace RevitProjectDataAddin
                                        new SolidColorBrush(tx.Color),
                                        1.0);
 
-            var anchor = WorldToReviewPoint(tx.X, tx.Y, minX, maxY, scale, offsetX, offsetY, mmToPx);
+            var anchor = WorldToReviewPoint(tx.X, tx.Y, maxX, minY, scale, offsetX, offsetY, mmToPx);
             double drawX = anchor.X;
             double drawY = anchor.Y;
 
