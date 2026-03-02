@@ -8762,7 +8762,7 @@ namespace RevitProjectDataAddin
                         catch { }
                     }
 
-                    var imageSource = CreateCanvasPreviewImageSource(src.Canvas);
+                    var imageSource = CreatePdfReviewImageSource(src, paper);
                     previewImage.Source = imageSource;
                 }
 
@@ -8788,6 +8788,255 @@ namespace RevitProjectDataAddin
             root.Children.Add(closeButton);
 
             reviewWindow.ShowDialog();
+        }
+
+        private ImageSource CreatePdfReviewImageSource(PdfExportSource src, string paper)
+        {
+            if (src == null)
+            {
+                return null;
+            }
+
+            if (!_sceneByItem.TryGetValue(src.Item, out var scene) || scene == null || scene.Count == 0)
+            {
+                return CreateCanvasPreviewImageSource(src.Canvas);
+            }
+
+            double pageMmWidth = string.Equals(paper, "A3", StringComparison.OrdinalIgnoreCase) ? 420.0 : 297.0;
+            double pageMmHeight = string.Equals(paper, "A3", StringComparison.OrdinalIgnoreCase) ? 297.0 : 210.0;
+            const double marginMm = 10.0;
+            const double mmToPx = 96.0 / 25.4;
+
+            int pixelWidth = Math.Max(1, (int)Math.Round(pageMmWidth * mmToPx));
+            int pixelHeight = Math.Max(1, (int)Math.Round(pageMmHeight * mmToPx));
+
+            if (!TryGetSceneBounds(scene, out double minX, out double minY, out double maxX, out double maxY))
+            {
+                return CreateCanvasPreviewImageSource(src.Canvas);
+            }
+
+            double contentW = Math.Max(1.0, maxX - minX);
+            double contentH = Math.Max(1.0, maxY - minY);
+
+            double availW = Math.Max(1.0, pageMmWidth - marginMm * 2.0);
+            double availH = Math.Max(1.0, pageMmHeight - marginMm * 2.0);
+            double scale = Math.Min(availW / contentW, availH / contentH);
+            if (scale <= 0 || double.IsNaN(scale) || double.IsInfinity(scale))
+            {
+                return CreateCanvasPreviewImageSource(src.Canvas);
+            }
+
+            double usedW = contentW * scale;
+            double usedH = contentH * scale;
+            double offsetX = (pageMmWidth - usedW) / 2.0;
+            double offsetY = (pageMmHeight - usedH) / 2.0;
+
+            var visual = new DrawingVisual();
+            using (var dc = visual.RenderOpen())
+            {
+                dc.DrawRectangle(Brushes.White, null, new Rect(0, 0, pixelWidth, pixelHeight));
+
+                foreach (var entity in scene)
+                {
+                    if (entity is SceneLine ln)
+                    {
+                        var pen = new Pen(new SolidColorBrush(ln.StrokeColor), Math.Max(1.0, ln.Thickness));
+                        dc.DrawLine(pen,
+                            WorldToReviewPoint(ln.X1, ln.Y1, maxX, minY, scale, offsetX, offsetY, mmToPx),
+                            WorldToReviewPoint(ln.X2, ln.Y2, maxX, minY, scale, offsetX, offsetY, mmToPx));
+                    }
+                    else if (entity is DxfCircle c)
+                    {
+                        var center = WorldToReviewPoint(c.X, c.Y, maxX, minY, scale, offsetX, offsetY, mmToPx);
+                        double rPx = Math.Max(0.5, c.R * scale * mmToPx);
+                        var strokePen = new Pen(new SolidColorBrush(c.StrokeColor), Math.Max(1.0, c.StrokeThicknessPx));
+                        var fillBrush = c.Filled ? new SolidColorBrush(c.FillColor) : null;
+                        dc.DrawEllipse(fillBrush, strokePen, center, rPx, rPx);
+                    }
+                    else if (entity is DxfArc arc)
+                    {
+                        DrawDxfArcToReview(dc, arc, maxX, minY, scale, offsetX, offsetY, mmToPx);
+                    }
+                    else if (entity is DxfSolid solid)
+                    {
+                        var geo = new StreamGeometry();
+                        using (var gctx = geo.Open())
+                        {
+                            gctx.BeginFigure(WorldToReviewPoint(solid.X1, solid.Y1, maxX, minY, scale, offsetX, offsetY, mmToPx), true, true);
+                            gctx.LineTo(WorldToReviewPoint(solid.X2, solid.Y2, maxX, minY, scale, offsetX, offsetY, mmToPx), true, false);
+                            gctx.LineTo(WorldToReviewPoint(solid.X3, solid.Y3, maxX, minY, scale, offsetX, offsetY, mmToPx), true, false);
+                            gctx.LineTo(WorldToReviewPoint(solid.X4, solid.Y4, maxX, minY, scale, offsetX, offsetY, mmToPx), true, false);
+                        }
+                        geo.Freeze();
+                        dc.DrawGeometry(new SolidColorBrush(solid.FillColor), null, geo);
+                    }
+                    else if (entity is DxfText tx)
+                    {
+                        DrawDxfTextToReview(dc, tx, maxX, minY, scale, offsetX, offsetY, mmToPx);
+                    }
+                }
+            }
+
+            var rtb = new RenderTargetBitmap(pixelWidth, pixelHeight, 96, 96, PixelFormats.Pbgra32);
+            rtb.Render(visual);
+            return rtb;
+        }
+
+        private static Point WorldToReviewPoint(double x, double y, double maxX, double minY,
+                                                 double scaleMmToMm, double offsetMmX, double offsetMmY, double mmToPx)
+        {
+            // Map theo hệ trục preview cần hiển thị cùng chiều với canvas review,
+            // tránh bị đảo 180 độ khi scene dùng quy ước trục ngược.
+            double px = ((maxX - x) * scaleMmToMm + offsetMmX) * mmToPx;
+            double py = ((y - minY) * scaleMmToMm + offsetMmY) * mmToPx;
+            return new Point(px, py);
+        }
+
+        private static bool TryGetSceneBounds(IEnumerable<object> scene, out double minX, out double minY, out double maxX, out double maxY)
+        {
+            minX = double.PositiveInfinity;
+            minY = double.PositiveInfinity;
+            maxX = double.NegativeInfinity;
+            maxY = double.NegativeInfinity;
+
+            if (scene == null) return false;
+
+            foreach (var entity in scene)
+            {
+                if (entity is SceneLine ln)
+                {
+                    if (ln.X1 < minX) minX = ln.X1;
+                    if (ln.Y1 < minY) minY = ln.Y1;
+                    if (ln.X1 > maxX) maxX = ln.X1;
+                    if (ln.Y1 > maxY) maxY = ln.Y1;
+
+                    if (ln.X2 < minX) minX = ln.X2;
+                    if (ln.Y2 < minY) minY = ln.Y2;
+                    if (ln.X2 > maxX) maxX = ln.X2;
+                    if (ln.Y2 > maxY) maxY = ln.Y2;
+                }
+                else if (entity is DxfText tx)
+                {
+                    if (tx.X < minX) minX = tx.X;
+                    if (tx.Y < minY) minY = tx.Y;
+                    if (tx.X > maxX) maxX = tx.X;
+                    if (tx.Y > maxY) maxY = tx.Y;
+                }
+                else if (entity is DxfCircle c)
+                {
+                    double x1 = c.X - c.R;
+                    double y1 = c.Y - c.R;
+                    double x2 = c.X + c.R;
+                    double y2 = c.Y + c.R;
+
+                    if (x1 < minX) minX = x1;
+                    if (y1 < minY) minY = y1;
+                    if (x1 > maxX) maxX = x1;
+                    if (y1 > maxY) maxY = y1;
+
+                    if (x2 < minX) minX = x2;
+                    if (y2 < minY) minY = y2;
+                    if (x2 > maxX) maxX = x2;
+                    if (y2 > maxY) maxY = y2;
+                }
+                else if (entity is DxfArc arc)
+                {
+                    double x1 = arc.X - arc.R;
+                    double y1 = arc.Y - arc.R;
+                    double x2 = arc.X + arc.R;
+                    double y2 = arc.Y + arc.R;
+
+                    if (x1 < minX) minX = x1;
+                    if (y1 < minY) minY = y1;
+                    if (x1 > maxX) maxX = x1;
+                    if (y1 > maxY) maxY = y1;
+
+                    if (x2 < minX) minX = x2;
+                    if (y2 < minY) minY = y2;
+                    if (x2 > maxX) maxX = x2;
+                    if (y2 > maxY) maxY = y2;
+                }
+                else if (entity is DxfSolid solid)
+                {
+                    if (solid.X1 < minX) minX = solid.X1;
+                    if (solid.Y1 < minY) minY = solid.Y1;
+                    if (solid.X1 > maxX) maxX = solid.X1;
+                    if (solid.Y1 > maxY) maxY = solid.Y1;
+
+                    if (solid.X2 < minX) minX = solid.X2;
+                    if (solid.Y2 < minY) minY = solid.Y2;
+                    if (solid.X2 > maxX) maxX = solid.X2;
+                    if (solid.Y2 > maxY) maxY = solid.Y2;
+
+                    if (solid.X3 < minX) minX = solid.X3;
+                    if (solid.Y3 < minY) minY = solid.Y3;
+                    if (solid.X3 > maxX) maxX = solid.X3;
+                    if (solid.Y3 > maxY) maxY = solid.Y3;
+
+                    if (solid.X4 < minX) minX = solid.X4;
+                    if (solid.Y4 < minY) minY = solid.Y4;
+                    if (solid.X4 > maxX) maxX = solid.X4;
+                    if (solid.Y4 > maxY) maxY = solid.Y4;
+                }
+            }
+
+            return !(double.IsInfinity(minX) || double.IsInfinity(minY) || double.IsInfinity(maxX) || double.IsInfinity(maxY));
+        }
+
+        private static void DrawDxfArcToReview(DrawingContext dc, DxfArc arc,
+                                               double maxX, double minY, double scale, double offsetX, double offsetY, double mmToPx)
+        {
+            double startRad = arc.StartDeg * Math.PI / 180.0;
+            double endRad = arc.EndDeg * Math.PI / 180.0;
+
+            Point p0 = WorldToReviewPoint(arc.X + arc.R * Math.Cos(startRad), arc.Y + arc.R * Math.Sin(startRad), maxX, minY, scale, offsetX, offsetY, mmToPx);
+            Point p1 = WorldToReviewPoint(arc.X + arc.R * Math.Cos(endRad), arc.Y + arc.R * Math.Sin(endRad), maxX, minY, scale, offsetX, offsetY, mmToPx);
+
+            double delta = NormalizeDeltaCCW(arc.StartDeg, arc.EndDeg);
+            bool isLarge = delta > 180.0;
+            double rPx = Math.Max(0.5, arc.R * scale * mmToPx);
+
+            var figure = new PathFigure { StartPoint = p0, IsClosed = false, IsFilled = false };
+            figure.Segments.Add(new ArcSegment
+            {
+                Point = p1,
+                Size = new Size(rPx, rPx),
+                RotationAngle = 0,
+                IsLargeArc = isLarge,
+                SweepDirection = SweepDirection.Counterclockwise
+            });
+
+            var geometry = new PathGeometry(new[] { figure });
+            var pen = new Pen(new SolidColorBrush(arc.StrokeColor), Math.Max(1.0, arc.ThicknessPx));
+            dc.DrawGeometry(null, pen, geometry);
+        }
+
+        private static void DrawDxfTextToReview(DrawingContext dc, DxfText tx,
+                                                double maxX, double minY, double scale, double offsetX, double offsetY, double mmToPx)
+        {
+            if (string.IsNullOrEmpty(tx.Value)) return;
+
+            double fontPx = Math.Max(6.0, tx.Height * scale * mmToPx);
+            var typeface = new Typeface(new FontFamily(tx.FontFamily ?? "Yu Mincho"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+            var ft = new FormattedText(tx.Value,
+                                       CultureInfo.CurrentCulture,
+                                       FlowDirection.LeftToRight,
+                                       typeface,
+                                       fontPx,
+                                       new SolidColorBrush(tx.Color),
+                                       1.0);
+
+            var anchor = WorldToReviewPoint(tx.X, tx.Y, maxX, minY, scale, offsetX, offsetY, mmToPx);
+            double drawX = anchor.X;
+            double drawY = anchor.Y;
+
+            if (tx.HAnchor == HAnchor.Center) drawX -= ft.Width / 2.0;
+            else if (tx.HAnchor == HAnchor.Right) drawX -= ft.Width;
+
+            if (tx.VAnchor == VAnchor.Middle) drawY -= ft.Height / 2.0;
+            else if (tx.VAnchor == VAnchor.Bottom) drawY -= ft.Height;
+
+            dc.DrawText(ft, new Point(drawX, drawY));
         }
 
         private ImageSource CreateCanvasPreviewImageSource(Canvas canvas)
