@@ -8633,7 +8633,7 @@ namespace RevitProjectDataAddin
                 Owner = owner,
                 Title = "Review nội dung sẽ xuất PDF",
                 Width = 1180,
-                Height = 920,
+                Height = 1150,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
                 ResizeMode = ResizeMode.CanResize,
                 Background = Brushes.White
@@ -8641,8 +8641,8 @@ namespace RevitProjectDataAddin
 
             var root = new Grid { Margin = new Thickness(16) };
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            //root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            //root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             reviewWindow.Content = root;
 
@@ -8655,15 +8655,15 @@ namespace RevitProjectDataAddin
             };
             root.Children.Add(header);
 
-            var summary = new TextBlock
-            {
-                Text = $"Khổ giấy xuất: {paper} | Số bản vẽ sẽ xuất: {selectedSources.Count}",
-                FontSize = 14,
-                Foreground = Brushes.DimGray,
-                Margin = new Thickness(0, 0, 0, 8)
-            };
-            Grid.SetRow(summary, 1);
-            root.Children.Add(summary);
+            //var summary = new TextBlock
+            //{
+            //    Text = $"Khổ giấy xuất: {paper} | Số bản vẽ sẽ xuất: {selectedSources.Count}",
+            //    FontSize = 14,
+            //    Foreground = Brushes.DimGray,
+            //    Margin = new Thickness(0, 0, 0, 8)
+            //};
+            //Grid.SetRow(summary, 1);
+            //root.Children.Add(summary);
 
             UIElement reviewBody;
             if (selectedSources.Count == 0)
@@ -8775,17 +8775,17 @@ namespace RevitProjectDataAddin
             Grid.SetRow(reviewBody, 2);
             root.Children.Add(reviewBody);
 
-            var closeButton = new Button
-            {
-                Content = "Đóng",
-                Width = 90,
-                Height = 30,
-                HorizontalAlignment = HorizontalAlignment.Right,
-                Margin = new Thickness(0, 10, 0, 0)
-            };
-            closeButton.Click += (_, __) => reviewWindow.Close();
-            Grid.SetRow(closeButton, 3);
-            root.Children.Add(closeButton);
+            //var closeButton = new Button
+            //{
+            //    Content = "Đóng",
+            //    Width = 90,
+            //    Height = 30,
+            //    HorizontalAlignment = HorizontalAlignment.Right,
+            //    Margin = new Thickness(0, 10, 0, 0)
+            //};
+            //closeButton.Click += (_, __) => reviewWindow.Close();
+            //Grid.SetRow(closeButton, 3);
+            //root.Children.Add(closeButton);
 
             reviewWindow.ShowDialog();
         }
