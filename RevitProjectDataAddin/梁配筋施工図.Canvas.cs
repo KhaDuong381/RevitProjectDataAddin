@@ -1,4 +1,4 @@
-﻿
+
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -59,12 +59,11 @@ namespace RevitProjectDataAddin
         private static (double X, double Y) OffsetCentralStirrupFrame { get; set; } = (0, 10000);  // Offset cho /////////////// 4 chổ /////////////////////
         private static (double X, double Y) OffsetLegendColumn { get; set; } = (0, 10000);         // Offset cho ///////////// 5 chổ //////////////
         private static readonly string[] _standardRebarDiameters = { "10", "13", "16", "19", "22", "25", "29", "32", "35", "38" };
-        private static readonly string[] _standardRebarDiameters1 = { "10", "13", "16" };
+        private static readonly string[] _standardRebarDiameters1 = { "10", "13", "16", "19", "22", "25", "29", "32", "35", "38" };
 
         // DIM hover/base brushes (class scope to avoid missing-variable compile issues)
         private readonly Brush dimBaseFg = Brushes.Black;
         private readonly Brush dimHoverFg = Brushes.Blue;
-
 
 
         // ===== Anchor enums cho text =====
@@ -798,6 +797,29 @@ namespace RevitProjectDataAddin
                 : fallbackSigned;
         }
 
+        private bool SetAnkaOverrideBySegKey(GridBotsecozu owner, OrangeSegKey segKey, AnkaSide side, double signedLen)
+        {
+            if (owner == null) return false;
+
+            if (!_ankaSegOverrides.TryGetValue(owner, out var segDict) || segDict == null)
+            {
+                segDict = new Dictionary<AnkaSegKey, double>();
+                _ankaSegOverrides[owner] = segDict;
+            }
+
+            var segK = new AnkaSegKey(segKey, side);
+
+            if (Math.Abs(signedLen) <= 0.0001)
+            {
+                return segDict.Remove(segK);
+            }
+
+            bool changed = !segDict.TryGetValue(segK, out var old)
+                           || Math.Abs(old - signedLen) > 0.0001;
+            segDict[segK] = signedLen;
+            return changed;
+        }
+
         private double GetAnkaOverride(GridBotsecozu owner, OrangeDimTextKey dimKey, AnkaSide side, double fallbackSigned)
         {
             if (owner == null) return fallbackSigned;
@@ -984,6 +1006,44 @@ namespace RevitProjectDataAddin
         private readonly Dictionary<GridBotsecozu, Dictionary<OrangeSegKey, OrangeSegOverride>> _orangeSegOverrides
             = new Dictionary<GridBotsecozu, Dictionary<OrangeSegKey, OrangeSegOverride>>();
 
+        private readonly Dictionary<GridBotsecozu, Dictionary<OrangeSegKey, List<double>>> _orangeSegEqualCutPoints
+            = new Dictionary<GridBotsecozu, Dictionary<OrangeSegKey, List<double>>>();
+
+        private struct OrangeCutPointKey : IEquatable<OrangeCutPointKey>
+        {
+            public int RowIndex;
+            public int X_10;
+            public int Y_10;
+
+            public OrangeCutPointKey(int rowIndex, double x, double y)
+            {
+                RowIndex = rowIndex;
+                X_10 = (int)Math.Round(x * 10.0);
+                Y_10 = (int)Math.Round(y * 10.0);
+            }
+
+            public bool Equals(OrangeCutPointKey other)
+                => RowIndex == other.RowIndex && X_10 == other.X_10 && Y_10 == other.Y_10;
+
+            public override bool Equals(object obj)
+                => obj is OrangeCutPointKey other && Equals(other);
+
+            public override int GetHashCode()
+            {
+                unchecked
+                {
+                    int h = 17;
+                    h = h * 31 + RowIndex;
+                    h = h * 31 + X_10;
+                    h = h * 31 + Y_10;
+                    return h;
+                }
+            }
+        }
+
+        private readonly Dictionary<GridBotsecozu, HashSet<OrangeCutPointKey>> _orangeSegCutMarkers
+            = new Dictionary<GridBotsecozu, HashSet<OrangeCutPointKey>>();
+
         private bool TryGetOrangeSegOverride(GridBotsecozu owner, OrangeSegKey key, out OrangeSegOverride val)
         {
             val = default;
@@ -1036,17 +1096,134 @@ namespace RevitProjectDataAddin
             {
                 var key = new OrangeSegKey(rowIndex, seg.x1, seg.x2, y);
                 var (x1, x2) = GetOrangeSegOverride(owner, key, seg.x1, seg.x2);
-                resolved.Add(new OrangeSegResolved
-                {
-                    BaseX1 = seg.x1,
-                    BaseX2 = seg.x2,
-                    X1 = x1,
-                    X2 = x2
-                });
+                ExpandOrangeSegByEqualCuts(owner, rowIndex, y, seg.x1, seg.x2, x1, x2, resolved, 0);
             }
-            return resolved
-                .Where(seg => !IsOrangeSegDeleted(owner, rowIndex, seg.BaseX1, seg.BaseX2, y))
-                .ToList();
+            return resolved;
+        }
+
+        private void ExpandOrangeSegByEqualCuts(
+            GridBotsecozu owner,
+            int rowIndex,
+            double y,
+            double baseX1,
+            double baseX2,
+            double x1,
+            double x2,
+            List<OrangeSegResolved> output,
+            int depth)
+        {
+            if (depth > 16) return;
+            if (x2 <= x1 + 1e-6) return;
+            if (IsOrangeSegDeleted(owner, rowIndex, baseX1, baseX2, y)) return;
+
+            var key = new OrangeSegKey(rowIndex, baseX1, baseX2, y);
+            if (_orangeSegEqualCutPoints.TryGetValue(owner, out var ownerCuts)
+                && ownerCuts != null
+                && ownerCuts.TryGetValue(key, out var cuts)
+                && cuts != null
+                && cuts.Count > 0)
+            {
+                var validCuts = cuts
+                    .Where(c => c > x1 + 1e-6 && c < x2 - 1e-6)
+                    .Distinct()
+                    .OrderBy(c => c)
+                    .ToList();
+
+                if (validCuts.Count > 0)
+                {
+                    double cur = x1;
+                    foreach (var cp in validCuts)
+                    {
+                        var childKey = new OrangeSegKey(rowIndex, cur, cp, y);
+                        var (childX1, childX2) = GetOrangeSegOverride(owner, childKey, cur, cp);
+                        ExpandOrangeSegByEqualCuts(owner, rowIndex, y, cur, cp, childX1, childX2, output, depth + 1);
+                        cur = cp;
+                    }
+
+                    if (x2 > cur + 1e-6)
+                    {
+                        var childKey = new OrangeSegKey(rowIndex, cur, x2, y);
+                        var (childX1, childX2) = GetOrangeSegOverride(owner, childKey, cur, x2);
+                        ExpandOrangeSegByEqualCuts(owner, rowIndex, y, cur, x2, childX1, childX2, output, depth + 1);
+                    }
+                    return;
+                }
+            }
+
+            output.Add(new OrangeSegResolved
+            {
+                BaseX1 = baseX1,
+                BaseX2 = baseX2,
+                X1 = x1,
+                X2 = x2
+            });
+        }
+
+        private bool ApplyEqualCutToOrangeSegment(GridBotsecozu owner, OrangeDimTextKey dimKey, int segmentCount)
+        {
+            if (owner == null || segmentCount < 2) return false;
+            if (!TryGetSegKeyForDimKey(owner, dimKey, out var segKey)) return false;
+
+            double baseX1 = segKey.X1_10 / 10.0;
+            double baseX2 = segKey.X2_10 / 10.0;
+            double y = segKey.Y_10 / 10.0;
+            var (x1, x2) = GetOrangeSegOverride(owner, segKey, baseX1, baseX2);
+            double length = x2 - x1;
+            if (length <= 1e-6) return false;
+
+            bool hasLeftAnka = TryGetAnkaOverrideBySegKey(owner, segKey, AnkaSide.Left, out var leftAnkaSigned);
+            bool hasRightAnka = TryGetAnkaOverrideBySegKey(owner, segKey, AnkaSide.Right, out var rightAnkaSigned);
+
+            var cuts = new List<double>(segmentCount - 1);
+            double d = length / segmentCount;
+            for (int i = 1; i < segmentCount; i++)
+                cuts.Add(x1 + d * i);
+
+            if (!_orangeSegEqualCutPoints.TryGetValue(owner, out var ownerCuts) || ownerCuts == null)
+            {
+                ownerCuts = new Dictionary<OrangeSegKey, List<double>>();
+                _orangeSegEqualCutPoints[owner] = ownerCuts;
+            }
+            ownerCuts[segKey] = cuts;
+
+            if (!_orangeSegCutMarkers.TryGetValue(owner, out var markers) || markers == null)
+            {
+                markers = new HashSet<OrangeCutPointKey>();
+                _orangeSegCutMarkers[owner] = markers;
+            }
+            foreach (var cp in cuts)
+                markers.Add(new OrangeCutPointKey(segKey.RowIndex, cp, y));
+
+            if (cuts.Count > 0)
+            {
+                double firstRight = cuts[0];
+                double lastLeft = cuts[cuts.Count - 1];
+
+                var firstChild = new OrangeSegKey(segKey.RowIndex, x1, firstRight, y);
+                var lastChild = new OrangeSegKey(segKey.RowIndex, lastLeft, x2, y);
+
+                if (hasLeftAnka)
+                {
+                    SetAnkaOverrideBySegKey(owner, firstChild, AnkaSide.Left, leftAnkaSigned);
+                    SetAnkaOverrideBySegKey(owner, segKey, AnkaSide.Left, 0.0);
+                }
+
+                if (hasRightAnka)
+                {
+                    SetAnkaOverrideBySegKey(owner, lastChild, AnkaSide.Right, rightAnkaSigned);
+                    SetAnkaOverrideBySegKey(owner, segKey, AnkaSide.Right, 0.0);
+                }
+            }
+
+            return true;
+        }
+
+        private bool IsEqualCutMarker(GridBotsecozu owner, int rowIndex, double x, double y)
+        {
+            if (owner == null) return false;
+            return _orangeSegCutMarkers.TryGetValue(owner, out var markers)
+                   && markers != null
+                   && markers.Contains(new OrangeCutPointKey(rowIndex, x, y));
         }
 
         private bool ApplyOrangeSegLengthDelta(GridBotsecozu owner, OrangeDimTextKey dimKey, bool isLeftMenu, bool pullLeft, double delta)
@@ -1267,17 +1444,20 @@ namespace RevitProjectDataAddin
             defaultLeftSigned = 0.0;
             defaultRightSigned = 0.0;
 
-            if (TryGetOrangeSegInfo(owner, segKey, out var segInfo))
-            {
-                hitLeft = segInfo.HitLeftAnka;
-                hitRight = segInfo.HitRightAnka;
-                defaultLeftSigned = segInfo.DefaultLeftAnkaSigned;
-                defaultRightSigned = segInfo.DefaultRightAnkaSigned;
-                return;
-            }
+            // NOTE:
+            // segX1/segX2 có thể đã bị dịch nhẹ (rounding / tonari shift) sau khi 等分切断,
+            // nên nếu so trực tiếp với vị trí ANKA global có thể trượt tolerance và làm mất ANKA biên.
+            // Ưu tiên so theo tọa độ gốc của segment (segKey) để giữ ANKA ở 2 đầu ngoài cùng.
+            double baseX1 = segKey.X1_10 / 10.0;
+            double baseX2 = segKey.X2_10 / 10.0;
+            double hitX1 = baseX1;
+            double hitX2 = baseX2;
 
-            hitLeft = hasLeftAnka && Near(segX1, leftAnkaX, 0.5);
-            hitRight = hasRightAnka && Near(segX2, rightAnkaX, 0.5);
+            if (double.IsNaN(hitX1) || double.IsInfinity(hitX1)) hitX1 = segX1;
+            if (double.IsNaN(hitX2) || double.IsInfinity(hitX2)) hitX2 = segX2;
+
+            hitLeft = hasLeftAnka && Near(hitX1, leftAnkaX, 0.5);
+            hitRight = hasRightAnka && Near(hitX2, rightAnkaX, 0.5);
             defaultLeftSigned = hitLeft ? fallbackLeftSigned : 0.0;
             defaultRightSigned = hitRight ? fallbackRightSigned : 0.0;
         }
@@ -2854,12 +3034,25 @@ namespace RevitProjectDataAddin
                             cutDetailPop.IsOpen = false;
                     }
 
+                    void TryApplyEqualCutAndClose()
+                    {
+                        if (isCustom) return;
+                        if (!TryParsePositiveInt(txtSegments.Text, out int n) || n < 2) return;
+
+                        if (ApplyEqualCutToOrangeSegment(owner, key, n))
+                        {
+                            CloseAll();
+                            Redraw(canvas, owner);
+                        }
+                    }
+
                     txtSegments.TextChanged += (_, __) => TryOpenCustomDetail();
                     txtSegments.KeyDown += (_, ee) =>
                     {
                         if (ee.Key == Key.Enter)
                         {
                             TryOpenCustomDetail();
+                            TryApplyEqualCutAndClose();
                             ee.Handled = true;
                         }
                     };
@@ -4334,6 +4527,11 @@ namespace RevitProjectDataAddin
                         150, "DIM"
                     );
                     MakeOrangeDimTextEditable(botTb, cvs, tr, wxBot, wyBot, owner, botKey);
+                }
+
+                if (IsEqualCutMarker(owner, rowIndex, x1, y))
+                {
+                    DrawDotMm_Rec(cvs, tr, owner, x1, y, rMm: 36, layer: "DIM", fill: Brushes.Black);
                 }
             }
 
