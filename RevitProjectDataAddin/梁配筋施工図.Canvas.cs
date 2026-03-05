@@ -14998,29 +14998,25 @@ namespace RevitProjectDataAddin
             bool hasMat = !string.IsNullOrWhiteSpace(matText);
 
             // NOTE:
-            // Keep triplet spacing independent from view zoom so Dia/Pitch/Mat
-            // stays visually "locked" like one label while preserving current
-            // per-part editable behavior.
+            // Keep the 3-part label (Dia/Pitch/Mat) visually locked across zoom levels.
+            // We still render/edit as 3 independent TextBlocks, but spacing is computed
+            // from the same on-screen font metrics used for drawing.
             //
-            // DrawText_Rec already applies ResolveTextCombinedScale(...) to text size.
-            // If we also include that zoom scale while computing horizontal widths,
-            // spacing gets scaled a second time and the triplet drifts apart when zooming.
-            // Therefore width measurement here intentionally uses the base font size.
-            double effectiveFontPx = fontPx;
+            // DrawText_Rec renders text with: effectiveFontPx = fontPx * ResolveTextCombinedScale(...)
+            // so spacing must be based on that same effective font; otherwise large zoom can
+            // stretch gaps and small zoom can cause overlap.
+            double combinedScale = ResolveTextCombinedScale(T, item);
+            double effectiveFontPx = fontPx * combinedScale;
             double scalePxPerMm = Math.Abs(T.Scale) < 1e-9 ? 1.0 : Math.Abs(T.Scale);
             double gapMm = gapPx / scalePxPerMm;
-            const double dxfTextHeightMm = 150.0;
             string fontFamilyName = this.FontFamily?.Source ?? "Yu Mincho";
             var typeface = new Typeface(new FontFamily(fontFamilyName), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
 
-            double wDiaMm = MeasureTextWidthDxfMm(canvas, diaText, typeface, effectiveFontPx, dxfTextHeightMm);
-            double wPitchMm = MeasureTextWidthDxfMm(canvas, pitchText, typeface, effectiveFontPx, dxfTextHeightMm);
-            double wMatMm = hasMat ? MeasureTextWidthDxfMm(canvas, matText, typeface, effectiveFontPx, dxfTextHeightMm) : 0;
-
-            // Fallback for environments where geometry measurement can fail.
-            if (wDiaMm <= 0) wDiaMm = MeasureTextWidthPx(canvas, diaText, typeface, effectiveFontPx) / scalePxPerMm;
-            if (wPitchMm <= 0) wPitchMm = MeasureTextWidthPx(canvas, pitchText, typeface, effectiveFontPx) / scalePxPerMm;
-            if (hasMat && wMatMm <= 0) wMatMm = MeasureTextWidthPx(canvas, matText, typeface, effectiveFontPx) / scalePxPerMm;
+            // Use pixel width measurement (actual WPF render metric), then convert to world mm.
+            // This keeps spacing stable with zoom and matches what users see/edit on canvas.
+            double wDiaMm = MeasureTextWidthPx(canvas, diaText, typeface, effectiveFontPx) / scalePxPerMm;
+            double wPitchMm = MeasureTextWidthPx(canvas, pitchText, typeface, effectiveFontPx) / scalePxPerMm;
+            double wMatMm = hasMat ? (MeasureTextWidthPx(canvas, matText, typeface, effectiveFontPx) / scalePxPerMm) : 0;
 
             double totalMm = wDiaMm + gapMm + wPitchMm + (hasMat ? gapMm + wMatMm : 0);
             double xStart = centerXmm - totalMm / 2.0;
