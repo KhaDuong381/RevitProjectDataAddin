@@ -14997,8 +14997,16 @@ namespace RevitProjectDataAddin
             matText = matText ?? string.Empty;
             bool hasMat = !string.IsNullOrWhiteSpace(matText);
 
-            double combinedScale = ResolveTextCombinedScale(T, item);
-            double effectiveFontPx = fontPx * combinedScale;
+            // NOTE:
+            // Keep triplet spacing independent from view zoom so Dia/Pitch/Mat
+            // stays visually "locked" like one label while preserving current
+            // per-part editable behavior.
+            //
+            // DrawText_Rec already applies ResolveTextCombinedScale(...) to text size.
+            // If we also include that zoom scale while computing horizontal widths,
+            // spacing gets scaled a second time and the triplet drifts apart when zooming.
+            // Therefore width measurement here intentionally uses the base font size.
+            double effectiveFontPx = fontPx;
             double scalePxPerMm = Math.Abs(T.Scale) < 1e-9 ? 1.0 : Math.Abs(T.Scale);
             double gapMm = gapPx / scalePxPerMm;
             const double dxfTextHeightMm = 150.0;
