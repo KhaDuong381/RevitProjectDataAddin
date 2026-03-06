@@ -8665,6 +8665,14 @@ namespace RevitProjectDataAddin
             public List<string> SelectedKeys { get; set; } = new List<string>();
         }
 
+        private sealed class PositionSelectionOption
+        {
+            public string Key { get; set; }
+            public string Label { get; set; }
+            public bool IsSelectAll { get; set; }
+            public bool IsChecked { get; set; }
+        }
+
         private PdfExportOptions ShowPdfExportOptionsDialog(IReadOnlyList<PdfExportSource> sources)
         {
             var optionWindow = new Window
@@ -8734,16 +8742,134 @@ namespace RevitProjectDataAddin
             Grid.SetRow(rangeTitle, 2);
             root.Children.Add(rangeTitle);
 
+            const string allKey = "__ALL_POSITIONS__";
+            var currentSpan = $"{_currentSecoList?.階を選択}_{_currentSecoList?.通を選択}";
+
+            var spanPool = new List<string>();
+            var kaiNames = _projectData?.Kihon?.NameKai?.Select(x => x?.Name).Where(x => !string.IsNullOrWhiteSpace(x)).ToList()
+                           ?? new List<string>();
+            var xNames = _projectData?.Kihon?.NameX?.Select(x => x?.Name).Where(x => !string.IsNullOrWhiteSpace(x)).ToList()
+                         ?? new List<string>();
+            var yNames = _projectData?.Kihon?.NameY?.Select(x => x?.Name).Where(x => !string.IsNullOrWhiteSpace(x)).ToList()
+                         ?? new List<string>();
+
+            foreach (var kai in kaiNames)
+            {
+                foreach (var x in xNames)
+                    spanPool.Add($"{kai}_{x}");
+                foreach (var y in yNames)
+                    spanPool.Add($"{kai}_{y}");
+            }
+
+            if (!string.IsNullOrWhiteSpace(currentSpan))
+                spanPool.Insert(0, currentSpan);
+
+            if (spanPool.Count == 0)
+                spanPool.AddRange(sources.Select(src => src.Key));
+
+            var positionOptions = new List<PositionSelectionOption>
+            {
+                new PositionSelectionOption
+                {
+                    Key = allKey,
+                    Label = "Tất cả",
+                    IsSelectAll = true,
+                    IsChecked = true
+                }
+            };
+
+            positionOptions.AddRange(
+                spanPool
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Distinct(StringComparer.Ordinal)
+                    .Select(span => new PositionSelectionOption
+                    {
+                        Key = span,
+                        Label = span,
+                        IsChecked = true
+                    }));
+
             var positionList = new ListBox
             {
-                SelectionMode = SelectionMode.Multiple,
                 BorderBrush = Brushes.Silver,
                 BorderThickness = new Thickness(1),
                 FontSize = 13
             };
-            foreach (var src in sources)
-                positionList.Items.Add(src.Key);
-            positionList.SelectAll();
+
+            void SyncSelectAllState()
+            {
+                var allOption = positionOptions.FirstOrDefault(x => x.IsSelectAll);
+                if (allOption == null) return;
+                allOption.IsChecked = positionOptions.Where(x => !x.IsSelectAll).All(x => x.IsChecked);
+
+                foreach (var obj in positionList.Items)
+                {
+                    if (obj is CheckBox cb && cb.Tag is PositionSelectionOption opt && opt.IsSelectAll)
+                    {
+                        if (cb.IsChecked != allOption.IsChecked)
+                            cb.IsChecked = allOption.IsChecked;
+                        break;
+                    }
+                }
+            }
+
+            foreach (var option in positionOptions)
+            {
+                var checkBox = new CheckBox
+                {
+                    Content = option.Label,
+                    Tag = option,
+                    Margin = new Thickness(4, 2, 4, 2),
+                    IsChecked = option.IsChecked
+                };
+
+                checkBox.Checked += (s, e) =>
+                {
+                    if (!(checkBox.Tag is PositionSelectionOption item)) return;
+
+                    item.IsChecked = true;
+                    if (item.IsSelectAll)
+                    {
+                        foreach (var other in positionOptions.Where(x => !x.IsSelectAll))
+                            other.IsChecked = true;
+
+                        foreach (var obj in positionList.Items)
+                        {
+                            if (obj is CheckBox cb && cb.Tag is PositionSelectionOption opt && !opt.IsSelectAll)
+                                cb.IsChecked = true;
+                        }
+                    }
+                    else
+                    {
+                        SyncSelectAllState();
+                    }
+                };
+
+                checkBox.Unchecked += (s, e) =>
+                {
+                    if (!(checkBox.Tag is PositionSelectionOption item)) return;
+
+                    item.IsChecked = false;
+                    if (item.IsSelectAll)
+                    {
+                        foreach (var other in positionOptions.Where(x => !x.IsSelectAll))
+                            other.IsChecked = false;
+
+                        foreach (var obj in positionList.Items)
+                        {
+                            if (obj is CheckBox cb && cb.Tag is PositionSelectionOption opt && !opt.IsSelectAll)
+                                cb.IsChecked = false;
+                        }
+                    }
+                    else
+                    {
+                        SyncSelectAllState();
+                    }
+                };
+
+                positionList.Items.Add(checkBox);
+            }
+
             Grid.SetRow(positionList, 3);
             root.Children.Add(positionList);
 
@@ -8781,20 +8907,24 @@ namespace RevitProjectDataAddin
 
             previewButton.Click += (s, e) =>
             {
-                var selected = positionList.SelectedItems.Cast<string>().ToList();
+                var selected = positionOptions.Where(x => !x.IsSelectAll && x.IsChecked)
+                                              .Select(x => x.Key)
+                                              .ToList();
                 var paper = (paperCombo.SelectedItem as string) ?? "A4";
-                previewText.Text = $"Khổ: {paper} | Số vị trí sẽ in: {selected.Count}/{sources.Count}";
-
                 var selectedSet = new HashSet<string>(selected, StringComparer.Ordinal);
                 var selectedSources = sources
                     .Where(src => selectedSet.Contains(src.Key))
                     .ToList();
+
+                previewText.Text = $"Khổ: {paper} | Số vị trí sẽ in: {selectedSources.Count}/{sources.Count}";
                 ShowPdfExportReviewWindow(optionWindow, selectedSources, paper);
             };
 
             okButton.Click += (s, e) =>
             {
-                var selected = positionList.SelectedItems.Cast<string>().ToList();
+                var selected = positionOptions.Where(x => !x.IsSelectAll && x.IsChecked)
+                                              .Select(x => x.Key)
+                                              .ToList();
                 if (selected.Count == 0)
                 {
                     MessageBox.Show(optionWindow, "Vui lòng chọn ít nhất 1 vị trí để in.");
