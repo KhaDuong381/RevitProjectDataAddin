@@ -16,7 +16,7 @@
 
     <Grid Background="White">
         <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-            <Grid Height="auto">
+            <Grid Height="auto" Margin="10">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="1*"/>
                     <ColumnDefinition Width="1*"/>
@@ -25,36 +25,46 @@
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <TextBlock Text="梁配筋施工図" FontSize="30" Margin="540,10,0,0"
-                           Grid.ColumnSpan="2" VerticalAlignment="Top" HorizontalAlignment="Left"/>
+                <TextBlock Text="梁配筋施工図" FontSize="30" Margin="0,0,0,12"
+                           Grid.Row="0" Grid.ColumnSpan="2" VerticalAlignment="Top" HorizontalAlignment="Center"/>
                 <TextBlock Foreground="{StaticResource TitleColor1}" Text="階・通りを選択"
-                           FontSize="20" Margin="10,50,0,0" HorizontalAlignment="Left" VerticalAlignment="Top"/>
+                           FontSize="20" Margin="0,0,0,8" Grid.Row="1" Grid.ColumnSpan="2"
+                           HorizontalAlignment="Left" VerticalAlignment="Top"/>
 
-                <TextBlock FontSize="18" Margin="10,80,0,0" Text="階を選択"
-                           VerticalAlignment="Top" HorizontalAlignment="Left"/>
-                <ComboBox x:Name="階を選択ComboBox"
-                          SelectedItem="{Binding 階を選択, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                          VerticalAlignment="Top" FontSize="18" Height="32"
-                          Grid.Row="1" Margin="10,0,20,0" Grid.Column="0"
-                          SelectionChanged="Combo_SelectionChanged"/>
+                <Grid Grid.Row="2" Grid.ColumnSpan="2" Margin="0,0,0,12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
 
-                <TextBlock FontSize="18" Margin="10,80,0,0" Text="通を選択"
-                           VerticalAlignment="Top" HorizontalAlignment="Left" Grid.Column="1"/>
-                <ComboBox x:Name="通を選択ComboBox"
-                          SelectedItem="{Binding 通を選択, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                          VerticalAlignment="Top" FontSize="18" Height="32"
-                          Grid.Row="1" Margin="10,0,20,0" Grid.Column="1"
-                          SelectionChanged="Combo_SelectionChanged"/>
+                    <StackPanel Grid.Column="0" Margin="0,0,10,0">
+                        <TextBlock FontSize="18" Margin="0,0,0,6" Text="階を選択"
+                                   VerticalAlignment="Top" HorizontalAlignment="Left"/>
+                        <ComboBox x:Name="階を選択ComboBox"
+                                  SelectedItem="{Binding 階を選択, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                  VerticalAlignment="Top" FontSize="18" Height="32"
+                                  SelectionChanged="Combo_SelectionChanged"/>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                        <TextBlock FontSize="18" Margin="0,0,0,6" Text="通を選択"
+                                   VerticalAlignment="Top" HorizontalAlignment="Left"/>
+                        <ComboBox x:Name="通を選択ComboBox"
+                                  SelectedItem="{Binding 通を選択, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                  VerticalAlignment="Top" FontSize="18" Height="32"
+                                  SelectionChanged="Combo_SelectionChanged"/>
+                    </StackPanel>
+                </Grid>
 
                 <TextBlock Foreground="{StaticResource TitleColor1}" Text="プレビュー"
-                           FontSize="20" Margin="10,20,0,0" TextWrapping="Wrap"
-                           HorizontalAlignment="Left" VerticalAlignment="Top" Grid.Row="2"/>
+                           FontSize="20" Margin="0,0,0,8" TextWrapping="Wrap"
+                           HorizontalAlignment="Left" VerticalAlignment="Top" Grid.Row="3" Grid.ColumnSpan="2"/>
 
-                <Border BorderBrush="Silver" BorderThickness="1" Margin="10,0,20,0"
+                <Border BorderBrush="Silver" BorderThickness="1" Margin="0,36,0,0"
                         Background="White" VerticalAlignment="Top" Grid.ColumnSpan="2"
                         Height="auto" Grid.Row="3">
                     <!-- Đặt tên để tham chiếu khi cần -->
@@ -80,7 +90,7 @@
                     </ItemsControl>
                 </Border>
 
-                <StackPanel Orientation="Horizontal" Margin="10,10,0,10"
+                <StackPanel Orientation="Horizontal" Margin="0,10,0,10"
                             Grid.ColumnSpan="2" Grid.Row="4">
                     <Button Content="Export DXF" Width="140" Height="28"
                             Click="ExportDxf_Click"/>
