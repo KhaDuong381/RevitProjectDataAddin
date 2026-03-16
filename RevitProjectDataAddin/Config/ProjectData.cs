@@ -431,6 +431,13 @@ public class GridBotsecozu : INotifyPropertyChanged
         set => SetProperty(ref _tanbuHookOverrides, value ?? new Dictionary<string, double>());
     }
 
+    private Dictionary<string, string> _tanbuDiameterOverrides = new Dictionary<string, string>();
+    public Dictionary<string, string> TanbuDiameterOverrides
+    {
+        get => _tanbuDiameterOverrides;
+        set => SetProperty(ref _tanbuDiameterOverrides, value ?? new Dictionary<string, string>());
+    }
+
     private Dictionary<string, string> _orangeDimTextOverrides = new Dictionary<string, string>();
     public Dictionary<string, string> OrangeDimTextOverrides
     {
