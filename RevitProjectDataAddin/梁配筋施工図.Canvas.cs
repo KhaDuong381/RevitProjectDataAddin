@@ -1,4 +1,4 @@
-
+﻿
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -12215,6 +12215,7 @@ namespace RevitProjectDataAddin
                 tb.Tag = handle;
 
                 System.Windows.Controls.Primitives.Popup subPop = null;
+                System.Windows.Controls.Primitives.Popup subSubPop = null;
 
                 MouseButtonEventHandler outsideCloser = null;
                 KeyEventHandler escCloser = null;
@@ -12230,6 +12231,7 @@ namespace RevitProjectDataAddin
                     if (isClosing) return;
                     isClosing = true;
 
+                    try { if (subSubPop != null) subSubPop.IsOpen = false; } catch { }
                     try { if (subPop != null) subPop.IsOpen = false; } catch { }
                     try { mainPop.IsOpen = false; } catch { }
 
@@ -12248,6 +12250,7 @@ namespace RevitProjectDataAddin
 
                 void CloseSub()
                 {
+                    try { if (subSubPop != null) subSubPop.IsOpen = false; } catch { }
                     try { if (subPop != null) subPop.IsOpen = false; } catch { }
                 }
 
@@ -12259,7 +12262,8 @@ namespace RevitProjectDataAddin
                     bool inside =
                         IsPointInside(tb, screenPt) ||
                         (mainPop.Child is FrameworkElement m && IsPointInside(m, screenPt)) ||
-                        (subPop != null && subPop.Child is FrameworkElement s2 && IsPointInside(s2, screenPt));
+                        (subPop != null && subPop.Child is FrameworkElement s2 && IsPointInside(s2, screenPt)) ||
+                        (subSubPop != null && subSubPop.Child is FrameworkElement s3 && IsPointInside(s3, screenPt));
 
                     if (!inside) CloseAll();
                 };
@@ -12412,7 +12416,7 @@ namespace RevitProjectDataAddin
 
                     // left inline editor
                     subRoot.Children.Add(WithRowDivider(
-                        MakeInlineLenRow(
+                        MakeLenNavBtn(
                             sideLabel: "左",
                             endIsRight: false,
                             closeAll: CloseAll,
@@ -12421,7 +12425,7 @@ namespace RevitProjectDataAddin
 
                     // right inline editor
                     subRoot.Children.Add(WithRowDivider(
-                        MakeInlineLenRow(
+                        MakeLenNavBtn(
                             sideLabel: "右",
                             endIsRight: true,
                             closeAll: CloseAll,
@@ -12467,43 +12471,36 @@ namespace RevitProjectDataAddin
 
                 Button MakeInlineLenRow(string sideLabel, bool endIsRight, Action closeAll, Action<Button> selectSub, Func<ControlTemplate> getFlatBtnTemplate)
                 {
-                    var grid = new Grid();
-                    grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(28) }); // 左/右
-                    grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // textbox
-                    grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // ❯
+                    var row = new DockPanel { LastChildFill = true };
 
                     var lbl = new TextBlock
                     {
                         Text = sideLabel ?? "",
                         VerticalAlignment = VerticalAlignment.Center
                     };
-                    Grid.SetColumn(lbl, 0);
-                    grid.Children.Add(lbl);
+                    DockPanel.SetDock(lbl, Dock.Left);
+
+                    var preview = CreateLengthPreviewCanvas(!endIsRight);
+                    DockPanel.SetDock(preview, Dock.Right);
 
                     var tbx = new TextBox
                     {
                         Text = getHookLenText(endIsRight),
-                        MinWidth = 10,
-                        Margin = new Thickness(6, 0, 6, 0),
-                        VerticalContentAlignment = VerticalAlignment.Center
+                        Width = 50,
+                        MinWidth = 50,
+                        VerticalContentAlignment = VerticalAlignment.Center,
+                        Visibility = System.Windows.Visibility.Collapsed
                     };
-                    Grid.SetColumn(tbx, 1);
-                    grid.Children.Add(tbx);
+                    AttachDimIntegerValidation(tbx);
+                    DockPanel.SetDock(tbx, Dock.Right);
 
-                    var arrow = new TextBlock
-                    {
-                        Text = "❯",
-                        VerticalAlignment = VerticalAlignment.Center,
-                        HorizontalAlignment = HorizontalAlignment.Right,
-                        Margin = new Thickness(12, 0, 0, 0),
-                        Opacity = 0.0 // row is inline editor; keep layout consistent but no navigation
-                    };
-                    Grid.SetColumn(arrow, 2);
-                    grid.Children.Add(arrow);
+                    row.Children.Add(lbl);
+                    row.Children.Add(tbx);
+                    row.Children.Add(preview);
 
                     var btn = new Button
                     {
-                        Content = grid,
+                        Content = row,
                         HorizontalContentAlignment = HorizontalAlignment.Stretch,
                         VerticalContentAlignment = VerticalAlignment.Center,
                         Padding = new Thickness(12, 6, 12, 6),
@@ -12517,42 +12514,247 @@ namespace RevitProjectDataAddin
                         IsTabStop = false
                     };
 
-                    // Keep submenu highlighted on hover
-                    btn.MouseEnter += (a, b) => selectSub(btn);
-
-                    // Prevent click on button from closing; editing happens in TextBox
-                    btn.Click += (a, b) => { b.Handled = true; };
-
-                    // Commit on Enter
-                    tbx.PreviewKeyDown += (a, k) =>
-                    {
-                        if (k.Key == Key.Enter)
-                        {
-                            applyHookLenFromText(endIsRight, tbx.Text);
-                            closeAll();
-                            k.Handled = true;
-                        }
-                        else if (k.Key == Key.Escape)
-                        {
-                            closeAll();
-                            k.Handled = true;
-                        }
-                    };
-
-                    // Commit on focus out (but do NOT close menu automatically)
-                    tbx.LostKeyboardFocus += (a, b) =>
-                    {
-                        applyHookLenFromText(endIsRight, tbx.Text);
-                    };
-
-                    // On open, focus & select all for quick typing
-                    btn.Loaded += (a, b) =>
+                    void FocusBox()
                     {
                         tbx.Dispatcher.BeginInvoke(new Action(() =>
                         {
                             tbx.Focus();
                             tbx.SelectAll();
                         }), DispatcherPriority.Input);
+                    }
+
+                    void EndEditShowPreview()
+                    {
+                        tbx.Visibility = System.Windows.Visibility.Collapsed;
+                        preview.Visibility = System.Windows.Visibility.Visible;
+                    }
+
+                    void BeginEdit()
+                    {
+                        preview.Visibility = System.Windows.Visibility.Collapsed;
+                        tbx.Visibility = System.Windows.Visibility.Visible;
+                        FocusBox();
+                    }
+
+                    btn.MouseEnter += (_, __) => selectSub(btn);
+                    btn.Click += (_, ee) =>
+                    {
+                        ee.Handled = true;
+                        selectSub(btn);
+                        if (tbx.Visibility != System.Windows.Visibility.Visible)
+                            BeginEdit();
+                        else
+                            FocusBox();
+                    };
+
+                    tbx.PreviewKeyDown += (_, k) =>
+                    {
+                        if (k.Key == Key.Enter)
+                        {
+                            applyHookLenFromText(endIsRight, tbx.Text);
+                            EndEditShowPreview();
+                            closeAll();
+                            k.Handled = true;
+                        }
+                        else if (k.Key == Key.Escape)
+                        {
+                            EndEditShowPreview();
+                            k.Handled = true;
+                        }
+                    };
+
+                    tbx.LostKeyboardFocus += (_, __) =>
+                    {
+                        if (tbx.Visibility == System.Windows.Visibility.Visible)
+                            EndEditShowPreview();
+                    };
+
+                    return btn;
+                }
+
+                double GetCurrentTanbuTotalLength()
+                {
+                    string raw = (tb?.Text ?? string.Empty).Trim();
+                    int dashIndex = raw.LastIndexOf('-');
+                    if (dashIndex >= 0)
+                    {
+                        string lenText = raw.Substring(dashIndex + 1).Trim();
+                        if (double.TryParse(lenText, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed))
+                            return parsed;
+                    }
+
+                    double leftLen = GetTanbuHookLength(item, spanIndex, isRightAbdominal, false, fallbackLeft);
+                    double rightLen = GetTanbuHookLength(item, spanIndex, isRightAbdominal, true, fallbackRight);
+                    return leftLen + rightLen;
+                }
+
+                bool ApplyTanbuTotalLength(bool anchorLeft, double newTotal)
+                {
+                    if (newTotal <= 0) return false;
+
+                    double leftLen = GetTanbuHookLength(item, spanIndex, isRightAbdominal, false, fallbackLeft);
+                    double rightLen = GetTanbuHookLength(item, spanIndex, isRightAbdominal, true, fallbackRight);
+                    double bodyLen = Math.Max(0.0, GetCurrentTanbuTotalLength() - leftLen - rightLen);
+
+                    if (anchorLeft)
+                    {
+                        double newRight = newTotal - bodyLen - leftLen;
+                        return newRight > 0 && ApplyTanbuHookLength(item, spanIndex, isRightAbdominal, true, newRight);
+                    }
+
+                    double newLeft = newTotal - bodyLen - rightLen;
+                    return newLeft > 0 && ApplyTanbuHookLength(item, spanIndex, isRightAbdominal, false, newLeft);
+                }
+
+                Button MakeLenNavBtn(string sideLabel, bool endIsRight, Action closeAll, Action<Button> selectSub, Func<ControlTemplate> getFlatBtnTemplate)
+                {
+                    var btn = MakeMainBtn(sideLabel);
+
+                    void OpenLenDetail()
+                    {
+                        try { if (subSubPop != null) subSubPop.IsOpen = false; } catch { }
+
+                        subSubPop = new System.Windows.Controls.Primitives.Popup
+                        {
+                            PlacementTarget = btn,
+                            Placement = System.Windows.Controls.Primitives.PlacementMode.Right,
+                            HorizontalOffset = 1,
+                            VerticalOffset = -1.5,
+                            AllowsTransparency = true,
+                            StaysOpen = true
+                        };
+
+                        var root = new StackPanel { Orientation = Orientation.Vertical };
+                        root.Children.Add(WithRowDivider(
+                            MakeInlineLenRow("左へ引く", false, closeAll, selectSub, getFlatBtnTemplate)));
+                        root.Children.Add(WithRowDivider(
+                            MakeInlineLenRow("右へ引く", true, closeAll, selectSub, getFlatBtnTemplate)));
+                        {
+                            var row = new DockPanel { LastChildFill = true };
+
+                            var lbl = new TextBlock
+                            {
+                                Text = "全部",
+                                VerticalAlignment = VerticalAlignment.Center
+                            };
+                            DockPanel.SetDock(lbl, Dock.Left);
+
+                            var preview = new TextBlock
+                            {
+                                Text = "❯",
+                                VerticalAlignment = VerticalAlignment.Center
+                            };
+                            DockPanel.SetDock(preview, Dock.Right);
+
+                            var totalBox = new TextBox
+                            {
+                                Text = GetCurrentTanbuTotalLength().ToString(CultureInfo.InvariantCulture),
+                                Width = 50,
+                                MinWidth = 50,
+                                VerticalContentAlignment = VerticalAlignment.Center,
+                                Visibility = System.Windows.Visibility.Collapsed
+                            };
+                            AttachDimIntegerValidation(totalBox);
+                            DockPanel.SetDock(totalBox, Dock.Right);
+
+                            row.Children.Add(lbl);
+                            row.Children.Add(totalBox);
+                            row.Children.Add(preview);
+
+                            var totalButton = new Button
+                            {
+                                Content = row,
+                                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                                VerticalContentAlignment = VerticalAlignment.Center,
+                                Padding = new Thickness(12, 6, 12, 6),
+                                Background = Brushes.Transparent,
+                                BorderBrush = Brushes.Transparent,
+                                BorderThickness = new Thickness(0),
+                                MinWidth = 150,
+                                OverridesDefaultStyle = true,
+                                Template = getFlatBtnTemplate(),
+                                Focusable = false,
+                                IsTabStop = false
+                            };
+
+                            void FocusTotalBox()
+                            {
+                                totalBox.Dispatcher.BeginInvoke(new Action(() =>
+                                {
+                                    totalBox.Focus();
+                                    totalBox.SelectAll();
+                                }), DispatcherPriority.Input);
+                            }
+
+                            void EndTotalEdit()
+                            {
+                                totalBox.Visibility = System.Windows.Visibility.Collapsed;
+                                preview.Visibility = System.Windows.Visibility.Visible;
+                            }
+
+                            void BeginTotalEdit()
+                            {
+                                totalBox.Text = GetCurrentTanbuTotalLength().ToString(CultureInfo.InvariantCulture);
+                                preview.Visibility = System.Windows.Visibility.Collapsed;
+                                totalBox.Visibility = System.Windows.Visibility.Visible;
+                                FocusTotalBox();
+                            }
+
+                            totalButton.MouseEnter += (_, __) => selectSub(totalButton);
+                            totalButton.Click += (_, ee) =>
+                            {
+                                ee.Handled = true;
+                                selectSub(totalButton);
+                                if (totalBox.Visibility != System.Windows.Visibility.Visible)
+                                    BeginTotalEdit();
+                                else
+                                    FocusTotalBox();
+                            };
+                            totalBox.PreviewKeyDown += (_, ke) =>
+                            {
+                                if (ke.Key == Key.Enter)
+                                {
+                                    if (double.TryParse(totalBox.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var len)
+                                        && ApplyTanbuTotalLength(anchorLeft: endIsRight, newTotal: len))
+                                    {
+                                        Redraw(canvas, item);
+                                    }
+                                    EndTotalEdit();
+                                    closeAll();
+                                    ke.Handled = true;
+                                }
+                                else if (ke.Key == Key.Escape)
+                                {
+                                    EndTotalEdit();
+                                    ke.Handled = true;
+                                }
+                            };
+                            totalBox.LostKeyboardFocus += (_, __) =>
+                            {
+                                if (totalBox.Visibility == System.Windows.Visibility.Visible)
+                                    EndTotalEdit();
+                            };
+
+                            root.Children.Add(WithRowDivider(totalButton));
+                        }
+
+                        subSubPop.Child = WrapBox(root);
+                        btn.Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            subSubPop.IsOpen = true;
+                            SelectSub(null);
+                        }), DispatcherPriority.Input);
+                    }
+
+                    btn.MouseEnter += (_, __) =>
+                    {
+                        selectSub(btn);
+                        OpenLenDetail();
+                    };
+                    btn.Click += (_, __) =>
+                    {
+                        selectSub(btn);
+                        OpenLenDetail();
                     };
 
                     return btn;
@@ -16668,3 +16870,4 @@ namespace RevitProjectDataAddin
 
     }
 }
+
