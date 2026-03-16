@@ -6494,7 +6494,7 @@ namespace RevitProjectDataAddin
                     TextBlock tbDia, tbPitch, tbMat;
                     DrawCentralStirrupTripletPx(
                         canvas, T, item,
-                        mid + offset4.X, yChainLocal + 9870 + offset4.Y,
+                        mid + offset4.X, yChainLocal + 9920 + offset4.Y,
                         dimFont, Brushes.Black,
                         diaPart, pitchPart, matPart,
                         out tbDia, out tbPitch, out tbMat);
@@ -6503,7 +6503,7 @@ namespace RevitProjectDataAddin
                     MakeCentralStirrupEditable(
                          tbDia, tbPitch, tbMat,    // ✅ đúng: Dia trước, Pitch giữa, Mat sau
                          canvas, T,
-                         mid + offset4.X, yChainLocal + 9870 + offset4.Y,
+                         mid + offset4.X, yChainLocal + 9920 + offset4.Y,
                          item, selF, G0,
                          中央スタラップ径, ピッチ, スタラップ材質,
                          showStirrupMaterial);
@@ -6527,7 +6527,7 @@ namespace RevitProjectDataAddin
                     TextBlock tbEndDia, tbEndPitch, tbEndRight;
                     DrawCentralStirrupTripletPx(
                         canvas, T, item,
-                        mid + offset4.X, yChainLocal + 10800 + offset4.Y,
+                        mid + offset4.X, yChainLocal + 10850 + offset4.Y,
                         dimFont, Brushes.Black,
                         endDiaPart, endPitchPart, endRightPart,
                         out tbEndDia, out tbEndPitch, out tbEndRight);
@@ -6535,7 +6535,7 @@ namespace RevitProjectDataAddin
                     MakeEndWidthStopEditable(
                         tbEndDia, tbEndPitch, tbEndRight,
                         canvas, T,
-                        mid + offset4.X, yChainLocal + 10800 + offset4.Y,
+                        mid + offset4.X, yChainLocal + 10850 + offset4.Y,
                         item, selF, G0,
                         端部1幅止筋径, 端部1幅止筋ピッチ);
 
@@ -6556,7 +6556,7 @@ namespace RevitProjectDataAddin
                     TextBlock tbDia2, tbPitch2, tbMat2;
                     DrawCentralStirrupTripletPx(
                         canvas, T, item,
-                        mid + offset4.X, yChainLocal + 13100 + offset4.Y,
+                        mid + offset4.X, yChainLocal + 13150 + offset4.Y,
                         dimFont, Brushes.Black,
                         diaPart2, pitchPart2, matPart2,
                         out tbDia2, out tbPitch2, out tbMat2);
@@ -6564,7 +6564,7 @@ namespace RevitProjectDataAddin
                     MakeCentralIntermediateEditable(
                         tbDia2, tbPitch2, tbMat2,
                         canvas, T,
-                        mid + offset4.X, yChainLocal + 13100 + offset4.Y,
+                        mid + offset4.X, yChainLocal + 13150 + offset4.Y,
                         item, selF, G0,
                         中央中子筋径, 中央中子筋径ピッチ, 中央中子筋材質,
                         showStirrupMaterial);
@@ -12985,25 +12985,12 @@ namespace RevitProjectDataAddin
             }
             (double X, double Y) GetGroupRightTop(TextBlock dia, TextBlock pitchTb, TextBlock mat, double gapPx)
             {
-                double GetLeft(FrameworkElement fe)
-                {
-                    var v = Canvas.GetLeft(fe);
-                    return double.IsNaN(v) ? 0 : v;
-                }
+                var r1 = GetElementBoundsOnCanvas(dia, canvas);
+                var r2 = GetElementBoundsOnCanvas(pitchTb, canvas);
+                var r3 = GetElementBoundsOnCanvas(mat, canvas);
 
-                double GetTop(FrameworkElement fe)
-                {
-                    var v = Canvas.GetTop(fe);
-                    return double.IsNaN(v) ? 0 : v;
-                }
-
-                double right = Math.Max(
-                    GetLeft(dia) + Math.Max(1, dia.ActualWidth),
-                    Math.Max(
-                        GetLeft(pitchTb) + Math.Max(1, pitchTb.ActualWidth),
-                        GetLeft(mat) + Math.Max(1, mat.ActualWidth)));
-
-                double top = Math.Min(GetTop(dia), Math.Min(GetTop(pitchTb), GetTop(mat)));
+                double right = Math.Max(r1.Right, Math.Max(r2.Right, r3.Right));
+                double top = Math.Min(r1.Top, Math.Min(r2.Top, r3.Top));
 
                 return (right + gapPx, top);
             }
@@ -13117,25 +13104,12 @@ namespace RevitProjectDataAddin
 
             (double X, double Y) GetGroupRightTop(TextBlock dia, TextBlock pitchTb, TextBlock mat, double gapPx)
             {
-                double GetLeft(FrameworkElement fe)
-                {
-                    var v = Canvas.GetLeft(fe);
-                    return double.IsNaN(v) ? 0 : v;
-                }
+                var r1 = GetElementBoundsOnCanvas(dia, canvas);
+                var r2 = GetElementBoundsOnCanvas(pitchTb, canvas);
+                var r3 = GetElementBoundsOnCanvas(mat, canvas);
 
-                double GetTop(FrameworkElement fe)
-                {
-                    var v = Canvas.GetTop(fe);
-                    return double.IsNaN(v) ? 0 : v;
-                }
-
-                double right = Math.Max(
-                    GetLeft(dia) + Math.Max(1, dia.ActualWidth),
-                    Math.Max(
-                        GetLeft(pitchTb) + Math.Max(1, pitchTb.ActualWidth),
-                        GetLeft(mat) + Math.Max(1, mat.ActualWidth)));
-
-                double top = Math.Min(GetTop(dia), Math.Min(GetTop(pitchTb), GetTop(mat)));
+                double right = Math.Max(r1.Right, Math.Max(r2.Right, r3.Right));
+                double top = Math.Min(r1.Top, Math.Min(r2.Top, r3.Top));
 
                 return (right + gapPx, top);
             }
@@ -14669,25 +14643,12 @@ namespace RevitProjectDataAddin
 
             (double X, double Y) GetGroupRightTop(TextBlock dia, TextBlock pitchTb, TextBlock mat, double gapPx)
             {
-                double GetLeft(FrameworkElement fe)
-                {
-                    var v = Canvas.GetLeft(fe);
-                    return double.IsNaN(v) ? 0 : v;
-                }
+                var r1 = GetElementBoundsOnCanvas(dia, canvas);
+                var r2 = GetElementBoundsOnCanvas(pitchTb, canvas);
+                var r3 = GetElementBoundsOnCanvas(mat, canvas);
 
-                double GetTop(FrameworkElement fe)
-                {
-                    var v = Canvas.GetTop(fe);
-                    return double.IsNaN(v) ? 0 : v;
-                }
-
-                double right = Math.Max(
-                    GetLeft(dia) + Math.Max(1, dia.ActualWidth),
-                    Math.Max(
-                        GetLeft(pitchTb) + Math.Max(1, pitchTb.ActualWidth),
-                        GetLeft(mat) + Math.Max(1, mat.ActualWidth)));
-
-                double top = Math.Min(GetTop(dia), Math.Min(GetTop(pitchTb), GetTop(mat)));
+                double right = Math.Max(r1.Right, Math.Max(r2.Right, r3.Right));
+                double top = Math.Min(r1.Top, Math.Min(r2.Top, r3.Top));
 
                 return (right + gapPx, top);
             }
