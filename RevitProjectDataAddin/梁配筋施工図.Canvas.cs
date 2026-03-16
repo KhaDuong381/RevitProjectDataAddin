@@ -11456,8 +11456,8 @@ namespace RevitProjectDataAddin
 
                     var grid = new Grid();
                     grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(28) }); // 左/右
-                    grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // textbox
-                    grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // preview arrow
+                    grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // spacer
+                    grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // arrow / inline editor
 
                     grid.ColumnDefinitions[0].Width = GridLength.Auto;
 
@@ -11470,27 +11470,13 @@ namespace RevitProjectDataAddin
                     Grid.SetColumn(lbl, 0);
                     grid.Children.Add(lbl);
 
-                    var tbx = new TextBox
+                    var arrowEditorHost = new Grid
                     {
-                        Text = getHookLenText(endIsRight),
-                        MinWidth = 10,
-                        Margin = new Thickness(6, 0, 6, 0),
-                        VerticalContentAlignment = VerticalAlignment.Center,
-                        Visibility = System.Windows.Visibility.Collapsed
+                        MinWidth = 60,
+                        HorizontalAlignment = HorizontalAlignment.Right
                     };
-                    Grid.SetColumn(tbx, 1);
-                    grid.Children.Add(tbx);
-
-                    var preview = new TextBlock
-                    {
-                        Text = getHookLenText(endIsRight),
-                        VerticalAlignment = VerticalAlignment.Center,
-                        HorizontalAlignment = HorizontalAlignment.Right,
-                        Margin = new Thickness(6, 0, 6, 0),
-                        Cursor = Cursors.IBeam
-                    };
-                    Grid.SetColumn(preview, 1);
-                    grid.Children.Add(preview);
+                    Grid.SetColumn(arrowEditorHost, 2);
+                    grid.Children.Add(arrowEditorHost);
 
                     var dirPreview = CreateLengthPreviewCanvas(pullLeft: !endIsRight);
                     if (dirPreview is FrameworkElement dirEl)
@@ -11499,8 +11485,21 @@ namespace RevitProjectDataAddin
                         dirEl.HorizontalAlignment = HorizontalAlignment.Right;
                         dirEl.Margin = new Thickness(12, 0, 0, 0);
                     }
-                    Grid.SetColumn(dirPreview, 2);
-                    grid.Children.Add(dirPreview);
+                    arrowEditorHost.Children.Add(dirPreview);
+
+                    var tbx = new TextBox
+                    {
+                        Text = getHookLenText(endIsRight),
+                        Width = 60,
+                        Height = 20,
+                        Padding = new Thickness(4, 0, 4, 0),
+                        Margin = new Thickness(12, 0, 0, 0),
+                        VerticalContentAlignment = VerticalAlignment.Center,
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        TextAlignment = TextAlignment.Center,
+                        Visibility = System.Windows.Visibility.Collapsed
+                    };
+                    arrowEditorHost.Children.Add(tbx);
 
                     var btn = new Button
                     {
@@ -11511,7 +11510,7 @@ namespace RevitProjectDataAddin
                         Background = Brushes.Transparent,
                         BorderBrush = Brushes.Transparent,
                         BorderThickness = new Thickness(0),
-                        MinWidth = 120,
+                        MinWidth = 60,
                         OverridesDefaultStyle = true,
                         Template = getFlatBtnTemplate(),
                         Focusable = false,
@@ -11523,7 +11522,7 @@ namespace RevitProjectDataAddin
 
                     void BeginEdit()
                     {
-                        preview.Visibility = System.Windows.Visibility.Collapsed;
+                        dirPreview.Visibility = System.Windows.Visibility.Collapsed;
                         tbx.Visibility = System.Windows.Visibility.Visible;
                         tbx.Text = getHookLenText(endIsRight);
                         tbx.Dispatcher.BeginInvoke(new Action(() =>
@@ -11540,9 +11539,8 @@ namespace RevitProjectDataAddin
                             applyHookLenFromText(endIsRight, tbx.Text);
                         }
 
-                        preview.Text = getHookLenText(endIsRight);
                         tbx.Visibility = System.Windows.Visibility.Collapsed;
-                        preview.Visibility = System.Windows.Visibility.Visible;
+                        dirPreview.Visibility = System.Windows.Visibility.Visible;
                     }
 
                     // Prevent click on button from closing; click switches to edit mode.
@@ -11554,12 +11552,6 @@ namespace RevitProjectDataAddin
                             BeginEdit();
                         }
                     };
-                    preview.MouseLeftButtonDown += (a, b) =>
-                    {
-                        b.Handled = true;
-                        BeginEdit();
-                    };
-
                     // Commit on Enter
                     tbx.PreviewKeyDown += (a, k) =>
                     {
@@ -11604,37 +11596,27 @@ namespace RevitProjectDataAddin
                     Grid.SetColumn(lbl, 0);
                     grid.Children.Add(lbl);
 
+                    var editorHost = new Grid
+                    {
+                        MinWidth = 72,
+                        HorizontalAlignment = HorizontalAlignment.Right
+                    };
+                    Grid.SetColumn(editorHost, 2);
+                    grid.Children.Add(editorHost);
+
                     var tbx = new TextBox
                     {
                         Text = getTotalLenText(),
-                        MinWidth = 10,
-                        Margin = new Thickness(6, 0, 6, 0),
+                        Width = 72,
+                        Height = 20,
+                        Padding = new Thickness(4, 0, 4, 0),
+                        Margin = new Thickness(12, 0, 0, 0),
                         VerticalContentAlignment = VerticalAlignment.Center,
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        TextAlignment = TextAlignment.Center,
                         Visibility = System.Windows.Visibility.Collapsed
                     };
-                    Grid.SetColumn(tbx, 1);
-                    grid.Children.Add(tbx);
-
-                    var preview = new TextBlock
-                    {
-                        Text = getTotalLenText(),
-                        VerticalAlignment = VerticalAlignment.Center,
-                        HorizontalAlignment = HorizontalAlignment.Right,
-                        Margin = new Thickness(6, 0, 6, 0),
-                        Cursor = Cursors.IBeam
-                    };
-                    Grid.SetColumn(preview, 1);
-                    grid.Children.Add(preview);
-
-                    var dirPreview = CreateLengthPreviewCanvasBidirectional();
-                    if (dirPreview is FrameworkElement dirEl)
-                    {
-                        dirEl.VerticalAlignment = VerticalAlignment.Center;
-                        dirEl.HorizontalAlignment = HorizontalAlignment.Right;
-                        dirEl.Margin = new Thickness(12, 0, 0, 0);
-                    }
-                    Grid.SetColumn(dirPreview, 2);
-                    grid.Children.Add(dirPreview);
+                    editorHost.Children.Add(tbx);
 
                     var btn = new Button
                     {
@@ -11655,7 +11637,6 @@ namespace RevitProjectDataAddin
                     btn.MouseEnter += (a, b) => selectSub(btn);
                     void BeginEdit()
                     {
-                        preview.Visibility = System.Windows.Visibility.Collapsed;
                         tbx.Visibility = System.Windows.Visibility.Visible;
                         tbx.Text = getTotalLenText();
                         tbx.Dispatcher.BeginInvoke(new Action(() =>
@@ -11672,9 +11653,7 @@ namespace RevitProjectDataAddin
                             applyTotalLenFromText(menuIsRight, tbx.Text);
                         }
 
-                        preview.Text = getTotalLenText();
                         tbx.Visibility = System.Windows.Visibility.Collapsed;
-                        preview.Visibility = System.Windows.Visibility.Visible;
                     }
 
                     btn.Click += (a, b) =>
@@ -11685,12 +11664,6 @@ namespace RevitProjectDataAddin
                             BeginEdit();
                         }
                     };
-                    preview.MouseLeftButtonDown += (a, b) =>
-                    {
-                        b.Handled = true;
-                        BeginEdit();
-                    };
-
                     tbx.PreviewKeyDown += (a, k) =>
                     {
                         if (k.Key == Key.Enter)
