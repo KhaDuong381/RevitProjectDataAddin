@@ -16555,6 +16555,52 @@ namespace RevitProjectDataAddin
 
             return 0;
         }
+        private Rect GetElementBoundsOnCanvas(FrameworkElement element, Canvas canvas)
+        {
+            if (element == null || canvas == null) return Rect.Empty;
+
+            element.UpdateLayout();
+            double width = element.ActualWidth;
+            double height = element.ActualHeight;
+            if (width <= 0 || height <= 0)
+            {
+                element.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                width = width <= 0 ? element.DesiredSize.Width : width;
+                height = height <= 0 ? element.DesiredSize.Height : height;
+            }
+
+            try
+            {
+                var topLeft = element.TransformToVisual(canvas).Transform(new Point(0, 0));
+                return new Rect(topLeft.X, topLeft.Y, Math.Max(0, width), Math.Max(0, height));
+            }
+            catch
+            {
+                double left = Canvas.GetLeft(element);
+                double top = Canvas.GetTop(element);
+                if (double.IsNaN(left)) left = 0;
+                if (double.IsNaN(top)) top = 0;
+                return new Rect(left, top, Math.Max(0, width), Math.Max(0, height));
+            }
+        }
+
+        private TextBlock CloneTextBlockForCanvasOverlay(TextBlock source)
+        {
+            return new TextBlock
+            {
+                Text = source?.Text ?? string.Empty,
+                FontFamily = source?.FontFamily ?? this.FontFamily,
+                FontSize = source?.FontSize ?? 12.0,
+                FontStyle = source?.FontStyle ?? FontStyles.Normal,
+                FontWeight = source?.FontWeight ?? FontWeights.Normal,
+                FontStretch = source?.FontStretch ?? FontStretches.Normal,
+                Foreground = source?.Foreground ?? Brushes.Black,
+                Background = Brushes.Transparent,
+                TextWrapping = TextWrapping.NoWrap,
+                IsHitTestVisible = false
+            };
+        }
+
         private void DrawCentralStirrupTripletPx(
     Canvas canvas, WCTransform T, GridBotsecozu item,
     double centerXmm, double yMm,
@@ -16574,29 +16620,79 @@ namespace RevitProjectDataAddin
             double combinedScale = ResolveTextCombinedScale(T, item);
             double effectiveFontPx = fontPx * combinedScale;
             double scalePxPerMm = Math.Abs(T.Scale) < 1e-9 ? 1.0 : Math.Abs(T.Scale);
-            double gapMm = gapPx / scalePxPerMm;
             const double dxfTextHeightMm = 150.0;
             string fontFamilyName = this.FontFamily?.Source ?? "Yu Mincho";
-            var typeface = new Typeface(new FontFamily(fontFamilyName), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+            double gapMm = gapPx / scalePxPerMm;
+            var fontFamily = new FontFamily(fontFamilyName);
+            var typeface = new Typeface(fontFamily, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
 
-            double wDiaMm = MeasureTextWidthDxfMm(canvas, diaText, typeface, effectiveFontPx, dxfTextHeightMm);
-            double wPitchMm = MeasureTextWidthDxfMm(canvas, pitchText, typeface, effectiveFontPx, dxfTextHeightMm);
-            double wMatMm = hasMat ? MeasureTextWidthDxfMm(canvas, matText, typeface, effectiveFontPx, dxfTextHeightMm) : 0;
+            double wDiaPx = MeasureTextWidthPx(canvas, diaText, typeface, effectiveFontPx);
+            double wPitchPx = MeasureTextWidthPx(canvas, pitchText, typeface, effectiveFontPx);
+            double wMatPx = hasMat ? MeasureTextWidthPx(canvas, matText, typeface, effectiveFontPx) : 0;
 
-            // Fallback for environments where geometry measurement can fail.
-            if (wDiaMm <= 0) wDiaMm = MeasureTextWidthPx(canvas, diaText, typeface, effectiveFontPx) / scalePxPerMm;
-            if (wPitchMm <= 0) wPitchMm = MeasureTextWidthPx(canvas, pitchText, typeface, effectiveFontPx) / scalePxPerMm;
-            if (hasMat && wMatMm <= 0) wMatMm = MeasureTextWidthPx(canvas, matText, typeface, effectiveFontPx) / scalePxPerMm;
+            if (wDiaPx <= 0) wDiaPx = Math.Max(1.0, diaText.Length * effectiveFontPx * 0.7);
+            if (wPitchPx <= 0) wPitchPx = Math.Max(1.0, pitchText.Length * effectiveFontPx * 0.7);
+            if (hasMat && wMatPx <= 0) wMatPx = Math.Max(1.0, matText.Length * effectiveFontPx * 0.7);
 
+            Point anchorPx = T.P(centerXmm, yMm);
+
+            TextBlock CreateTripletTextBlock(string text)
+            {
+                return new TextBlock
+                {
+                    Text = text ?? string.Empty,
+                    FontFamily = fontFamily,
+                    FontSize = effectiveFontPx,
+                    Foreground = brush ?? Brushes.Black,
+                    Background = Brushes.Transparent,
+                    TextWrapping = TextWrapping.NoWrap
+                };
+            }
+
+            tbDia = CreateTripletTextBlock(diaText);
+            tbPitch = CreateTripletTextBlock(pitchText);
+            tbMat = CreateTripletTextBlock(matText);
+            if (gapPx > 0) tbPitch.Margin = new Thickness(gapPx, 0, 0, 0);
+            if (hasMat && gapPx > 0) tbMat.Margin = new Thickness(gapPx, 0, 0, 0);
+
+            var tripletHost = new StackPanel
+            {
+                Orientation = Orientation.Horizontal
+            };
+            tripletHost.Children.Add(tbDia);
+            tripletHost.Children.Add(tbPitch);
+            tripletHost.Children.Add(tbMat);
+
+            tripletHost.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            double totalPx = tripletHost.DesiredSize.Width;
+            double maxHeightPx = tripletHost.DesiredSize.Height;
+            double xStartPx = anchorPx.X - totalPx / 2.0;
+            double topPx = anchorPx.Y - maxHeightPx;
+
+            Canvas.SetLeft(tripletHost, xStartPx);
+            Canvas.SetTop(tripletHost, topPx);
+            canvas.Children.Add(tripletHost);
+
+            double wDiaMm = wDiaPx / scalePxPerMm;
+            double wPitchMm = wPitchPx / scalePxPerMm;
+            double wMatMm = wMatPx / scalePxPerMm;
             double totalMm = wDiaMm + gapMm + wPitchMm + (hasMat ? gapMm + wMatMm : 0);
-            double xStart = centerXmm - totalMm / 2.0;
-            double xDia = xStart + wDiaMm / 2.0;
-            double xPitch = xStart + wDiaMm + gapMm + wPitchMm / 2.0;
-            double xMat = xStart + wDiaMm + gapMm + wPitchMm + (hasMat ? gapMm : 0) + wMatMm / 2.0;
+            double xStartMm = centerXmm - totalMm / 2.0;
+            double xDia = xStartMm + wDiaMm / 2.0;
+            double xPitch = xStartMm + wDiaMm + gapMm + wPitchMm / 2.0;
+            double xMat = xStartMm + wDiaMm + gapMm + wPitchMm + (hasMat ? gapMm : 0) + wMatMm / 2.0;
 
-            tbDia = DrawText_Rec(canvas, T, item, diaText, xDia, yMm, fontPx, brush, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-            tbPitch = DrawText_Rec(canvas, T, item, pitchText, xPitch, yMm, fontPx, brush, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-            tbMat = DrawText_Rec(canvas, T, item, matText, xMat, yMm, fontPx, brush, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+            var (h, v) = ToDxfAlign(HAnchor.Center, VAnchor.Bottom);
+            var textColor = ColorFromBrush(brush ?? Brushes.Black, Colors.Black);
+            SceneFor(item).Add(new DxfText(diaText ?? "", xDia, yMm, dxfTextHeightMm, hAlign: h, vAlign: v, rotDeg: 0,
+                                           layer: "TEXT", style: "STANDARD", fontPx: effectiveFontPx,
+                                           fontFamily: fontFamilyName, color: textColor, hAnchor: HAnchor.Center, vAnchor: VAnchor.Bottom));
+            SceneFor(item).Add(new DxfText(pitchText ?? "", xPitch, yMm, dxfTextHeightMm, hAlign: h, vAlign: v, rotDeg: 0,
+                                           layer: "TEXT", style: "STANDARD", fontPx: effectiveFontPx,
+                                           fontFamily: fontFamilyName, color: textColor, hAnchor: HAnchor.Center, vAnchor: VAnchor.Bottom));
+            SceneFor(item).Add(new DxfText(matText ?? "", xMat, yMm, dxfTextHeightMm, hAlign: h, vAlign: v, rotDeg: 0,
+                                           layer: "TEXT", style: "STANDARD", fontPx: effectiveFontPx,
+                                           fontFamily: fontFamilyName, color: textColor, hAnchor: HAnchor.Center, vAnchor: VAnchor.Bottom));
         }
         private void BeginInlinePitchEditPushNeighbors(
     Canvas canvas,
@@ -16615,28 +16711,25 @@ namespace RevitProjectDataAddin
             rightTb.UpdateLayout();
             tbPitch.UpdateLayout();
 
-            double pitchLeft0 = Canvas.GetLeft(tbPitch);
-            double pitchTop0 = Canvas.GetTop(tbPitch);
-            double leftLeft0 = Canvas.GetLeft(leftTb);
-            double leftTop0 = Canvas.GetTop(leftTb);
-            double rightLeft0 = Canvas.GetLeft(rightTb);
-            double rightTop0 = Canvas.GetTop(rightTb);
-
-            if (double.IsNaN(pitchLeft0) || double.IsNaN(pitchTop0)) return;
-            if (double.IsNaN(leftLeft0) || double.IsNaN(leftTop0)) return;
-            if (double.IsNaN(rightLeft0) || double.IsNaN(rightTop0)) return;
+            Rect pitchRect0 = GetElementBoundsOnCanvas(tbPitch, canvas);
+            Rect leftRect0 = GetElementBoundsOnCanvas(leftTb, canvas);
+            Rect rightRect0 = GetElementBoundsOnCanvas(rightTb, canvas);
+            if (pitchRect0.IsEmpty || leftRect0.IsEmpty || rightRect0.IsEmpty) return;
 
             // Measure neighbors width
             leftTb.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
             rightTb.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-            double wLeft = leftTb.DesiredSize.Width;
-            double wRight = rightTb.DesiredSize.Width;
+            double wLeft = Math.Max(leftRect0.Width, leftTb.DesiredSize.Width);
+            double wRight = Math.Max(rightRect0.Width, rightTb.DesiredSize.Width);
 
             // Center X of pitch (fixed anchor while editing)
-            double pitchCenterX = pitchLeft0 + (tbPitch.ActualWidth / 2.0);
+            double pitchCenterX = pitchRect0.Left + (pitchRect0.Width / 2.0);
 
             var originalPitchText = tbPitch.Text ?? string.Empty;
             var startText = getCurrentText != null ? (getCurrentText() ?? "") : originalPitchText;
+            var leftOverlay = leftTb is TextBlock leftText ? CloneTextBlockForCanvasOverlay(leftText) : null;
+            var pitchOverlay = CloneTextBlockForCanvasOverlay(tbPitch);
+            var rightOverlay = rightTb is TextBlock rightText ? CloneTextBlockForCanvasOverlay(rightText) : null;
 
             var edit = new TextBox
             {
@@ -16654,8 +16747,29 @@ namespace RevitProjectDataAddin
                 VerticalScrollBarVisibility = ScrollBarVisibility.Hidden
             };
 
-            // Hide pitch text while editing
+            if (leftOverlay != null)
+            {
+                Canvas.SetLeft(leftOverlay, leftRect0.Left);
+                Canvas.SetTop(leftOverlay, leftRect0.Top);
+                Panel.SetZIndex(leftOverlay, Panel.GetZIndex(leftTb) + 10);
+                canvas.Children.Add(leftOverlay);
+            }
+            Canvas.SetLeft(pitchOverlay, pitchRect0.Left);
+            Canvas.SetTop(pitchOverlay, pitchRect0.Top);
+            Panel.SetZIndex(pitchOverlay, Panel.GetZIndex(tbPitch) + 10);
+            canvas.Children.Add(pitchOverlay);
+            if (rightOverlay != null)
+            {
+                Canvas.SetLeft(rightOverlay, rightRect0.Left);
+                Canvas.SetTop(rightOverlay, rightRect0.Top);
+                Panel.SetZIndex(rightOverlay, Panel.GetZIndex(rightTb) + 10);
+                canvas.Children.Add(rightOverlay);
+            }
+
+            // Hide original texts while editing
+            leftTb.Visibility = System.Windows.Visibility.Hidden;
             tbPitch.Visibility = System.Windows.Visibility.Hidden;
+            rightTb.Visibility = System.Windows.Visibility.Hidden;
 
             Panel.SetZIndex(edit, Panel.GetZIndex(tbPitch) + 10);
             canvas.Children.Add(edit);
@@ -16686,24 +16800,31 @@ namespace RevitProjectDataAddin
             {
                 // 1) Grow edit to fit the whole text (no clamp)
                 double w = MeasureTextWidth(edit.Text) + paddingPx;
-                double minW = Math.Max(24, tbPitch.ActualWidth);
+                double minW = Math.Max(24, pitchRect0.Width);
                 if (w < minW) w = minW;
 
                 edit.Width = w;
-                edit.Height = Math.Max(tbPitch.ActualHeight, 18);
+                edit.Height = Math.Max(pitchRect0.Height, 18);
 
                 double editLeft = pitchCenterX - (w / 2.0);
 
                 // 2) Place editor at pitch position
                 Canvas.SetLeft(edit, editLeft);
-                Canvas.SetTop(edit, pitchTop0);
+                Canvas.SetTop(edit, pitchRect0.Top);
 
                 // 3) Push neighbors away from the editor
-                Canvas.SetLeft(leftTb, editLeft - gapPx - wLeft);
-                Canvas.SetTop(leftTb, leftTop0);
-
-                Canvas.SetLeft(rightTb, editLeft + w + gapPx);
-                Canvas.SetTop(rightTb, rightTop0);
+                if (leftOverlay != null)
+                {
+                    Canvas.SetLeft(leftOverlay, editLeft - gapPx - wLeft);
+                    Canvas.SetTop(leftOverlay, leftRect0.Top);
+                }
+                Canvas.SetLeft(pitchOverlay, editLeft);
+                Canvas.SetTop(pitchOverlay, pitchRect0.Top);
+                if (rightOverlay != null)
+                {
+                    Canvas.SetLeft(rightOverlay, editLeft + w + gapPx);
+                    Canvas.SetTop(rightOverlay, rightRect0.Top);
+                }
             }
 
             bool isClosing = false;
@@ -16723,15 +16844,16 @@ namespace RevitProjectDataAddin
                 // Restore original positions (Redraw cũng sẽ reset, nhưng restore giúp mượt)
                 try
                 {
-                    Canvas.SetLeft(leftTb, leftLeft0);
-                    Canvas.SetTop(leftTb, leftTop0);
-                    Canvas.SetLeft(rightTb, rightLeft0);
-                    Canvas.SetTop(rightTb, rightTop0);
+                    if (leftOverlay != null) canvas.Children.Remove(leftOverlay);
+                    canvas.Children.Remove(pitchOverlay);
+                    if (rightOverlay != null) canvas.Children.Remove(rightOverlay);
                 }
                 catch { }
 
                 try { canvas.Children.Remove(edit); } catch { }
+                leftTb.Visibility = System.Windows.Visibility.Visible;
                 tbPitch.Visibility = System.Windows.Visibility.Visible;
+                rightTb.Visibility = System.Windows.Visibility.Visible;
 
                 isClosing = false;
             }
@@ -16844,17 +16966,20 @@ namespace RevitProjectDataAddin
 
             void UpdateBoxRect()
             {
-                double l1 = Canvas.GetLeft(tbDia); if (double.IsNaN(l1)) l1 = 0;
-                double t1 = Canvas.GetTop(tbDia); if (double.IsNaN(t1)) t1 = 0;
-                double w1 = tbDia.ActualWidth, h1 = tbDia.ActualHeight; MeasureFallback(tbDia, ref w1, ref h1);
+                Rect r1 = GetElementBoundsOnCanvas(tbDia, canvas);
+                Rect r2 = GetElementBoundsOnCanvas(tbPitch, canvas);
+                Rect r3 = GetElementBoundsOnCanvas(tbMat, canvas);
 
-                double l2 = Canvas.GetLeft(tbPitch); if (double.IsNaN(l2)) l2 = 0;
-                double t2 = Canvas.GetTop(tbPitch); if (double.IsNaN(t2)) t2 = 0;
-                double w2 = tbPitch.ActualWidth, h2 = tbPitch.ActualHeight; MeasureFallback(tbPitch, ref w2, ref h2);
+                double w1 = r1.Width, h1 = r1.Height; MeasureFallback(tbDia, ref w1, ref h1);
+                double w2 = r2.Width, h2 = r2.Height; MeasureFallback(tbPitch, ref w2, ref h2);
+                double w3 = r3.Width, h3 = r3.Height; MeasureFallback(tbMat, ref w3, ref h3);
 
-                double l3 = Canvas.GetLeft(tbMat); if (double.IsNaN(l3)) l3 = 0;
-                double t3 = Canvas.GetTop(tbMat); if (double.IsNaN(t3)) t3 = 0;
-                double w3 = tbMat.ActualWidth, h3 = tbMat.ActualHeight; MeasureFallback(tbMat, ref w3, ref h3);
+                double l1 = r1.IsEmpty ? 0 : r1.Left;
+                double t1 = r1.IsEmpty ? 0 : r1.Top;
+                double l2 = r2.IsEmpty ? 0 : r2.Left;
+                double t2 = r2.IsEmpty ? 0 : r2.Top;
+                double l3 = r3.IsEmpty ? 0 : r3.Left;
+                double t3 = r3.IsEmpty ? 0 : r3.Top;
 
                 double left = Math.Min(l1, Math.Min(l2, l3));
                 double top = Math.Min(t1, Math.Min(t2, t3));
