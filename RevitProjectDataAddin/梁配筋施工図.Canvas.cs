@@ -1339,6 +1339,20 @@ namespace RevitProjectDataAddin
             }
             _orangeDimTextOverrides[owner] = orangeTextOverrides;
 
+            var tanbuDiameterOverrides = new Dictionary<(int spanIndex, bool isRightAbdominal), string>();
+            if (owner.TanbuDiameterOverrides != null)
+            {
+                foreach (var entry in owner.TanbuDiameterOverrides)
+                {
+                    if (TryParseTanbuDiameterKey(entry.Key, out var key)
+                        && !string.IsNullOrWhiteSpace(entry.Value))
+                    {
+                        tanbuDiameterOverrides[key] = entry.Value.Trim();
+                    }
+                }
+            }
+            _tanbuDiameterOverrides[owner] = tanbuDiameterOverrides;
+
             var ankaOverrides = new Dictionary<AnkaDimKey, double>();
             if (owner.AnkaOverrides != null)
             {
@@ -4516,9 +4530,14 @@ namespace RevitProjectDataAddin
         //    = new Dictionary<GridBotsecozu, Dictionary<int, double>>();
         private readonly Dictionary<GridBotsecozu, Dictionary<(int spanIndex, bool isRightAbdominal, bool isRightEnd), double>>
         _tanbuHookOverrides = new Dictionary<GridBotsecozu, Dictionary<(int spanIndex, bool isRightAbdominal, bool isRightEnd), double>>();
+        private readonly Dictionary<GridBotsecozu, Dictionary<(int spanIndex, bool isRightAbdominal), string>>
+        _tanbuDiameterOverrides = new Dictionary<GridBotsecozu, Dictionary<(int spanIndex, bool isRightAbdominal), string>>();
 
         private static string MakeTanbuHookKey(int spanIndex, bool isRightAbdominal, bool isRightEnd)
             => $"{spanIndex}|{(isRightAbdominal ? 1 : 0)}|{(isRightEnd ? 1 : 0)}";
+
+        private static string MakeTanbuDiameterKey(int spanIndex, bool isRightAbdominal)
+            => $"{spanIndex}|{(isRightAbdominal ? 1 : 0)}";
 
         private static bool TryParseTanbuHookKey(string key, out (int spanIndex, bool isRightAbdominal, bool isRightEnd) parsed)
         {
@@ -4536,10 +4555,78 @@ namespace RevitProjectDataAddin
             return true;
         }
 
+        private static bool TryParseTanbuDiameterKey(string key, out (int spanIndex, bool isRightAbdominal) parsed)
+        {
+            parsed = default;
+            if (string.IsNullOrWhiteSpace(key)) return false;
+
+            var parts = key.Split('|');
+            if (parts.Length != 2) return false;
+
+            if (!int.TryParse(parts[0], out var spanIndex)) return false;
+            if (!int.TryParse(parts[1], out var abdominalFlag)) return false;
+
+            parsed = (spanIndex, abdominalFlag != 0);
+            return true;
+        }
+
         private string FormatTanbuLabel(string dia, double hookLength)
         {
             dia = string.IsNullOrWhiteSpace(dia) ? string.Empty : dia;
             return $"D{dia}- {hookLength}";
+        }
+
+        private string GetTanbuDiameter(GridBotsecozu item, int spanIndex, bool isRightAbdominal, string fallback)
+        {
+            if (item != null
+                && _tanbuDiameterOverrides.TryGetValue(item, out var spanDict)
+                && spanDict != null
+                && spanDict.TryGetValue((spanIndex, isRightAbdominal), out var val)
+                && !string.IsNullOrWhiteSpace(val))
+            {
+                return val;
+            }
+
+            if (item?.TanbuDiameterOverrides != null
+                && item.TanbuDiameterOverrides.TryGetValue(MakeTanbuDiameterKey(spanIndex, isRightAbdominal), out var persisted)
+                && !string.IsNullOrWhiteSpace(persisted))
+            {
+                return persisted.Trim();
+            }
+
+            return string.IsNullOrWhiteSpace(fallback) ? string.Empty : fallback.Trim();
+        }
+
+        private bool SetTanbuDiameter(GridBotsecozu item, int spanIndex, bool isRightAbdominal, string newDiameter)
+        {
+            if (item == null || spanIndex < 0 || string.IsNullOrWhiteSpace(newDiameter))
+                return false;
+
+            string normalized = newDiameter.Trim();
+
+            if (!_tanbuDiameterOverrides.TryGetValue(item, out var spanDict) || spanDict == null)
+            {
+                spanDict = new Dictionary<(int spanIndex, bool isRightAbdominal), string>();
+                _tanbuDiameterOverrides[item] = spanDict;
+            }
+
+            bool changed = !spanDict.TryGetValue((spanIndex, isRightAbdominal), out var existing)
+                           || !string.Equals(existing, normalized, StringComparison.Ordinal);
+            spanDict[(spanIndex, isRightAbdominal)] = normalized;
+
+            if (item.TanbuDiameterOverrides == null)
+                item.TanbuDiameterOverrides = new Dictionary<string, string>();
+
+            var persistedKey = MakeTanbuDiameterKey(spanIndex, isRightAbdominal);
+            changed = changed
+                      || !item.TanbuDiameterOverrides.TryGetValue(persistedKey, out var persistedExisting)
+                      || !string.Equals(persistedExisting, normalized, StringComparison.Ordinal);
+            item.TanbuDiameterOverrides[persistedKey] = normalized;
+
+            if (changed)
+                PropertyChangeTracker.MarkChanged();
+
+            return changed;
         }
 
         //private double GetTanbuHookLength(GridBotsecozu item, int spanIndex, double fallback)
@@ -6150,6 +6237,8 @@ namespace RevitProjectDataAddin
                         // --- fallback theo eff (giữ logic cho 左/右) ---
                         const double abdominalLeftFallback = 200.0;
                         const double abdominalRightFallback = 200.0;
+                        string leftTanbuDiameter = GetTanbuDiameter(item, i, isRightAbdominal: false, 端部1腹筋径);
+                        string rightTanbuDiameter = GetTanbuDiameter(item, i, isRightAbdominal: true, 端部1腹筋径);
                         // --- hiển thị: lấy override theo từng bên ---
                         //double hookLengthLeft = GetTanbuHookLength(item, i, isRight: false, hookLengthFallback);
                         //double hookLengthRight = GetTanbuHookLength(item, i, isRight: true, hookLengthFallback);
@@ -6170,15 +6259,17 @@ namespace RevitProjectDataAddin
                         string leftDisplay = $"D{端部1腹筋径}- {hookLengthLeft:0}";
                         string rightDisplay = $"D{端部1腹筋径}- {hookLengthRight:0}";
 
+                        string leftDisplayText = $"D{leftTanbuDiameter}- {hookLengthLeft:0}";
+                        string rightDisplayText = $"D{rightTanbuDiameter}- {hookLengthRight:0}";
                         double hookCenter = pos[i] + (eff / 2.0);
 
                         var offset3 = OffsetTanbuText;
 
-                        var leftText = DrawText_Rec(canvas, T, item, leftDisplay,
+                        var leftText = DrawText_Rec(canvas, T, item, leftDisplayText,
                             hookCenter - 700 + offset3.X, tanbuTextY + offset3.Y,
                             dimFont, Brushes.Gray, HAnchor.Center, VAnchor.Bottom, 160, "TEXT");
 
-                        var rightText = DrawText_Rec(canvas, T, item, rightDisplay,
+                        var rightText = DrawText_Rec(canvas, T, item, rightDisplayText,
                             hookCenter + 1800 + offset3.X, tanbuTextY + offset3.Y,
                             dimFont, Brushes.Gray, HAnchor.Center, VAnchor.Bottom, 160, "TEXT");
 
@@ -11960,6 +12051,7 @@ namespace RevitProjectDataAddin
                 hoverStroke: Brushes.Blue);
 
             bool isRightAbdominal = isRight;
+            string currentDiameter = GetTanbuDiameter(item, spanIndex, isRightAbdominal, diameter);
 
             Action<bool> redrawIfChanged = changed =>
             {
@@ -12486,11 +12578,11 @@ namespace RevitProjectDataAddin
                     foreach (var dia in _standardRebarDiameters)
                     {
                         var d = dia;
-                        bool checkedNow = string.Equals(d, diameter, StringComparison.Ordinal);
+                        bool checkedNow = string.Equals(d, currentDiameter, StringComparison.Ordinal);
                         subRoot.Children.Add(WithRowDivider(
                             MakeSubBtn(d, checkedNow, () =>
                             {
-                                bool changed = ApplyTanbuDiameter(kai, gSym, d);
+                                bool changed = SetTanbuDiameter(item, spanIndex, isRightAbdominal, d);
                                 redrawIfChanged(changed);
                             })));
                     }
