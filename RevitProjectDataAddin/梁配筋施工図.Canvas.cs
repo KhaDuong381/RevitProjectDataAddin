@@ -1692,6 +1692,61 @@ namespace RevitProjectDataAddin
             return canvas;
         }
 
+        private FrameworkElement CreateLengthPreviewCanvasBidirectional()
+        {
+            var canvas = new Canvas
+            {
+                Width = 60,
+                Height = 20,
+                Background = Brushes.Transparent
+            };
+
+            double centerY = 10;
+            double leftX = 10;
+            double rightX = 50;
+
+            canvas.Children.Add(new Line
+            {
+                X1 = leftX,
+                Y1 = centerY,
+                X2 = rightX,
+                Y2 = centerY,
+                Stroke = Brushes.Black,
+                StrokeThickness = 1.5,
+                SnapsToDevicePixels = true
+            });
+
+            var leftHead = new Polygon
+            {
+                Fill = Brushes.Black,
+                Stroke = Brushes.Black,
+                StrokeThickness = 1,
+                Points = new PointCollection
+                {
+                    new Point(leftX, centerY),
+                    new Point(leftX + 6, centerY - 4),
+                    new Point(leftX + 6, centerY + 4)
+                }
+            };
+
+            var rightHead = new Polygon
+            {
+                Fill = Brushes.Black,
+                Stroke = Brushes.Black,
+                StrokeThickness = 1,
+                Points = new PointCollection
+                {
+                    new Point(rightX, centerY),
+                    new Point(rightX - 6, centerY - 4),
+                    new Point(rightX - 6, centerY + 4)
+                }
+            };
+
+            canvas.Children.Add(leftHead);
+            canvas.Children.Add(rightHead);
+            return canvas;
+        }
+
         private void MakeOrangeDimTextEditable(TextBlock tb, Canvas canvas, WCTransform T,
                                                double wx, double wy,
                                                GridBotsecozu owner,
@@ -3337,9 +3392,14 @@ namespace RevitProjectDataAddin
         //    = new Dictionary<GridBotsecozu, Dictionary<int, double>>();
         private readonly Dictionary<GridBotsecozu, Dictionary<(int spanIndex, bool isRightAbdominal, bool isRightEnd), double>>
         _tanbuHookOverrides = new Dictionary<GridBotsecozu, Dictionary<(int spanIndex, bool isRightAbdominal, bool isRightEnd), double>>();
+        private readonly Dictionary<GridBotsecozu, Dictionary<(int spanIndex, bool isRightAbdominal), string>>
+        _tanbuDiameterOverrides = new Dictionary<GridBotsecozu, Dictionary<(int spanIndex, bool isRightAbdominal), string>>();
 
         private static string MakeTanbuHookKey(int spanIndex, bool isRightAbdominal, bool isRightEnd)
             => $"{spanIndex}|{(isRightAbdominal ? 1 : 0)}|{(isRightEnd ? 1 : 0)}";
+
+        private static string MakeTanbuDiameterKey(int spanIndex, bool isRightAbdominal)
+            => $"{spanIndex}|{(isRightAbdominal ? 1 : 0)}";
 
         private static bool TryParseTanbuHookKey(string key, out (int spanIndex, bool isRightAbdominal, bool isRightEnd) parsed)
         {
@@ -3357,10 +3417,78 @@ namespace RevitProjectDataAddin
             return true;
         }
 
+        private static bool TryParseTanbuDiameterKey(string key, out (int spanIndex, bool isRightAbdominal) parsed)
+        {
+            parsed = default;
+            if (string.IsNullOrWhiteSpace(key)) return false;
+
+            var parts = key.Split('|');
+            if (parts.Length != 2) return false;
+
+            if (!int.TryParse(parts[0], out var spanIndex)) return false;
+            if (!int.TryParse(parts[1], out var abdominalFlag)) return false;
+
+            parsed = (spanIndex, abdominalFlag != 0);
+            return true;
+        }
+
         private string FormatTanbuLabel(string dia, double hookLength)
         {
             dia = string.IsNullOrWhiteSpace(dia) ? string.Empty : dia;
             return $"D{dia}- {hookLength}";
+        }
+
+        private string GetTanbuDiameter(GridBotsecozu item, int spanIndex, bool isRightAbdominal, string fallback)
+        {
+            if (item != null
+                && _tanbuDiameterOverrides.TryGetValue(item, out var spanDict)
+                && spanDict.TryGetValue((spanIndex, isRightAbdominal), out var localValue)
+                && !string.IsNullOrWhiteSpace(localValue))
+            {
+                return localValue;
+            }
+
+            if (item?.TanbuDiameterOverrides != null
+                && item.TanbuDiameterOverrides.TryGetValue(MakeTanbuDiameterKey(spanIndex, isRightAbdominal), out var persistedValue)
+                && !string.IsNullOrWhiteSpace(persistedValue))
+            {
+                return persistedValue;
+            }
+
+            return fallback;
+        }
+
+        private bool SetTanbuDiameter(GridBotsecozu item, int spanIndex, bool isRightAbdominal, string newDia)
+        {
+            if (item == null || spanIndex < 0 || string.IsNullOrWhiteSpace(newDia))
+                return false;
+
+            string dia = newDia.Trim();
+
+            if (!_tanbuDiameterOverrides.TryGetValue(item, out var spanDict))
+            {
+                spanDict = new Dictionary<(int spanIndex, bool isRightAbdominal), string>();
+                _tanbuDiameterOverrides[item] = spanDict;
+            }
+
+            bool changed = !spanDict.TryGetValue((spanIndex, isRightAbdominal), out var existing)
+                           || !string.Equals(existing, dia, StringComparison.Ordinal);
+
+            spanDict[(spanIndex, isRightAbdominal)] = dia;
+
+            if (item.TanbuDiameterOverrides == null)
+                item.TanbuDiameterOverrides = new Dictionary<string, string>();
+
+            var persistedKey = MakeTanbuDiameterKey(spanIndex, isRightAbdominal);
+            changed = changed
+                      || !item.TanbuDiameterOverrides.TryGetValue(persistedKey, out var persistedExisting)
+                      || !string.Equals(persistedExisting, dia, StringComparison.Ordinal);
+            item.TanbuDiameterOverrides[persistedKey] = dia;
+
+            if (changed)
+                PropertyChangeTracker.MarkChanged();
+
+            return changed;
         }
 
         //private double GetTanbuHookLength(GridBotsecozu item, int spanIndex, double fallback)
@@ -4693,50 +4821,32 @@ namespace RevitProjectDataAddin
                     double rightHook_R = GetTanbuHookLength(item, j, isRightAbdominal: true, isRightEnd: true, abdominalRightFallback);
 
                     double midSpan = xA + ((xB - xA) / 2.0);
+                 
                     // 左の腹筋
-                    // 左の腹筋の左
                     DrawLine_Rec(canvas, T, item,
                         (xA - leftHook_L) + offset1.X, yChainMid + 7500 + offset1.Y,
-                        xA + offset1.X, yChainMid + 7500 + offset1.Y,
-                        Brushes.DimGray, 1.5, null, "CHAIN");
-                    // 左の腹筋の中央
-                    DrawLine_Rec(canvas, T, item,
-                        xA + offset1.X, yChainMid + 7500 + offset1.Y,
-                        midSpan + offset1.X, yChainMid + 7500 + offset1.Y,
-                        Brushes.Red, 1.5, null, "CHAIN");
-                    // 左の腹筋の右
-                    DrawLine_Rec(canvas, T, item,
-                        midSpan + offset1.X, yChainMid + 7500 + offset1.Y,
                         (midSpan + rightHook_L) + offset1.X, yChainMid + 7500 + offset1.Y,
-                        Brushes.Blue, 1.5, null, "CHAIN");
+                        Brushes.Red, 1.5, null, "CHAIN");
+                    
                     // Chéo của thanh bên trái
                     DrawLine_Rec(canvas, T, item,
                        (midSpan + rightHook_L) + offset1.X, yChainMid + 7500 + offset1.Y,
                        (midSpan + rightHook_L) + offset1.X + 30, yChainMid + 7500 + offset1.Y - 30,
                        Brushes.Blue, 1.5, null, "CHAIN");
 
+                                   
                     // 右の腹筋
-                    // 右の腹筋の左
                     DrawLine_Rec(canvas, T, item,
                         (midSpan - leftHook_R) + offset1.X, yChainMid + 7515 + offset1.Y,
-                        midSpan + offset1.X, yChainMid + 7515 + offset1.Y,
-                        Brushes.Black, 1.5, null, "CHAIN");
+                        (xB + rightHook_R) + offset1.X, yChainMid + 7515 + offset1.Y,
+                        Brushes.Orange, 1.5, null, "CHAIN");
+                   
                     // Chéo của thanh bên phải
                     DrawLine_Rec(canvas, T, item,
                         (midSpan - leftHook_R) + offset1.X, yChainMid + 7515 + offset1.Y,
                         (midSpan - leftHook_R) + offset1.X - 30, yChainMid + 7515 + offset1.Y - 30,
                         Brushes.Black, 1.5, null, "CHAIN");
 
-                    // 右の腹筋の中央
-                    DrawLine_Rec(canvas, T, item,
-                        midSpan + offset1.X, yChainMid + 7515 + offset1.Y,
-                        xB + offset1.X, yChainMid + 7515 + offset1.Y,
-                        Brushes.Orange, 1.5, null, "CHAIN");
-                    // 右の腹筋の右
-                    DrawLine_Rec(canvas, T, item,
-                        xB + offset1.X, yChainMid + 7515 + offset1.Y,
-                        (xB + rightHook_R) + offset1.X, yChainMid + 7515 + offset1.Y,
-                        Brushes.Red, 1.5, null, "CHAIN");
                     /////////////// hết 1 chổ ////////////
 
                     double Lspan = xB - xA;
@@ -4785,49 +4895,32 @@ namespace RevitProjectDataAddin
 
                     double midSpanX = xA + ((xB - xA) / 2.0);
 
-                    // 左の腹筋
-                    //左の腹筋の左
+                   
+                    //左の腹筋
                     DrawLine_Rec(canvas, T, item,
                                  (xA - leftHook_L) + offset2.X, yChainMid + 7500 + offset2.Y,
-                                xA + offset2.X, yChainMid + 7500 + offset2.Y,
-                                 Brushes.DimGray, 1.5, null, "CHAIN");
-                    //左の腹筋の中央
-                    DrawLine_Rec(canvas, T, item,
-                                 xA + offset2.X, yChainMid + 7500 + offset2.Y,
-                                 midSpanX + offset2.X, yChainMid + 7500 + offset2.Y,
-                                 Brushes.Red, 1.5, null, "CHAIN");
-                    //左の腹筋の右
-                    DrawLine_Rec(canvas, T, item,
-                                 midSpanX + offset2.X, yChainMid + 7500 + offset2.Y,
                                  midSpanX + rightHook_L + offset2.X, yChainMid + 7500 + offset2.Y,
-                                 Brushes.Blue, 1.5, null, "CHAIN");
+                                 Brushes.Red, 1.5, null, "CHAIN");
+                    
                     // Chéo của thanh bên trái
                     DrawLine_Rec(canvas, T, item,
                                  midSpanX + rightHook_L + offset2.X, yChainMid + 7500 + offset2.Y,
                                  midSpanX + rightHook_L + offset2.X + 30, yChainMid + 7500 + offset2.Y - 30,
                                  Brushes.Blue, 1.5, null, "CHAIN");
 
+                 
                     //右の腹筋
-                    //右の腹筋の左
                     DrawLine_Rec(canvas, T, item,
                                   midSpanX - leftHook_R + offset2.X, yChainMid + 7515 + offset2.Y,
-                                 midSpanX + offset2.X, yChainMid + 7515 + offset2.Y,
-                                 Brushes.Black, 1.5, null, "CHAIN");
+                                (xB + rightHook_R) + offset2.X, yChainMid + 7515 + offset2.Y,
+                                Brushes.Orange, 1.5, null, "CHAIN");
+                  
+
                     // Chéo của thanh bên phải
                     DrawLine_Rec(canvas, T, item,
                                  midSpanX - leftHook_R + offset2.X, yChainMid + 7515 + offset2.Y,
                                 midSpanX - leftHook_R + offset2.X - 30, yChainMid + 7515 + offset2.Y - 30,
                                 Brushes.Black, 1.5, null, "CHAIN");
-                    //右の腹筋の中央
-                    DrawLine_Rec(canvas, T, item,
-                                 midSpanX + offset2.X, yChainMid + 7515 + offset2.Y,
-                                (xB) + offset2.X, yChainMid + 7515 + offset2.Y,
-                                Brushes.Orange, 1.5, null, "CHAIN");
-                    //右の腹筋の右
-                    DrawLine_Rec(canvas, T, item,
-                             xB + offset2.X, yChainMid + 7515 + offset2.Y,
-                            (xB + rightHook_R) + offset2.X, yChainMid + 7515 + offset2.Y,
-                            Brushes.Red, 1.5, null, "CHAIN");
                     //////////////// hết 2 chổ //////////////
 
 
@@ -4976,8 +5069,11 @@ namespace RevitProjectDataAddin
                         double hookLengthRight = (eff / 2.0) + leftHook_R + rightHook_R;  // 右の腹筋 total
 
 
-                        string leftDisplay = $"D{端部1腹筋径}- {hookLengthLeft:0}";
-                        string rightDisplay = $"D{端部1腹筋径}- {hookLengthRight:0}";
+                        string leftDia = GetTanbuDiameter(item, i, isRightAbdominal: false, 端部1腹筋径);
+                        string rightDia = GetTanbuDiameter(item, i, isRightAbdominal: true, 端部1腹筋径);
+
+                        string leftDisplay = $"D{leftDia}- {hookLengthLeft:0}";
+                        string rightDisplay = $"D{rightDia}- {hookLengthRight:0}";
 
                         double hookCenter = pos[i] + (eff / 2.0);
 
@@ -4999,6 +5095,7 @@ namespace RevitProjectDataAddin
                             端部1腹筋径,
                             i,
                             false,
+                            eff / 2.0,
                              //() => hookLengthFallback);
                              abdominalLeftFallback,
                             abdominalRightFallback);
@@ -5011,6 +5108,7 @@ namespace RevitProjectDataAddin
                             端部1腹筋径,
                             i,
                             true,
+                            eff / 2.0,
                             //() => hookLengthFallback);
                             abdominalLeftFallback,
                             abdominalRightFallback);
@@ -8665,6 +8763,14 @@ namespace RevitProjectDataAddin
             public List<string> SelectedKeys { get; set; } = new List<string>();
         }
 
+        private sealed class PositionSelectionOption
+        {
+            public string Key { get; set; }
+            public string Label { get; set; }
+            public bool IsSelectAll { get; set; }
+            public bool IsChecked { get; set; }
+        }
+
         private PdfExportOptions ShowPdfExportOptionsDialog(IReadOnlyList<PdfExportSource> sources)
         {
             var optionWindow = new Window
@@ -8734,16 +8840,134 @@ namespace RevitProjectDataAddin
             Grid.SetRow(rangeTitle, 2);
             root.Children.Add(rangeTitle);
 
+            const string allKey = "__ALL_POSITIONS__";
+            var currentSpan = $"{_currentSecoList?.階を選択}_{_currentSecoList?.通を選択}";
+
+            var spanPool = new List<string>();
+            var kaiNames = _projectData?.Kihon?.NameKai?.Select(x => x?.Name).Where(x => !string.IsNullOrWhiteSpace(x)).ToList()
+                           ?? new List<string>();
+            var xNames = _projectData?.Kihon?.NameX?.Select(x => x?.Name).Where(x => !string.IsNullOrWhiteSpace(x)).ToList()
+                         ?? new List<string>();
+            var yNames = _projectData?.Kihon?.NameY?.Select(x => x?.Name).Where(x => !string.IsNullOrWhiteSpace(x)).ToList()
+                         ?? new List<string>();
+
+            foreach (var kai in kaiNames)
+            {
+                foreach (var x in xNames)
+                    spanPool.Add($"{kai}_{x}");
+                foreach (var y in yNames)
+                    spanPool.Add($"{kai}_{y}");
+            }
+
+            if (!string.IsNullOrWhiteSpace(currentSpan))
+                spanPool.Insert(0, currentSpan);
+
+            if (spanPool.Count == 0)
+                spanPool.AddRange(sources.Select(src => src.Key));
+
+            var positionOptions = new List<PositionSelectionOption>
+            {
+                new PositionSelectionOption
+                {
+                    Key = allKey,
+                    Label = "Tất cả",
+                    IsSelectAll = true,
+                    IsChecked = true
+                }
+            };
+
+            positionOptions.AddRange(
+                spanPool
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Distinct(StringComparer.Ordinal)
+                    .Select(span => new PositionSelectionOption
+                    {
+                        Key = span,
+                        Label = span,
+                        IsChecked = true
+                    }));
+
             var positionList = new ListBox
             {
-                SelectionMode = SelectionMode.Multiple,
                 BorderBrush = Brushes.Silver,
                 BorderThickness = new Thickness(1),
                 FontSize = 13
             };
-            foreach (var src in sources)
-                positionList.Items.Add(src.Key);
-            positionList.SelectAll();
+
+            void SyncSelectAllState()
+            {
+                var allOption = positionOptions.FirstOrDefault(x => x.IsSelectAll);
+                if (allOption == null) return;
+                allOption.IsChecked = positionOptions.Where(x => !x.IsSelectAll).All(x => x.IsChecked);
+
+                foreach (var obj in positionList.Items)
+                {
+                    if (obj is CheckBox cb && cb.Tag is PositionSelectionOption opt && opt.IsSelectAll)
+                    {
+                        if (cb.IsChecked != allOption.IsChecked)
+                            cb.IsChecked = allOption.IsChecked;
+                        break;
+                    }
+                }
+            }
+
+            foreach (var option in positionOptions)
+            {
+                var checkBox = new CheckBox
+                {
+                    Content = option.Label,
+                    Tag = option,
+                    Margin = new Thickness(4, 2, 4, 2),
+                    IsChecked = option.IsChecked
+                };
+
+                checkBox.Checked += (s, e) =>
+                {
+                    if (!(checkBox.Tag is PositionSelectionOption item)) return;
+
+                    item.IsChecked = true;
+                    if (item.IsSelectAll)
+                    {
+                        foreach (var other in positionOptions.Where(x => !x.IsSelectAll))
+                            other.IsChecked = true;
+
+                        foreach (var obj in positionList.Items)
+                        {
+                            if (obj is CheckBox cb && cb.Tag is PositionSelectionOption opt && !opt.IsSelectAll)
+                                cb.IsChecked = true;
+                        }
+                    }
+                    else
+                    {
+                        SyncSelectAllState();
+                    }
+                };
+
+                checkBox.Unchecked += (s, e) =>
+                {
+                    if (!(checkBox.Tag is PositionSelectionOption item)) return;
+
+                    item.IsChecked = false;
+                    if (item.IsSelectAll)
+                    {
+                        foreach (var other in positionOptions.Where(x => !x.IsSelectAll))
+                            other.IsChecked = false;
+
+                        foreach (var obj in positionList.Items)
+                        {
+                            if (obj is CheckBox cb && cb.Tag is PositionSelectionOption opt && !opt.IsSelectAll)
+                                cb.IsChecked = false;
+                        }
+                    }
+                    else
+                    {
+                        SyncSelectAllState();
+                    }
+                };
+
+                positionList.Items.Add(checkBox);
+            }
+
             Grid.SetRow(positionList, 3);
             root.Children.Add(positionList);
 
@@ -8781,20 +9005,24 @@ namespace RevitProjectDataAddin
 
             previewButton.Click += (s, e) =>
             {
-                var selected = positionList.SelectedItems.Cast<string>().ToList();
+                var selected = positionOptions.Where(x => !x.IsSelectAll && x.IsChecked)
+                                              .Select(x => x.Key)
+                                              .ToList();
                 var paper = (paperCombo.SelectedItem as string) ?? "A4";
-                previewText.Text = $"Khổ: {paper} | Số vị trí sẽ in: {selected.Count}/{sources.Count}";
-
                 var selectedSet = new HashSet<string>(selected, StringComparer.Ordinal);
                 var selectedSources = sources
                     .Where(src => selectedSet.Contains(src.Key))
                     .ToList();
+
+                previewText.Text = $"Khổ: {paper} | Số vị trí sẽ in: {selectedSources.Count}/{sources.Count}";
                 ShowPdfExportReviewWindow(optionWindow, selectedSources, paper);
             };
 
             okButton.Click += (s, e) =>
             {
-                var selected = positionList.SelectedItems.Cast<string>().ToList();
+                var selected = positionOptions.Where(x => !x.IsSelectAll && x.IsChecked)
+                                              .Select(x => x.Key)
+                                              .ToList();
                 if (selected.Count == 0)
                 {
                     MessageBox.Show(optionWindow, "Vui lòng chọn ít nhất 1 vị trí để in.");
@@ -10722,6 +10950,7 @@ namespace RevitProjectDataAddin
             string diameter,
             int spanIndex,
             bool isRight,
+            double centerLength,
             double fallbackLeft,
             double fallbackRight)
         {
@@ -10738,6 +10967,7 @@ namespace RevitProjectDataAddin
                 hoverStroke: Brushes.Blue);
 
             bool isRightAbdominal = isRight;
+            Func<string> currentDiameterProvider = () => GetTanbuDiameter(item, spanIndex, isRightAbdominal, diameter);
 
             Action<bool> redrawIfChanged = changed =>
             {
@@ -10882,6 +11112,22 @@ namespace RevitProjectDataAddin
                     if (selectedSubBtn != null) selectedSubBtn.Background = selectedBg;
                 }
 
+                Button selectedLenBranchBtn = null;
+                void SelectLenBranch(Button btn)
+                {
+                    if (selectedLenBranchBtn != null) selectedLenBranchBtn.Background = normalBg;
+                    selectedLenBranchBtn = btn;
+                    if (selectedLenBranchBtn != null) selectedLenBranchBtn.Background = selectedBg;
+                }
+
+                Button selectedLenDetailBtn = null;
+                void SelectLenDetail(Button btn)
+                {
+                    if (selectedLenDetailBtn != null) selectedLenDetailBtn.Background = normalBg;
+                    selectedLenDetailBtn = btn;
+                    if (selectedLenDetailBtn != null) selectedLenDetailBtn.Background = selectedBg;
+                }
+
                 // ✅ FIXED placement for MAIN popup (Relative to canvas)
                 double menuX, menuY;
                 GetTbRightTop(tb, 0, out menuX, out menuY);
@@ -10901,6 +11147,7 @@ namespace RevitProjectDataAddin
                 tb.Tag = handle;
 
                 System.Windows.Controls.Primitives.Popup subPop = null;
+                System.Windows.Controls.Primitives.Popup subDetailPop = null;
 
                 MouseButtonEventHandler outsideCloser = null;
                 KeyEventHandler escCloser = null;
@@ -10916,6 +11163,7 @@ namespace RevitProjectDataAddin
                     if (isClosing) return;
                     isClosing = true;
 
+                    try { if (subDetailPop != null) subDetailPop.IsOpen = false; } catch { }
                     try { if (subPop != null) subPop.IsOpen = false; } catch { }
                     try { mainPop.IsOpen = false; } catch { }
 
@@ -10934,6 +11182,7 @@ namespace RevitProjectDataAddin
 
                 void CloseSub()
                 {
+                    try { if (subDetailPop != null) subDetailPop.IsOpen = false; } catch { }
                     try { if (subPop != null) subPop.IsOpen = false; } catch { }
                 }
 
@@ -10945,7 +11194,8 @@ namespace RevitProjectDataAddin
                     bool inside =
                         IsPointInside(tb, screenPt) ||
                         (mainPop.Child is FrameworkElement m && IsPointInside(m, screenPt)) ||
-                        (subPop != null && subPop.Child is FrameworkElement s2 && IsPointInside(s2, screenPt));
+                        (subPop != null && subPop.Child is FrameworkElement s2 && IsPointInside(s2, screenPt)) ||
+                        (subDetailPop != null && subDetailPop.Child is FrameworkElement s3 && IsPointInside(s3, screenPt));
 
                     if (!inside) CloseAll();
                 };
@@ -11102,7 +11352,7 @@ namespace RevitProjectDataAddin
                             sideLabel: "左",
                             endIsRight: false,
                             closeAll: CloseAll,
-                            selectSub: SelectSub,
+                            selectSub: SelectLenDetail,
                             getFlatBtnTemplate: GetFlatBtnTemplate)));
 
                     // right inline editor
@@ -11111,23 +11361,59 @@ namespace RevitProjectDataAddin
                             sideLabel: "右",
                             endIsRight: true,
                             closeAll: CloseAll,
-                            selectSub: SelectSub,
+                            selectSub: SelectLenDetail,
                             getFlatBtnTemplate: GetFlatBtnTemplate)));
+
+                    subRoot.Children.Clear();
+
+                    Button MakeSideBranchBtn(string header, bool menuIsRight)
+                    {
+                        var btn = MakeMainBtn(header);
+                        btn.MouseEnter += (_, __) =>
+                        {
+                            SelectMain(placementBtn);
+                            SelectLenBranch(btn);
+                            OpenLenDetailSubmenu(btn, menuIsRight);
+                        };
+                        btn.Click += (_, __) =>
+                        {
+                            SelectMain(placementBtn);
+                            SelectLenBranch(btn);
+                            OpenLenDetailSubmenu(btn, menuIsRight);
+                        };
+                        return btn;
+                    }
+
+                    subRoot.Children.Add(WithRowDivider(MakeSideBranchBtn("左", false)));
+                    subRoot.Children.Add(WithRowDivider(MakeSideBranchBtn("右", true)));
 
                     subPop.Child = WrapBox(subRoot);
 
                     placementBtn.Dispatcher.BeginInvoke(new Action(() =>
                     {
                         subPop.IsOpen = true;
+                        SelectLenBranch(null);
+                        SelectLenDetail(null);
                         SelectSub(null);
                     }), DispatcherPriority.Input);
                 }
 
-                Func<bool, string> getHookLenText = endIsRight =>
+                Func<bool, double> getHookLenValue = endIsRight =>
                 {
                     double fb = endIsRight ? fallbackRight : fallbackLeft;
-                    double v = GetTanbuHookLength(item, spanIndex, isRightAbdominal, endIsRight, fb);
+                    return GetTanbuHookLength(item, spanIndex, isRightAbdominal, endIsRight, fb);
+                };
+
+                Func<bool, string> getHookLenText = endIsRight =>
+                {
+                    double v = getHookLenValue(endIsRight);
                     return v.ToString(CultureInfo.InvariantCulture);
+                };
+
+                Func<string> getTotalLenText = () =>
+                {
+                    double total = Math.Max(0, centerLength) + getHookLenValue(false) + getHookLenValue(true);
+                    return total.ToString(CultureInfo.InvariantCulture);
                 };
 
                 Func<string, bool, Tuple<bool, double>> tryParseLen = (text, endIsRight) =>
@@ -11151,41 +11437,186 @@ namespace RevitProjectDataAddin
                     if (changed) Redraw(canvas, item);
                 };
 
+                Action<bool, string> applyTotalLenFromText = (menuIsRight, text) =>
+                {
+                    var parsed = tryParseLen(text, menuIsRight);
+                    if (!parsed.Item1) return;
+
+                    double otherHook = getHookLenValue(!menuIsRight);
+                    double targetHook = parsed.Item2 - Math.Max(0, centerLength) - otherHook;
+                    if (targetHook < 0) return;
+
+                    bool changed = ApplyTanbuHookLength(item, spanIndex, isRightAbdominal, menuIsRight, targetHook);
+                    if (changed) Redraw(canvas, item);
+                };
+
                 Button MakeInlineLenRow(string sideLabel, bool endIsRight, Action closeAll, Action<Button> selectSub, Func<ControlTemplate> getFlatBtnTemplate)
                 {
+                    sideLabel = endIsRight ? "右へ引く" : "左へ引く";
+
                     var grid = new Grid();
                     grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(28) }); // 左/右
-                    grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // textbox
-                    grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // ❯
+                    grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // spacer
+                    grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // arrow / inline editor
+
+                    grid.ColumnDefinitions[0].Width = GridLength.Auto;
 
                     var lbl = new TextBlock
                     {
                         Text = sideLabel ?? "",
                         VerticalAlignment = VerticalAlignment.Center
                     };
+                    lbl.Margin = new Thickness(0, 0, 8, 0);
                     Grid.SetColumn(lbl, 0);
                     grid.Children.Add(lbl);
+
+                    var arrowEditorHost = new Grid
+                    {
+                        MinWidth = 60,
+                        HorizontalAlignment = HorizontalAlignment.Right
+                    };
+                    Grid.SetColumn(arrowEditorHost, 2);
+                    grid.Children.Add(arrowEditorHost);
+
+                    var dirPreview = CreateLengthPreviewCanvas(pullLeft: !endIsRight);
+                    if (dirPreview is FrameworkElement dirEl)
+                    {
+                        dirEl.VerticalAlignment = VerticalAlignment.Center;
+                        dirEl.HorizontalAlignment = HorizontalAlignment.Right;
+                        dirEl.Margin = new Thickness(12, 0, 0, 0);
+                    }
+                    arrowEditorHost.Children.Add(dirPreview);
 
                     var tbx = new TextBox
                     {
                         Text = getHookLenText(endIsRight),
-                        MinWidth = 10,
-                        Margin = new Thickness(6, 0, 6, 0),
-                        VerticalContentAlignment = VerticalAlignment.Center
-                    };
-                    Grid.SetColumn(tbx, 1);
-                    grid.Children.Add(tbx);
-
-                    var arrow = new TextBlock
-                    {
-                        Text = "❯",
-                        VerticalAlignment = VerticalAlignment.Center,
-                        HorizontalAlignment = HorizontalAlignment.Right,
+                        Width = 60,
+                        Height = 20,
+                        Padding = new Thickness(4, 0, 4, 0),
                         Margin = new Thickness(12, 0, 0, 0),
-                        Opacity = 0.0 // row is inline editor; keep layout consistent but no navigation
+                        VerticalContentAlignment = VerticalAlignment.Center,
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        TextAlignment = TextAlignment.Center,
+                        Visibility = System.Windows.Visibility.Collapsed
                     };
-                    Grid.SetColumn(arrow, 2);
-                    grid.Children.Add(arrow);
+                    arrowEditorHost.Children.Add(tbx);
+
+                    var btn = new Button
+                    {
+                        Content = grid,
+                        HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                        VerticalContentAlignment = VerticalAlignment.Center,
+                        Padding = new Thickness(12, 6, 12, 6),
+                        Background = Brushes.Transparent,
+                        BorderBrush = Brushes.Transparent,
+                        BorderThickness = new Thickness(0),
+                        MinWidth = 60,
+                        OverridesDefaultStyle = true,
+                        Template = getFlatBtnTemplate(),
+                        Focusable = false,
+                        IsTabStop = false
+                    };
+
+                    // Keep submenu highlighted on hover
+                    btn.MouseEnter += (a, b) => selectSub(btn);
+
+                    void BeginEdit()
+                    {
+                        dirPreview.Visibility = System.Windows.Visibility.Collapsed;
+                        tbx.Visibility = System.Windows.Visibility.Visible;
+                        tbx.Text = getHookLenText(endIsRight);
+                        tbx.Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            tbx.Focus();
+                            tbx.SelectAll();
+                        }), DispatcherPriority.Input);
+                    }
+
+                    void EndEdit(bool commit)
+                    {
+                        if (commit)
+                        {
+                            applyHookLenFromText(endIsRight, tbx.Text);
+                        }
+
+                        tbx.Visibility = System.Windows.Visibility.Collapsed;
+                        dirPreview.Visibility = System.Windows.Visibility.Visible;
+                    }
+
+                    // Prevent click on button from closing; click switches to edit mode.
+                    btn.Click += (a, b) =>
+                    {
+                        b.Handled = true;
+                        if (tbx.Visibility != System.Windows.Visibility.Visible)
+                        {
+                            BeginEdit();
+                        }
+                    };
+                    // Commit on Enter
+                    tbx.PreviewKeyDown += (a, k) =>
+                    {
+                        if (k.Key == Key.Enter)
+                        {
+                            EndEdit(commit: true);
+                            closeAll();
+                            k.Handled = true;
+                        }
+                        else if (k.Key == Key.Escape)
+                        {
+                            EndEdit(commit: false);
+                            closeAll();
+                            k.Handled = true;
+                        }
+                    };
+
+                    // Commit on focus out (but do NOT close menu automatically)
+                    tbx.LostKeyboardFocus += (a, b) =>
+                    {
+                        if (tbx.Visibility == System.Windows.Visibility.Visible)
+                        {
+                            EndEdit(commit: true);
+                        }
+                    };
+
+                    return btn;
+                }
+                Button MakeInlineTotalLenRow(bool menuIsRight, Action closeAll, Action<Button> selectSub, Func<ControlTemplate> getFlatBtnTemplate)
+                {
+                    var grid = new Grid();
+                    grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                    grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                    grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                    var lbl = new TextBlock
+                    {
+                        Text = "全部",
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Margin = new Thickness(0, 0, 8, 0)
+                    };
+                    Grid.SetColumn(lbl, 0);
+                    grid.Children.Add(lbl);
+
+                    var editorHost = new Grid
+                    {
+                        MinWidth = 72,
+                        HorizontalAlignment = HorizontalAlignment.Right
+                    };
+                    Grid.SetColumn(editorHost, 2);
+                    grid.Children.Add(editorHost);
+
+                    var tbx = new TextBox
+                    {
+                        Text = getTotalLenText(),
+                        Width = 72,
+                        Height = 20,
+                        Padding = new Thickness(4, 0, 4, 0),
+                        Margin = new Thickness(12, 0, 0, 0),
+                        VerticalContentAlignment = VerticalAlignment.Center,
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        TextAlignment = TextAlignment.Center,
+                        Visibility = System.Windows.Visibility.Collapsed
+                    };
+                    editorHost.Children.Add(tbx);
 
                     var btn = new Button
                     {
@@ -11203,45 +11634,90 @@ namespace RevitProjectDataAddin
                         IsTabStop = false
                     };
 
-                    // Keep submenu highlighted on hover
                     btn.MouseEnter += (a, b) => selectSub(btn);
-
-                    // Prevent click on button from closing; editing happens in TextBox
-                    btn.Click += (a, b) => { b.Handled = true; };
-
-                    // Commit on Enter
-                    tbx.PreviewKeyDown += (a, k) =>
+                    void BeginEdit()
                     {
-                        if (k.Key == Key.Enter)
-                        {
-                            applyHookLenFromText(endIsRight, tbx.Text);
-                            closeAll();
-                            k.Handled = true;
-                        }
-                        else if (k.Key == Key.Escape)
-                        {
-                            closeAll();
-                            k.Handled = true;
-                        }
-                    };
-
-                    // Commit on focus out (but do NOT close menu automatically)
-                    tbx.LostKeyboardFocus += (a, b) =>
-                    {
-                        applyHookLenFromText(endIsRight, tbx.Text);
-                    };
-
-                    // On open, focus & select all for quick typing
-                    btn.Loaded += (a, b) =>
-                    {
+                        tbx.Visibility = System.Windows.Visibility.Visible;
+                        tbx.Text = getTotalLenText();
                         tbx.Dispatcher.BeginInvoke(new Action(() =>
                         {
                             tbx.Focus();
                             tbx.SelectAll();
                         }), DispatcherPriority.Input);
+                    }
+
+                    void EndEdit(bool commit)
+                    {
+                        if (commit)
+                        {
+                            applyTotalLenFromText(menuIsRight, tbx.Text);
+                        }
+
+                        tbx.Visibility = System.Windows.Visibility.Collapsed;
+                    }
+
+                    btn.Click += (a, b) =>
+                    {
+                        b.Handled = true;
+                        if (tbx.Visibility != System.Windows.Visibility.Visible)
+                        {
+                            BeginEdit();
+                        }
+                    };
+                    tbx.PreviewKeyDown += (a, k) =>
+                    {
+                        if (k.Key == Key.Enter)
+                        {
+                            EndEdit(commit: true);
+                            closeAll();
+                            k.Handled = true;
+                        }
+                        else if (k.Key == Key.Escape)
+                        {
+                            EndEdit(commit: false);
+                            closeAll();
+                            k.Handled = true;
+                        }
+                    };
+
+                    tbx.LostKeyboardFocus += (a, b) =>
+                    {
+                        if (tbx.Visibility == System.Windows.Visibility.Visible)
+                        {
+                            EndEdit(commit: true);
+                        }
                     };
 
                     return btn;
+                }
+
+                void OpenLenDetailSubmenu(Button placementBtn, bool menuIsRight)
+                {
+                    try { if (subDetailPop != null) subDetailPop.IsOpen = false; } catch { }
+
+                    subDetailPop = new System.Windows.Controls.Primitives.Popup
+                    {
+                        PlacementTarget = placementBtn,
+                        Placement = System.Windows.Controls.Primitives.PlacementMode.Right,
+                        HorizontalOffset = 1,
+                        VerticalOffset = -1.5,
+                        AllowsTransparency = true,
+                        StaysOpen = true
+                    };
+
+                    var detailRoot = new StackPanel { Orientation = Orientation.Vertical };
+                    detailRoot.Children.Add(WithRowDivider(MakeInlineLenRow("左へ引く", false, CloseAll, SelectSub, GetFlatBtnTemplate)));
+                    detailRoot.Children.Add(WithRowDivider(MakeInlineLenRow("右へ引く", true, CloseAll, SelectSub, GetFlatBtnTemplate)));
+                    detailRoot.Children.Add(WithRowDivider(MakeInlineTotalLenRow(menuIsRight, CloseAll, SelectSub, GetFlatBtnTemplate)));
+
+                    subDetailPop.Child = WrapBox(detailRoot);
+
+                    placementBtn.Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        subDetailPop.IsOpen = true;
+                        SelectLenBranch(placementBtn);
+                        SelectSub(null);
+                    }), DispatcherPriority.Input);
                 }
 
 
@@ -11264,11 +11740,11 @@ namespace RevitProjectDataAddin
                     foreach (var dia in _standardRebarDiameters)
                     {
                         var d = dia;
-                        bool checkedNow = string.Equals(d, diameter, StringComparison.Ordinal);
+                        bool checkedNow = string.Equals(d, currentDiameterProvider(), StringComparison.Ordinal);
                         subRoot.Children.Add(WithRowDivider(
                             MakeSubBtn(d, checkedNow, () =>
                             {
-                                bool changed = ApplyTanbuDiameter(kai, gSym, d);
+                                bool changed = SetTanbuDiameter(item, spanIndex, isRightAbdominal, d);
                                 redrawIfChanged(changed);
                             })));
                     }
@@ -14863,6 +15339,18 @@ namespace RevitProjectDataAddin
                     _tanbuHookOverrides.Remove(beamKvp.Key);
             }
 
+            foreach (var beamKvp in _tanbuDiameterOverrides.ToList())
+            {
+                var dict = beamKvp.Value;
+                if (dict == null) continue;
+
+                changed = dict.Remove((spanIndex, false)) || changed;
+                changed = dict.Remove((spanIndex, true)) || changed;
+
+                if (dict.Count == 0)
+                    _tanbuDiameterOverrides.Remove(beamKvp.Key);
+            }
+
             if (_currentSecoList?.GridBotsecozuMap != null)
             {
                 foreach (var grids in _currentSecoList.GridBotsecozuMap.Values)
@@ -14870,15 +15358,25 @@ namespace RevitProjectDataAddin
                     if (grids == null) continue;
                     foreach (var grid in grids)
                     {
-                        if (grid?.TanbuHookOverrides == null || grid.TanbuHookOverrides.Count == 0)
-                            continue;
+                        if (grid?.TanbuHookOverrides != null && grid.TanbuHookOverrides.Count > 0)
+                        {
+                            var toDelete = grid.TanbuHookOverrides.Keys
+                                .Where(k => TryParseTanbuHookKey(k, out var parsed) && parsed.spanIndex == spanIndex)
+                                .ToList();
 
-                        var toDelete = grid.TanbuHookOverrides.Keys
-                            .Where(k => TryParseTanbuHookKey(k, out var parsed) && parsed.spanIndex == spanIndex)
-                            .ToList();
+                            foreach (var key in toDelete)
+                                changed = grid.TanbuHookOverrides.Remove(key) || changed;
+                        }
 
-                        foreach (var key in toDelete)
-                            changed = grid.TanbuHookOverrides.Remove(key) || changed;
+                        if (grid?.TanbuDiameterOverrides != null && grid.TanbuDiameterOverrides.Count > 0)
+                        {
+                            var diaKeysToDelete = grid.TanbuDiameterOverrides.Keys
+                                .Where(k => TryParseTanbuDiameterKey(k, out var parsed) && parsed.spanIndex == spanIndex)
+                                .ToList();
+
+                            foreach (var key in diaKeysToDelete)
+                                changed = grid.TanbuDiameterOverrides.Remove(key) || changed;
+                        }
                     }
                 }
             }
@@ -14997,22 +15495,26 @@ namespace RevitProjectDataAddin
             matText = matText ?? string.Empty;
             bool hasMat = !string.IsNullOrWhiteSpace(matText);
 
+            // NOTE:
+            // Keep the 3-part label (Dia/Pitch/Mat) visually locked across zoom levels.
+            // We still render/edit as 3 independent TextBlocks, but spacing is computed
+            // from the same on-screen font metrics used for drawing.
+            //
+            // DrawText_Rec renders text with: effectiveFontPx = fontPx * ResolveTextCombinedScale(...)
+            // so spacing must be based on that same effective font; otherwise large zoom can
+            // stretch gaps and small zoom can cause overlap.
             double combinedScale = ResolveTextCombinedScale(T, item);
             double effectiveFontPx = fontPx * combinedScale;
             double scalePxPerMm = Math.Abs(T.Scale) < 1e-9 ? 1.0 : Math.Abs(T.Scale);
             double gapMm = gapPx / scalePxPerMm;
-            const double dxfTextHeightMm = 150.0;
             string fontFamilyName = this.FontFamily?.Source ?? "Yu Mincho";
             var typeface = new Typeface(new FontFamily(fontFamilyName), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
 
-            double wDiaMm = MeasureTextWidthDxfMm(canvas, diaText, typeface, effectiveFontPx, dxfTextHeightMm);
-            double wPitchMm = MeasureTextWidthDxfMm(canvas, pitchText, typeface, effectiveFontPx, dxfTextHeightMm);
-            double wMatMm = hasMat ? MeasureTextWidthDxfMm(canvas, matText, typeface, effectiveFontPx, dxfTextHeightMm) : 0;
-
-            // Fallback for environments where geometry measurement can fail.
-            if (wDiaMm <= 0) wDiaMm = MeasureTextWidthPx(canvas, diaText, typeface, effectiveFontPx) / scalePxPerMm;
-            if (wPitchMm <= 0) wPitchMm = MeasureTextWidthPx(canvas, pitchText, typeface, effectiveFontPx) / scalePxPerMm;
-            if (hasMat && wMatMm <= 0) wMatMm = MeasureTextWidthPx(canvas, matText, typeface, effectiveFontPx) / scalePxPerMm;
+            // Use pixel width measurement (actual WPF render metric), then convert to world mm.
+            // This keeps spacing stable with zoom and matches what users see/edit on canvas.
+            double wDiaMm = MeasureTextWidthPx(canvas, diaText, typeface, effectiveFontPx) / scalePxPerMm;
+            double wPitchMm = MeasureTextWidthPx(canvas, pitchText, typeface, effectiveFontPx) / scalePxPerMm;
+            double wMatMm = hasMat ? (MeasureTextWidthPx(canvas, matText, typeface, effectiveFontPx) / scalePxPerMm) : 0;
 
             double totalMm = wDiaMm + gapMm + wPitchMm + (hasMat ? gapMm + wMatMm : 0);
             double xStart = centerXmm - totalMm / 2.0;
