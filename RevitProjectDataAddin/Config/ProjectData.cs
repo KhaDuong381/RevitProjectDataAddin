@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -416,6 +416,12 @@ public class 梁施工図 : INotifyPropertyChanged
 
 }
 
+public class OrangeSegOverridePersistData
+{
+    public double X1 { get; set; }
+    public double X2 { get; set; }
+}
+
 public class GridBotsecozu : INotifyPropertyChanged
 {
     private Dictionary<string, double> _tanbuHookOverrides = new Dictionary<string, double>();
@@ -425,11 +431,46 @@ public class GridBotsecozu : INotifyPropertyChanged
         set => SetProperty(ref _tanbuHookOverrides, value ?? new Dictionary<string, double>());
     }
 
-    private Dictionary<string, string> _tanbuDiameterOverrides = new Dictionary<string, string>();
-    public Dictionary<string, string> TanbuDiameterOverrides
+    private Dictionary<string, string> _orangeDimTextOverrides = new Dictionary<string, string>();
+    public Dictionary<string, string> OrangeDimTextOverrides
     {
-        get => _tanbuDiameterOverrides;
-        set => SetProperty(ref _tanbuDiameterOverrides, value ?? new Dictionary<string, string>());
+        get => _orangeDimTextOverrides;
+        set => SetProperty(ref _orangeDimTextOverrides, value ?? new Dictionary<string, string>());
+    }
+
+    private Dictionary<string, double> _ankaOverrides = new Dictionary<string, double>();
+    public Dictionary<string, double> AnkaOverrides
+    {
+        get => _ankaOverrides;
+        set => SetProperty(ref _ankaOverrides, value ?? new Dictionary<string, double>());
+    }
+
+    private Dictionary<string, double> _ankaSegOverrides = new Dictionary<string, double>();
+    public Dictionary<string, double> AnkaSegOverrides
+    {
+        get => _ankaSegOverrides;
+        set => SetProperty(ref _ankaSegOverrides, value ?? new Dictionary<string, double>());
+    }
+
+    private HashSet<string> _deletedOrangeSegs = new HashSet<string>();
+    public HashSet<string> DeletedOrangeSegs
+    {
+        get => _deletedOrangeSegs;
+        set => SetProperty(ref _deletedOrangeSegs, value ?? new HashSet<string>());
+    }
+
+    private Dictionary<string, OrangeSegOverridePersistData> _orangeSegOverrides = new Dictionary<string, OrangeSegOverridePersistData>();
+    public Dictionary<string, OrangeSegOverridePersistData> OrangeSegOverrides
+    {
+        get => _orangeSegOverrides;
+        set => SetProperty(ref _orangeSegOverrides, value ?? new Dictionary<string, OrangeSegOverridePersistData>());
+    }
+
+    private Dictionary<string, List<double>> _orangeSegEqualCutPoints = new Dictionary<string, List<double>>();
+    public Dictionary<string, List<double>> OrangeSegEqualCutPoints
+    {
+        get => _orangeSegEqualCutPoints;
+        set => SetProperty(ref _orangeSegEqualCutPoints, value ?? new Dictionary<string, List<double>>());
     }
 
     public event PropertyChangedEventHandler PropertyChanged;
