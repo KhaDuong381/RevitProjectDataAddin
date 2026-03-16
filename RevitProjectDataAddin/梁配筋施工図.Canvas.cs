@@ -12491,7 +12491,6 @@ namespace RevitProjectDataAddin
                         VerticalContentAlignment = VerticalAlignment.Center,
                         Visibility = System.Windows.Visibility.Collapsed
                     };
-                    AttachDimIntegerValidation(tbx);
                     DockPanel.SetDock(tbx, Dock.Right);
 
                     row.Children.Add(lbl);
@@ -12654,7 +12653,6 @@ namespace RevitProjectDataAddin
                                 VerticalContentAlignment = VerticalAlignment.Center,
                                 Visibility = System.Windows.Visibility.Collapsed
                             };
-                            AttachDimIntegerValidation(totalBox);
                             DockPanel.SetDock(totalBox, Dock.Right);
 
                             row.Children.Add(lbl);
