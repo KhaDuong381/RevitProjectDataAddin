@@ -12181,19 +12181,69 @@ namespace RevitProjectDataAddin
                 }
 
                 Button selectedMainBtn = null;
+                Button pinnedMainBtn = null;
+                void ClearPinnedMain()
+                {
+                    if (pinnedMainBtn != null && !ReferenceEquals(pinnedMainBtn, selectedMainBtn))
+                        pinnedMainBtn.Background = normalBg;
+                    pinnedMainBtn = null;
+                }
+                void PinMain(Button btn)
+                {
+                    if (ReferenceEquals(pinnedMainBtn, btn))
+                    {
+                        if (pinnedMainBtn != null)
+                            pinnedMainBtn.Background = selectedBg;
+                        return;
+                    }
+
+                    if (pinnedMainBtn != null && !ReferenceEquals(pinnedMainBtn, selectedMainBtn))
+                        pinnedMainBtn.Background = normalBg;
+
+                    pinnedMainBtn = btn;
+                    if (pinnedMainBtn != null)
+                        pinnedMainBtn.Background = selectedBg;
+                }
                 void SelectMain(Button btn)
                 {
-                    if (selectedMainBtn != null) selectedMainBtn.Background = normalBg;
+                    if (selectedMainBtn != null && !ReferenceEquals(selectedMainBtn, pinnedMainBtn))
+                        selectedMainBtn.Background = normalBg;
                     selectedMainBtn = btn;
-                    if (selectedMainBtn != null) selectedMainBtn.Background = selectedBg;
+                    if (selectedMainBtn != null)
+                        selectedMainBtn.Background = selectedBg;
                 }
 
                 Button selectedSubBtn = null;
+                Button pinnedSubBtn = null;
+                void ClearPinnedSub()
+                {
+                    if (pinnedSubBtn != null && !ReferenceEquals(pinnedSubBtn, selectedSubBtn))
+                        pinnedSubBtn.Background = normalBg;
+                    pinnedSubBtn = null;
+                }
+                void PinSub(Button btn)
+                {
+                    if (ReferenceEquals(pinnedSubBtn, btn))
+                    {
+                        if (pinnedSubBtn != null)
+                            pinnedSubBtn.Background = selectedBg;
+                        return;
+                    }
+
+                    if (pinnedSubBtn != null && !ReferenceEquals(pinnedSubBtn, selectedSubBtn))
+                        pinnedSubBtn.Background = normalBg;
+
+                    pinnedSubBtn = btn;
+                    if (pinnedSubBtn != null)
+                        pinnedSubBtn.Background = selectedBg;
+                }
                 void SelectSub(Button btn)
                 {
-                    if (selectedSubBtn != null) selectedSubBtn.Background = normalBg;
+                    if (selectedSubBtn != null && !ReferenceEquals(selectedSubBtn, pinnedSubBtn))
+                        selectedSubBtn.Background = normalBg;
                     selectedSubBtn = btn;
-                    if (selectedSubBtn != null) selectedSubBtn.Background = selectedBg;
+                    if (selectedSubBtn != null)
+                        selectedSubBtn.Background = selectedBg;
                 }
 
                 // ✅ FIXED placement for MAIN popup (Relative to canvas)
@@ -12227,6 +12277,8 @@ namespace RevitProjectDataAddin
                 {
                     try { if (ReferenceEquals(tb.Tag, handle)) tb.Tag = null; } catch { }
                     try { if (ReferenceEquals(_activePopupMenu, mainPop)) _activePopupMenu = null; } catch { }
+                    ClearPinnedMain();
+                    ClearPinnedSub();
 
                     if (isClosing) return;
                     isClosing = true;
@@ -12250,6 +12302,8 @@ namespace RevitProjectDataAddin
 
                 void CloseSub()
                 {
+                    ClearPinnedMain();
+                    ClearPinnedSub();
                     try { if (subSubPop != null) subSubPop.IsOpen = false; } catch { }
                     try { if (subPop != null) subPop.IsOpen = false; } catch { }
                 }
@@ -12436,7 +12490,9 @@ namespace RevitProjectDataAddin
 
                     placementBtn.Dispatcher.BeginInvoke(new Action(() =>
                     {
+                        PinMain(placementBtn);
                         subPop.IsOpen = true;
+                        ClearPinnedSub();
                         SelectSub(null);
                     }), DispatcherPriority.Input);
                 }
@@ -12740,17 +12796,19 @@ namespace RevitProjectDataAddin
                         btn.Dispatcher.BeginInvoke(new Action(() =>
                         {
                             subSubPop.IsOpen = true;
-                            SelectSub(null);
+                            PinSub(btn);
                         }), DispatcherPriority.Input);
                     }
 
                     btn.MouseEnter += (_, __) =>
                     {
+                        PinSub(btn);
                         selectSub(btn);
                         OpenLenDetail();
                     };
                     btn.Click += (_, __) =>
                     {
+                        PinSub(btn);
                         selectSub(btn);
                         OpenLenDetail();
                     };
@@ -12814,11 +12872,13 @@ namespace RevitProjectDataAddin
                 var btnLen = MakeMainBtn("腹筋の長さ");
                 btnLen.MouseEnter += (_, __) =>
                 {
+                    PinMain(btnLen);
                     SelectMain(btnLen);
                     OpenLenSubmenu(btnLen); // ✅ hover opens submenu
                 };
                 btnLen.Click += (_, __) =>
                 {
+                    PinMain(btnLen);
                     SelectMain(btnLen);
                     OpenLenSubmenu(btnLen);
                 };
