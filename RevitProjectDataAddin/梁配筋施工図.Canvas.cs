@@ -1,4 +1,4 @@
-
+﻿
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -5985,21 +5985,21 @@ namespace RevitProjectDataAddin
 
                     double midSpan = xA + ((xB - xA) / 2.0);
                     // 左の腹筋
-                    // 左の腹筋の左
-                    DrawLine_Rec(canvas, T, item,
-                        (xA - leftHook_L) + offset1.X, yChainMid + 7500 + offset1.Y,
-                        xA + offset1.X, yChainMid + 7500 + offset1.Y,
-                        Brushes.DimGray, 1.5, null, "CHAIN");
+                    //// 左の腹筋の左
+                    //DrawLine_Rec(canvas, T, item,
+                    //    (xA - leftHook_L) + offset1.X, yChainMid + 7500 + offset1.Y,
+                    //    xA + offset1.X, yChainMid + 7500 + offset1.Y,
+                    //    Brushes.DimGray, 1.5, null, "CHAIN");
                     // 左の腹筋の中央
                     DrawLine_Rec(canvas, T, item,
-                        xA + offset1.X, yChainMid + 7500 + offset1.Y,
-                        midSpan + offset1.X, yChainMid + 7500 + offset1.Y,
+                        (xA - leftHook_L) + offset1.X, yChainMid + 7500 + offset1.Y,
+                         (midSpan + rightHook_L) + offset1.X, yChainMid + 7500 + offset1.Y,
                         Brushes.Red, 1.5, null, "CHAIN");
-                    // 左の腹筋の右
-                    DrawLine_Rec(canvas, T, item,
-                        midSpan + offset1.X, yChainMid + 7500 + offset1.Y,
-                        (midSpan + rightHook_L) + offset1.X, yChainMid + 7500 + offset1.Y,
-                        Brushes.Blue, 1.5, null, "CHAIN");
+                    //// 左の腹筋の右
+                    //DrawLine_Rec(canvas, T, item,
+                    //    midSpan + offset1.X, yChainMid + 7500 + offset1.Y,
+                    //    (midSpan + rightHook_L) + offset1.X, yChainMid + 7500 + offset1.Y,
+                    //    Brushes.Blue, 1.5, null, "CHAIN");
                     // Chéo của thanh bên trái
                     DrawLine_Rec(canvas, T, item,
                        (midSpan + rightHook_L) + offset1.X, yChainMid + 7500 + offset1.Y,
@@ -6007,27 +6007,27 @@ namespace RevitProjectDataAddin
                        Brushes.Blue, 1.5, null, "CHAIN");
 
                     // 右の腹筋
-                    // 右の腹筋の左
+                    //// 右の腹筋の左
+                    //DrawLine_Rec(canvas, T, item,
+                    //    (midSpan - leftHook_R) + offset1.X, yChainMid + 7515 + offset1.Y,
+                    //    midSpan + offset1.X, yChainMid + 7515 + offset1.Y,
+                    //    Brushes.Black, 1.5, null, "CHAIN");
+                 
+                    // 右の腹筋の中央
                     DrawLine_Rec(canvas, T, item,
-                        (midSpan - leftHook_R) + offset1.X, yChainMid + 7515 + offset1.Y,
-                        midSpan + offset1.X, yChainMid + 7515 + offset1.Y,
-                        Brushes.Black, 1.5, null, "CHAIN");
+                         (midSpan - leftHook_R) + offset1.X, yChainMid + 7515 + offset1.Y,
+                        (xB + rightHook_R) + offset1.X, yChainMid + 7515 + offset1.Y,
+                        Brushes.Orange, 1.5, null, "CHAIN");
+                    //// 右の腹筋の右
+                    //DrawLine_Rec(canvas, T, item,
+                    //    xB + offset1.X, yChainMid + 7515 + offset1.Y,
+                    //    (xB + rightHook_R) + offset1.X, yChainMid + 7515 + offset1.Y,
+                    //    Brushes.Red, 1.5, null, "CHAIN");
                     // Chéo của thanh bên phải
                     DrawLine_Rec(canvas, T, item,
                         (midSpan - leftHook_R) + offset1.X, yChainMid + 7515 + offset1.Y,
                         (midSpan - leftHook_R) + offset1.X - 30, yChainMid + 7515 + offset1.Y - 30,
                         Brushes.Black, 1.5, null, "CHAIN");
-
-                    // 右の腹筋の中央
-                    DrawLine_Rec(canvas, T, item,
-                        midSpan + offset1.X, yChainMid + 7515 + offset1.Y,
-                        xB + offset1.X, yChainMid + 7515 + offset1.Y,
-                        Brushes.Orange, 1.5, null, "CHAIN");
-                    // 右の腹筋の右
-                    DrawLine_Rec(canvas, T, item,
-                        xB + offset1.X, yChainMid + 7515 + offset1.Y,
-                        (xB + rightHook_R) + offset1.X, yChainMid + 7515 + offset1.Y,
-                        Brushes.Red, 1.5, null, "CHAIN");
                     /////////////// hết 1 chổ ////////////
 
                     double Lspan = xB - xA;
@@ -6077,21 +6077,21 @@ namespace RevitProjectDataAddin
                     double midSpanX = xA + ((xB - xA) / 2.0);
 
                     // 左の腹筋
-                    //左の腹筋の左
-                    DrawLine_Rec(canvas, T, item,
-                                 (xA - leftHook_L) + offset2.X, yChainMid + 7500 + offset2.Y,
-                                xA + offset2.X, yChainMid + 7500 + offset2.Y,
-                                 Brushes.DimGray, 1.5, null, "CHAIN");
+                    ////左の腹筋の左
+                    //DrawLine_Rec(canvas, T, item,
+                    //             (xA - leftHook_L) + offset2.X, yChainMid + 7500 + offset2.Y,
+                    //            xA + offset2.X, yChainMid + 7500 + offset2.Y,
+                    //             Brushes.DimGray, 1.5, null, "CHAIN");
                     //左の腹筋の中央
                     DrawLine_Rec(canvas, T, item,
-                                 xA + offset2.X, yChainMid + 7500 + offset2.Y,
-                                 midSpanX + offset2.X, yChainMid + 7500 + offset2.Y,
+                                  (xA - leftHook_L) + offset2.X, yChainMid + 7500 + offset2.Y,
+                                  midSpanX + rightHook_L + offset2.X, yChainMid + 7500 + offset2.Y,
                                  Brushes.Red, 1.5, null, "CHAIN");
-                    //左の腹筋の右
-                    DrawLine_Rec(canvas, T, item,
-                                 midSpanX + offset2.X, yChainMid + 7500 + offset2.Y,
-                                 midSpanX + rightHook_L + offset2.X, yChainMid + 7500 + offset2.Y,
-                                 Brushes.Blue, 1.5, null, "CHAIN");
+                    ////左の腹筋の右
+                    //DrawLine_Rec(canvas, T, item,
+                    //             midSpanX + offset2.X, yChainMid + 7500 + offset2.Y,
+                    //             midSpanX + rightHook_L + offset2.X, yChainMid + 7500 + offset2.Y,
+                    //             Brushes.Blue, 1.5, null, "CHAIN");
                     // Chéo của thanh bên trái
                     DrawLine_Rec(canvas, T, item,
                                  midSpanX + rightHook_L + offset2.X, yChainMid + 7500 + offset2.Y,
@@ -6099,26 +6099,27 @@ namespace RevitProjectDataAddin
                                  Brushes.Blue, 1.5, null, "CHAIN");
 
                     //右の腹筋
-                    //右の腹筋の左
+                    ////右の腹筋の左
+                    //DrawLine_Rec(canvas, T, item,
+                    //              midSpanX - leftHook_R + offset2.X, yChainMid + 7515 + offset2.Y,
+                    //             midSpanX + offset2.X, yChainMid + 7515 + offset2.Y,
+                    //             Brushes.Black, 1.5, null, "CHAIN");
+                 
+                    //右の腹筋の中央
                     DrawLine_Rec(canvas, T, item,
-                                  midSpanX - leftHook_R + offset2.X, yChainMid + 7515 + offset2.Y,
-                                 midSpanX + offset2.X, yChainMid + 7515 + offset2.Y,
-                                 Brushes.Black, 1.5, null, "CHAIN");
+                                 midSpanX - leftHook_R + offset2.X, yChainMid + 7515 + offset2.Y,
+                                  (xB + rightHook_R) + offset2.X, yChainMid + 7515 + offset2.Y,
+                                Brushes.Orange, 1.5, null, "CHAIN");
+                    ////右の腹筋の右
+                    //DrawLine_Rec(canvas, T, item,
+                    //         xB + offset2.X, yChainMid + 7515 + offset2.Y,
+                    //        (xB + rightHook_R) + offset2.X, yChainMid + 7515 + offset2.Y,
+                    //        Brushes.Red, 1.5, null, "CHAIN");
                     // Chéo của thanh bên phải
                     DrawLine_Rec(canvas, T, item,
                                  midSpanX - leftHook_R + offset2.X, yChainMid + 7515 + offset2.Y,
                                 midSpanX - leftHook_R + offset2.X - 30, yChainMid + 7515 + offset2.Y - 30,
                                 Brushes.Black, 1.5, null, "CHAIN");
-                    //右の腹筋の中央
-                    DrawLine_Rec(canvas, T, item,
-                                 midSpanX + offset2.X, yChainMid + 7515 + offset2.Y,
-                                (xB) + offset2.X, yChainMid + 7515 + offset2.Y,
-                                Brushes.Orange, 1.5, null, "CHAIN");
-                    //右の腹筋の右
-                    DrawLine_Rec(canvas, T, item,
-                             xB + offset2.X, yChainMid + 7515 + offset2.Y,
-                            (xB + rightHook_R) + offset2.X, yChainMid + 7515 + offset2.Y,
-                            Brushes.Red, 1.5, null, "CHAIN");
                     //////////////// hết 2 chổ //////////////
 
 
@@ -6507,7 +6508,7 @@ namespace RevitProjectDataAddin
                     TextBlock tbDia, tbPitch, tbMat;
                     DrawCentralStirrupTripletPx(
                         canvas, T, item,
-                        mid + offset4.X, yChainLocal + 9870 + offset4.Y,
+                        mid + offset4.X, yChainLocal + 9920 + offset4.Y,
                         dimFont, Brushes.Black,
                         diaPart, pitchPart, matPart,
                         out tbDia, out tbPitch, out tbMat);
@@ -6516,7 +6517,7 @@ namespace RevitProjectDataAddin
                     MakeCentralStirrupEditable(
                          tbDia, tbPitch, tbMat,    // ✅ đúng: Dia trước, Pitch giữa, Mat sau
                          canvas, T,
-                         mid + offset4.X, yChainLocal + 9870 + offset4.Y,
+                         mid + offset4.X, yChainLocal + 9920 + offset4.Y,
                          item, selF, G0,
                          中央スタラップ径, ピッチ, スタラップ材質,
                          showStirrupMaterial);
@@ -6540,7 +6541,7 @@ namespace RevitProjectDataAddin
                     TextBlock tbEndDia, tbEndPitch, tbEndRight;
                     DrawCentralStirrupTripletPx(
                         canvas, T, item,
-                        mid + offset4.X, yChainLocal + 10800 + offset4.Y,
+                        mid + offset4.X, yChainLocal + 10850 + offset4.Y,
                         dimFont, Brushes.Black,
                         endDiaPart, endPitchPart, endRightPart,
                         out tbEndDia, out tbEndPitch, out tbEndRight);
@@ -6548,7 +6549,7 @@ namespace RevitProjectDataAddin
                     MakeEndWidthStopEditable(
                         tbEndDia, tbEndPitch, tbEndRight,
                         canvas, T,
-                        mid + offset4.X, yChainLocal + 10800 + offset4.Y,
+                        mid + offset4.X, yChainLocal + 10850 + offset4.Y,
                         item, selF, G0,
                         端部1幅止筋径, 端部1幅止筋ピッチ);
 
@@ -6569,7 +6570,7 @@ namespace RevitProjectDataAddin
                     TextBlock tbDia2, tbPitch2, tbMat2;
                     DrawCentralStirrupTripletPx(
                         canvas, T, item,
-                        mid + offset4.X, yChainLocal + 13100 + offset4.Y,
+                        mid + offset4.X, yChainLocal + 13150 + offset4.Y,
                         dimFont, Brushes.Black,
                         diaPart2, pitchPart2, matPart2,
                         out tbDia2, out tbPitch2, out tbMat2);
@@ -6577,7 +6578,7 @@ namespace RevitProjectDataAddin
                     MakeCentralIntermediateEditable(
                         tbDia2, tbPitch2, tbMat2,
                         canvas, T,
-                        mid + offset4.X, yChainLocal + 13100 + offset4.Y,
+                        mid + offset4.X, yChainLocal + 13150 + offset4.Y,
                         item, selF, G0,
                         中央中子筋径, 中央中子筋径ピッチ, 中央中子筋材質,
                         showStirrupMaterial);
@@ -12510,14 +12511,7 @@ namespace RevitProjectDataAddin
                     }), DispatcherPriority.Input);
                 }
 
-                Func<bool, string> getHookLenText = endIsRight =>
-                {
-                    double fb = endIsRight ? fallbackRight : fallbackLeft;
-                    double v = GetTanbuHookLength(item, spanIndex, isRightAbdominal, endIsRight, fb);
-                    return v.ToString(CultureInfo.InvariantCulture);
-                };
-
-                Func<string, bool, Tuple<bool, double>> tryParseLen = (text, endIsRight) =>
+                Func<string, Tuple<bool, double>> tryParseLen = text =>
                 {
                     if (string.IsNullOrWhiteSpace(text))
                         return Tuple.Create(false, 0.0);
@@ -12529,16 +12523,41 @@ namespace RevitProjectDataAddin
                     return Tuple.Create(true, v);
                 };
 
-                Action<bool, string> applyHookLenFromText = (endIsRight, text) =>
+                bool ApplyTanbuHookLengthDelta(bool endIsRight, bool pullLeft, double delta)
                 {
-                    var parsed = tryParseLen(text, endIsRight);
+                    if (delta <= 0)
+                        return false;
+
+                    double fallback = endIsRight ? fallbackRight : fallbackLeft;
+                    double currentLen = GetTanbuHookLength(item, spanIndex, isRightAbdominal, endIsRight, fallback);
+
+                    double signedDelta;
+                    if (endIsRight)
+                    {
+                        signedDelta = pullLeft ? -delta : delta;
+                    }
+                    else
+                    {
+                        signedDelta = pullLeft ? delta : -delta;
+                    }
+
+                    double newLen = currentLen + signedDelta;
+                    if (newLen <= 0)
+                        return false;
+
+                    return ApplyTanbuHookLength(item, spanIndex, isRightAbdominal, endIsRight, newLen);
+                }
+
+                Action<bool, bool, string> applyHookLenFromText = (endIsRight, pullLeft, text) =>
+                {
+                    var parsed = tryParseLen(text);
                     if (!parsed.Item1) return;
 
-                    bool changed = ApplyTanbuHookLength(item, spanIndex, isRightAbdominal, endIsRight, parsed.Item2);
+                    bool changed = ApplyTanbuHookLengthDelta(endIsRight, pullLeft, parsed.Item2);
                     if (changed) Redraw(canvas, item);
                 };
 
-                Button MakeInlineLenRow(string sideLabel, bool endIsRight, Action closeAll, Action<Button> selectSub, Func<ControlTemplate> getFlatBtnTemplate)
+                Button MakeInlineLenRow(string sideLabel, bool endIsRight, bool pullLeft, Action closeAll, Action<Button> selectSub, Func<ControlTemplate> getFlatBtnTemplate)
                 {
                     var row = new DockPanel { LastChildFill = true };
 
@@ -17014,3 +17033,4 @@ namespace RevitProjectDataAddin
 
     }
 }
+
