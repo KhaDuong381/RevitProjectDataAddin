@@ -12498,14 +12498,7 @@ namespace RevitProjectDataAddin
                     }), DispatcherPriority.Input);
                 }
 
-                Func<bool, string> getHookLenText = endIsRight =>
-                {
-                    double fb = endIsRight ? fallbackRight : fallbackLeft;
-                    double v = GetTanbuHookLength(item, spanIndex, isRightAbdominal, endIsRight, fb);
-                    return v.ToString(CultureInfo.InvariantCulture);
-                };
-
-                Func<string, bool, Tuple<bool, double>> tryParseLen = (text, endIsRight) =>
+                Func<string, Tuple<bool, double>> tryParseLen = text =>
                 {
                     if (string.IsNullOrWhiteSpace(text))
                         return Tuple.Create(false, 0.0);
@@ -12517,16 +12510,41 @@ namespace RevitProjectDataAddin
                     return Tuple.Create(true, v);
                 };
 
-                Action<bool, string> applyHookLenFromText = (endIsRight, text) =>
+                bool ApplyTanbuHookLengthDelta(bool endIsRight, bool pullLeft, double delta)
                 {
-                    var parsed = tryParseLen(text, endIsRight);
+                    if (delta <= 0)
+                        return false;
+
+                    double fallback = endIsRight ? fallbackRight : fallbackLeft;
+                    double currentLen = GetTanbuHookLength(item, spanIndex, isRightAbdominal, endIsRight, fallback);
+
+                    double signedDelta;
+                    if (endIsRight)
+                    {
+                        signedDelta = pullLeft ? -delta : delta;
+                    }
+                    else
+                    {
+                        signedDelta = pullLeft ? delta : -delta;
+                    }
+
+                    double newLen = currentLen + signedDelta;
+                    if (newLen <= 0)
+                        return false;
+
+                    return ApplyTanbuHookLength(item, spanIndex, isRightAbdominal, endIsRight, newLen);
+                }
+
+                Action<bool, bool, string> applyHookLenFromText = (endIsRight, pullLeft, text) =>
+                {
+                    var parsed = tryParseLen(text);
                     if (!parsed.Item1) return;
 
-                    bool changed = ApplyTanbuHookLength(item, spanIndex, isRightAbdominal, endIsRight, parsed.Item2);
+                    bool changed = ApplyTanbuHookLengthDelta(endIsRight, pullLeft, parsed.Item2);
                     if (changed) Redraw(canvas, item);
                 };
 
-                Button MakeInlineLenRow(string sideLabel, bool endIsRight, Action closeAll, Action<Button> selectSub, Func<ControlTemplate> getFlatBtnTemplate)
+                Button MakeInlineLenRow(string sideLabel, bool endIsRight, bool pullLeft, Action closeAll, Action<Button> selectSub, Func<ControlTemplate> getFlatBtnTemplate)
                 {
                     var row = new DockPanel { LastChildFill = true };
 
@@ -12537,12 +12555,12 @@ namespace RevitProjectDataAddin
                     };
                     DockPanel.SetDock(lbl, Dock.Left);
 
-                    var preview = CreateLengthPreviewCanvas(!endIsRight);
+                    var preview = CreateLengthPreviewCanvas(pullLeft);
                     DockPanel.SetDock(preview, Dock.Right);
 
                     var tbx = new TextBox
                     {
-                        Text = getHookLenText(endIsRight),
+                        Text = string.Empty,
                         Width = 50,
                         MinWidth = 50,
                         VerticalContentAlignment = VerticalAlignment.Center,
@@ -12607,7 +12625,8 @@ namespace RevitProjectDataAddin
                     {
                         if (k.Key == Key.Enter)
                         {
-                            applyHookLenFromText(endIsRight, tbx.Text);
+                            applyHookLenFromText(endIsRight, pullLeft, tbx.Text);
+                            tbx.Text = string.Empty;
                             EndEditShowPreview();
                             closeAll();
                             k.Handled = true;
@@ -12682,9 +12701,9 @@ namespace RevitProjectDataAddin
 
                         var root = new StackPanel { Orientation = Orientation.Vertical };
                         root.Children.Add(WithRowDivider(
-                            MakeInlineLenRow("左へ引く", false, closeAll, selectSub, getFlatBtnTemplate)));
+                            MakeInlineLenRow("左へ引く", endIsRight, true, closeAll, selectSub, getFlatBtnTemplate)));
                         root.Children.Add(WithRowDivider(
-                            MakeInlineLenRow("右へ引く", true, closeAll, selectSub, getFlatBtnTemplate)));
+                            MakeInlineLenRow("右へ引く", endIsRight, false, closeAll, selectSub, getFlatBtnTemplate)));
                         {
                             var row = new DockPanel { LastChildFill = true };
 
@@ -12695,12 +12714,12 @@ namespace RevitProjectDataAddin
                             };
                             DockPanel.SetDock(lbl, Dock.Left);
 
-                            var preview = new TextBlock
-                            {
-                                Text = "❯",
-                                VerticalAlignment = VerticalAlignment.Center
-                            };
-                            DockPanel.SetDock(preview, Dock.Right);
+                            //var preview = new TextBlock
+                            //{
+                            //    Text = "❯",
+                            //    VerticalAlignment = VerticalAlignment.Center
+                            //};
+                            //DockPanel.SetDock(preview, Dock.Right);
 
                             var totalBox = new TextBox
                             {
@@ -12714,7 +12733,7 @@ namespace RevitProjectDataAddin
 
                             row.Children.Add(lbl);
                             row.Children.Add(totalBox);
-                            row.Children.Add(preview);
+                            //row.Children.Add(preview);
 
                             var totalButton = new Button
                             {
@@ -12744,13 +12763,13 @@ namespace RevitProjectDataAddin
                             void EndTotalEdit()
                             {
                                 totalBox.Visibility = System.Windows.Visibility.Collapsed;
-                                preview.Visibility = System.Windows.Visibility.Visible;
+                                //preview.Visibility = System.Windows.Visibility.Visible;
                             }
 
                             void BeginTotalEdit()
                             {
                                 totalBox.Text = GetCurrentTanbuTotalLength().ToString(CultureInfo.InvariantCulture);
-                                preview.Visibility = System.Windows.Visibility.Collapsed;
+                                //preview.Visibility = System.Windows.Visibility.Collapsed;
                                 totalBox.Visibility = System.Windows.Visibility.Visible;
                                 FocusTotalBox();
                             }
