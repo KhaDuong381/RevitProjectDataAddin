@@ -61,6 +61,7 @@ namespace RevitProjectDataAddin
         private static (double X, double Y) OffsetLegendColumn { get; set; } = (0, 10000);         // Offset cho ///////////// 5 chổ //////////////
         private static readonly string[] _standardRebarDiameters = { "10", "13", "16", "19", "22", "25", "29", "32", "35", "38" };
         private static readonly string[] _standardRebarDiameters1 = { "10", "13", "16", "19", "22", "25", "29", "32", "35", "38" };
+        private const double UiMarkerDotRadiusMm = 25.0; // kích thước dấu chấm tròn
 
         // DIM hover/base brushes (class scope to avoid missing-variable compile issues)
         private readonly Brush dimBaseFg = Brushes.Black;
@@ -329,10 +330,8 @@ namespace RevitProjectDataAddin
                                        double heightMm = 150, string layer = "TEXT")
         {
             var (h, v) = ToDxfAlign(ha, va);
-            double combinedScale = ResolveTextCombinedScale(T, owner);
-
-            double effectiveFontPx = fontPx * combinedScale;
             double effectiveHeightMm = heightMm;
+            double effectiveFontPx = Math.Max(1.0, effectiveHeightMm * T.Scale);
 
             var textColor = ColorFromBrush(color ?? Brushes.Black, Colors.Black);
             string fontFamily = this.FontFamily?.Source ?? "Yu Mincho";
@@ -382,17 +381,18 @@ namespace RevitProjectDataAddin
                                        Brush fill = null, Brush stroke = null, double strokePx = 0.8,
                                        string layer = "MARK", int solidSegments = 32)
         {
+            double effectiveRadiusMm = UiMarkerDotRadiusMm;
             // (1) DXF: viền tròn (tuỳ chọn) + phần đặc bằng SOLID tam giác
             var strokeColor = ColorFromBrush(stroke ?? Brushes.Black, Colors.Black);
             var fillColor = ColorFromBrush(fill ?? Brushes.Black, Colors.Black);
-            SceneFor(owner).Add(new DxfCircle(wx, wy, rMm, layer, filled: true,
+            SceneFor(owner).Add(new DxfCircle(wx, wy, effectiveRadiusMm, layer, filled: true,
                                               strokeColor: strokeColor, fillColor: fillColor,
                                               strokeThicknessPx: strokePx));        // viền (giữ để nhìn rõ trên CAD)
             //AddCircleSolidFan(owner, wx, wy, rMm, solidSegments, layer);   // phần đặc ruột
 
             // (2) UI: Ellipse tròn có fill
-            double sizePx = Math.Max(3.0, 3.0 * rMm * T.Scale);
-            return DrawDotPx(c, T, wx, wy, sizePx, fill ?? Brushes.Black, stroke, strokePx);
+            double sizePx = Math.Max(3.0, 3.0 * effectiveRadiusMm * T.Scale);
+            return DrawDotPx(c, T, wx, wy, sizePx, Brushes.Black, Brushes.Black, strokePx);
         }
 
 
@@ -1810,6 +1810,18 @@ namespace RevitProjectDataAddin
             return !before.SetEquals(existingMarkers);
         }
 
+        private void ResetOrangeSegmentRuntimeState(GridBotsecozu owner)
+        {
+            if (owner == null) return;
+
+            // Segment geometry is rebuilt on every redraw. Only the runtime
+            // registration maps are reset here; cut markers must stay alive until the
+            // next rebuild finishes, otherwise the redraw pass that should render them
+            // will always see an empty marker set.
+            _orangeDimToSegInfo[owner] = new Dictionary<OrangeDimTextKey, OrangeSegInfo>();
+            _orangeSegToInfo[owner] = new Dictionary<OrangeSegKey, OrangeSegInfo>();
+        }
+
         private bool ApplyOrangeSegLengthDelta(GridBotsecozu owner, OrangeDimTextKey dimKey, bool isLeftMenu, bool pullLeft, double delta)
         {
             if (owner == null || delta <= 0)
@@ -2221,7 +2233,7 @@ namespace RevitProjectDataAddin
                 StrokeLineJoin = PenLineJoin.Round,
                 StrokeStartLineCap = PenLineCap.Round,
                 StrokeEndLineCap = PenLineCap.Round,
-                
+
             };
 
             RenderOptions.SetEdgeMode(path, EdgeMode.Unspecified);
@@ -5449,6 +5461,7 @@ namespace RevitProjectDataAddin
 
             if (canvas == null || _projectData?.Kihon == null || _currentSecoList == null) return;
             SyncRuntimeOverridesFromModel(item);
+            ResetOrangeSegmentRuntimeState(item);
             canvas.Children.Clear();
             SceneBegin(item);
 
@@ -12983,37 +12996,12 @@ namespace RevitProjectDataAddin
                 tbRight.MouseLeftButtonDown -= old;
                 GroupClickHandlerStore.Set(tbPitch, null);
             }
-            (double X, double Y) GetGroupRightTop(TextBlock dia, TextBlock pitchTb, TextBlock mat, double gapPx)
-            {
-                double GetLeft(FrameworkElement fe)
-                {
-                    var v = Canvas.GetLeft(fe);
-                    return double.IsNaN(v) ? 0 : v;
-                }
-
-                double GetTop(FrameworkElement fe)
-                {
-                    var v = Canvas.GetTop(fe);
-                    return double.IsNaN(v) ? 0 : v;
-                }
-
-                double right = Math.Max(
-                    GetLeft(dia) + Math.Max(1, dia.ActualWidth),
-                    Math.Max(
-                        GetLeft(pitchTb) + Math.Max(1, pitchTb.ActualWidth),
-                        GetLeft(mat) + Math.Max(1, mat.ActualWidth)));
-
-                double top = Math.Min(GetTop(dia), Math.Min(GetTop(pitchTb), GetTop(mat)));
-
-                return (right + gapPx, top);
-            }
-
             MouseButtonEventHandler handler = (s, e) =>
             {
                 e.Handled = true;
 
                 //var target = s as FrameworkElement ?? tbPitch;
-                var (menuX, menuY) = GetGroupRightTop(tbDia, tbPitch, tbRight, gapPx: 0);
+                var (menuX, menuY) = GetElementGroupRightTopOnCanvas(canvas, gapPx: 0, tbDia, tbPitch, tbRight);
                 ShowCentralStirrupPopupWithHoverSubmenushabadome(
                 canvas,
                 tbPitch,
@@ -13115,37 +13103,12 @@ namespace RevitProjectDataAddin
                 GroupClickHandlerStore.Set(tbPitch, null);
             }
 
-            (double X, double Y) GetGroupRightTop(TextBlock dia, TextBlock pitchTb, TextBlock mat, double gapPx)
-            {
-                double GetLeft(FrameworkElement fe)
-                {
-                    var v = Canvas.GetLeft(fe);
-                    return double.IsNaN(v) ? 0 : v;
-                }
-
-                double GetTop(FrameworkElement fe)
-                {
-                    var v = Canvas.GetTop(fe);
-                    return double.IsNaN(v) ? 0 : v;
-                }
-
-                double right = Math.Max(
-                    GetLeft(dia) + Math.Max(1, dia.ActualWidth),
-                    Math.Max(
-                        GetLeft(pitchTb) + Math.Max(1, pitchTb.ActualWidth),
-                        GetLeft(mat) + Math.Max(1, mat.ActualWidth)));
-
-                double top = Math.Min(GetTop(dia), Math.Min(GetTop(pitchTb), GetTop(mat)));
-
-                return (right + gapPx, top);
-            }
-
             MouseButtonEventHandler handler = (s, e) =>
             {
                 e.Handled = true;
 
                 //var target = s as FrameworkElement ?? tbPitch;
-                var (menuX, menuY) = GetGroupRightTop(tbDia, tbPitch, tbMat, gapPx: 0);
+                var (menuX, menuY) = GetElementGroupRightTopOnCanvas(canvas, gapPx: 0, tbDia, tbPitch, tbMat);
 
                 ShowCentralStirrupPopupWithHoverSubmenusnakago(
                     canvas,
@@ -14667,36 +14630,11 @@ namespace RevitProjectDataAddin
                 GroupClickHandlerStore.Set(tbPitch, null);
             }
 
-            (double X, double Y) GetGroupRightTop(TextBlock dia, TextBlock pitchTb, TextBlock mat, double gapPx)
-            {
-                double GetLeft(FrameworkElement fe)
-                {
-                    var v = Canvas.GetLeft(fe);
-                    return double.IsNaN(v) ? 0 : v;
-                }
-
-                double GetTop(FrameworkElement fe)
-                {
-                    var v = Canvas.GetTop(fe);
-                    return double.IsNaN(v) ? 0 : v;
-                }
-
-                double right = Math.Max(
-                    GetLeft(dia) + Math.Max(1, dia.ActualWidth),
-                    Math.Max(
-                        GetLeft(pitchTb) + Math.Max(1, pitchTb.ActualWidth),
-                        GetLeft(mat) + Math.Max(1, mat.ActualWidth)));
-
-                double top = Math.Min(GetTop(dia), Math.Min(GetTop(pitchTb), GetTop(mat)));
-
-                return (right + gapPx, top);
-            }
-
             MouseButtonEventHandler handler = (s, e) =>
             {
                 e.Handled = true;
 
-                var (menuX, menuY) = GetGroupRightTop(tbDia, tbPitch, tbMat, gapPx: 0);
+                var (menuX, menuY) = GetElementGroupRightTopOnCanvas(canvas, gapPx: 0, tbDia, tbPitch, tbMat);
 
                 ShowCentralStirrupPopupWithHoverSubmenus(
                     canvas,
@@ -16584,6 +16522,30 @@ namespace RevitProjectDataAddin
             }
         }
 
+        private (double X, double Y) GetElementGroupRightTopOnCanvas(
+            Canvas canvas,
+            double gapPx,
+            params FrameworkElement[] elements)
+        {
+            if (canvas == null || elements == null || elements.Length == 0)
+                return (0, 0);
+
+            Rect union = Rect.Empty;
+            foreach (var element in elements)
+            {
+                var rect = GetElementBoundsOnCanvas(element, canvas);
+                if (rect.IsEmpty || rect.Width <= 0 || rect.Height <= 0)
+                    continue;
+
+                union = union.IsEmpty ? rect : Rect.Union(union, rect);
+            }
+
+            if (union.IsEmpty)
+                return (0, 0);
+
+            return (union.Right + gapPx, union.Top);
+        }
+
         private TextBlock CloneTextBlockForCanvasOverlay(TextBlock source)
         {
             return new TextBlock
@@ -16617,10 +16579,9 @@ namespace RevitProjectDataAddin
             matText = matText ?? string.Empty;
             bool hasMat = !string.IsNullOrWhiteSpace(matText);
 
-            double combinedScale = ResolveTextCombinedScale(T, item);
-            double effectiveFontPx = fontPx * combinedScale;
             double scalePxPerMm = Math.Abs(T.Scale) < 1e-9 ? 1.0 : Math.Abs(T.Scale);
             const double dxfTextHeightMm = 150.0;
+            double effectiveFontPx = Math.Max(1.0, dxfTextHeightMm * scalePxPerMm);
             string fontFamilyName = this.FontFamily?.Source ?? "Yu Mincho";
             double gapMm = gapPx / scalePxPerMm;
             var fontFamily = new FontFamily(fontFamilyName);
@@ -17053,4 +17014,3 @@ namespace RevitProjectDataAddin
 
     }
 }
-
