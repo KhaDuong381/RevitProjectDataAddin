@@ -12557,12 +12557,12 @@ namespace RevitProjectDataAddin
                     if (changed) Redraw(canvas, item);
                 };
 
-                Func<bool, string> getHookLenText = endIsRight =>
-                {
-                    double fallback = endIsRight ? fallbackRight : fallbackLeft;
-                    double currentLen = GetTanbuHookLength(item, spanIndex, isRightAbdominal, endIsRight, fallback);
-                    return currentLen.ToString(CultureInfo.InvariantCulture);
-                };
+                //Func<bool, string> getHookLenText = endIsRight =>
+                //{
+                //    double fallback = endIsRight ? fallbackRight : fallbackLeft;
+                //    double currentLen = GetTanbuHookLength(item, spanIndex, isRightAbdominal, endIsRight, fallback);
+                //    return currentLen.ToString(CultureInfo.InvariantCulture);
+                //};
 
                 Button MakeInlineLenRow(string sideLabel, bool endIsRight, bool pullLeft, Action closeAll, Action<Button> selectSub, Func<ControlTemplate> getFlatBtnTemplate)
                 {
@@ -12575,12 +12575,12 @@ namespace RevitProjectDataAddin
                     };
                     DockPanel.SetDock(lbl, Dock.Left);
 
-                    var preview = CreateLengthPreviewCanvas(!endIsRight);
+                    var preview = CreateLengthPreviewCanvas(!pullLeft);
                     DockPanel.SetDock(preview, Dock.Right);
 
                     var tbx = new TextBox
                     {
-                        Text = getHookLenText(endIsRight),
+                        Text = string.Empty,
                         Width = 50,
                         MinWidth = 50,
                         VerticalContentAlignment = VerticalAlignment.Center,
@@ -12733,12 +12733,12 @@ namespace RevitProjectDataAddin
                             };
                             DockPanel.SetDock(lbl, Dock.Left);
 
-                            var preview = new TextBlock
-                            {
-                                Text = "❯",
-                                VerticalAlignment = VerticalAlignment.Center
-                            };
-                            DockPanel.SetDock(preview, Dock.Right);
+                            //var preview = new TextBlock
+                            //{
+                            //    Text = "❯",
+                            //    VerticalAlignment = VerticalAlignment.Center
+                            //};
+                            //DockPanel.SetDock(preview, Dock.Right);
 
                             var totalBox = new TextBox
                             {
@@ -12752,7 +12752,7 @@ namespace RevitProjectDataAddin
 
                             row.Children.Add(lbl);
                             row.Children.Add(totalBox);
-                            row.Children.Add(preview);
+                            //row.Children.Add(preview);
 
                             var totalButton = new Button
                             {
@@ -12782,13 +12782,13 @@ namespace RevitProjectDataAddin
                             void EndTotalEdit()
                             {
                                 totalBox.Visibility = System.Windows.Visibility.Collapsed;
-                                preview.Visibility = System.Windows.Visibility.Visible;
+                                //preview.Visibility = System.Windows.Visibility.Visible;
                             }
 
                             void BeginTotalEdit()
                             {
                                 totalBox.Text = GetCurrentTanbuTotalLength().ToString(CultureInfo.InvariantCulture);
-                                preview.Visibility = System.Windows.Visibility.Collapsed;
+                                //preview.Visibility = System.Windows.Visibility.Collapsed;
                                 totalBox.Visibility = System.Windows.Visibility.Visible;
                                 FocusTotalBox();
                             }
