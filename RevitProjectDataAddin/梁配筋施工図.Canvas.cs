@@ -12557,6 +12557,13 @@ namespace RevitProjectDataAddin
                     if (changed) Redraw(canvas, item);
                 };
 
+                Func<bool, string> getHookLenText = endIsRight =>
+                {
+                    double fallback = endIsRight ? fallbackRight : fallbackLeft;
+                    double currentLen = GetTanbuHookLength(item, spanIndex, isRightAbdominal, endIsRight, fallback);
+                    return currentLen.ToString(CultureInfo.InvariantCulture);
+                };
+
                 Button MakeInlineLenRow(string sideLabel, bool endIsRight, bool pullLeft, Action closeAll, Action<Button> selectSub, Func<ControlTemplate> getFlatBtnTemplate)
                 {
                     var row = new DockPanel { LastChildFill = true };
@@ -12638,7 +12645,7 @@ namespace RevitProjectDataAddin
                     {
                         if (k.Key == Key.Enter)
                         {
-                            applyHookLenFromText(endIsRight, tbx.Text);
+                            applyHookLenFromText(endIsRight, pullLeft, tbx.Text);
                             EndEditShowPreview();
                             closeAll();
                             k.Handled = true;
@@ -12713,9 +12720,9 @@ namespace RevitProjectDataAddin
 
                         var root = new StackPanel { Orientation = Orientation.Vertical };
                         root.Children.Add(WithRowDivider(
-                            MakeInlineLenRow("左へ引く", false, closeAll, selectSub, getFlatBtnTemplate)));
+                            MakeInlineLenRow("左へ引く", endIsRight, true, closeAll, selectSub, getFlatBtnTemplate)));
                         root.Children.Add(WithRowDivider(
-                            MakeInlineLenRow("右へ引く", true, closeAll, selectSub, getFlatBtnTemplate)));
+                            MakeInlineLenRow("右へ引く", endIsRight, false, closeAll, selectSub, getFlatBtnTemplate)));
                         {
                             var row = new DockPanel { LastChildFill = true };
 
