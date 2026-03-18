@@ -12597,7 +12597,7 @@ namespace RevitProjectDataAddin
                         Content = row,
                         HorizontalContentAlignment = HorizontalAlignment.Stretch,
                         VerticalContentAlignment = VerticalAlignment.Center,
-                        Padding = new Thickness(12, 6, 12, 6),
+                        Padding = new Thickness(12, 6, 10, 6),
                         Background = Brushes.Transparent,
                         BorderBrush = Brushes.Transparent,
                         BorderThickness = new Thickness(0),
@@ -12718,7 +12718,7 @@ namespace RevitProjectDataAddin
                             StaysOpen = true
                         };
 
-                        var root = new StackPanel { Orientation = Orientation.Vertical };
+                        var root = new StackPanel { Orientation = Orientation.Vertical, Width = 120 };
                         root.Children.Add(WithRowDivider(
                             MakeInlineLenRow("左へ引く", endIsRight, true, closeAll, selectSub, getFlatBtnTemplate)));
                         root.Children.Add(WithRowDivider(
