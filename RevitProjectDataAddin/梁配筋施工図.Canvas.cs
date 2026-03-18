@@ -12575,7 +12575,7 @@ namespace RevitProjectDataAddin
                     };
                     DockPanel.SetDock(lbl, Dock.Left);
 
-                    var preview = CreateLengthPreviewCanvas(!pullLeft);
+                    var preview = CreateLengthPreviewCanvas(pullLeft);
                     DockPanel.SetDock(preview, Dock.Right);
 
                     var tbx = new TextBox
