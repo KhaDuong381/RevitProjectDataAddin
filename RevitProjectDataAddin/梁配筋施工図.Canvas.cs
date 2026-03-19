@@ -4649,15 +4649,13 @@ namespace RevitProjectDataAddin
         {
             if (item != null
                 && _tanbuHookOverrides.TryGetValue(item, out var spanDict)
-                && spanDict.TryGetValue((spanIndex, isRightAbdominal, isRightEnd), out var val)
-                && val > 0)
+                && spanDict.TryGetValue((spanIndex, isRightAbdominal, isRightEnd), out var val))
             {
                 return val;
             }
 
             if (item?.TanbuHookOverrides != null
-                && item.TanbuHookOverrides.TryGetValue(MakeTanbuHookKey(spanIndex, isRightAbdominal, isRightEnd), out var persisted)
-                && persisted > 0)
+                && item.TanbuHookOverrides.TryGetValue(MakeTanbuHookKey(spanIndex, isRightAbdominal, isRightEnd), out var persisted))
             {
                 return persisted;
             }
@@ -4668,7 +4666,7 @@ namespace RevitProjectDataAddin
         //private void SetTanbuHookLength(GridBotsecozu item, int spanIndex, double newLength)
         private bool SetTanbuHookLength(GridBotsecozu item, int spanIndex, bool isRightAbdominal, bool isRightEnd, double newLength)
         {
-            if (item == null || spanIndex < 0 || newLength <= 0)
+            if (item == null || spanIndex < 0 || double.IsNaN(newLength) || double.IsInfinity(newLength))
                 return false;
 
             if (!_tanbuHookOverrides.TryGetValue(item, out var spanDict))
@@ -5988,21 +5986,10 @@ namespace RevitProjectDataAddin
 
                     double midSpan = xA + ((xB - xA) / 2.0);
                     // 左の腹筋
-                    //// 左の腹筋の左
-                    //DrawLine_Rec(canvas, T, item,
-                    //    (xA - leftHook_L) + offset1.X, yChainMid + 7500 + offset1.Y,
-                    //    xA + offset1.X, yChainMid + 7500 + offset1.Y,
-                    //    Brushes.DimGray, 1.5, null, "CHAIN");
-                    // 左の腹筋の中央
                     DrawLine_Rec(canvas, T, item,
                         (xA - leftHook_L) + offset1.X, yChainMid + 7500 + offset1.Y,
-                         (midSpan + rightHook_L) + offset1.X, yChainMid + 7500 + offset1.Y,
+                        (midSpan + rightHook_L) + offset1.X, yChainMid + 7500 + offset1.Y,
                         Brushes.Red, 1.5, null, "CHAIN");
-                    //// 左の腹筋の右
-                    //DrawLine_Rec(canvas, T, item,
-                    //    midSpan + offset1.X, yChainMid + 7500 + offset1.Y,
-                    //    (midSpan + rightHook_L) + offset1.X, yChainMid + 7500 + offset1.Y,
-                    //    Brushes.Blue, 1.5, null, "CHAIN");
                     // Chéo của thanh bên trái
                     DrawLine_Rec(canvas, T, item,
                        (midSpan + rightHook_L) + offset1.X, yChainMid + 7500 + offset1.Y,
@@ -6010,22 +5997,10 @@ namespace RevitProjectDataAddin
                        Brushes.Blue, 1.5, null, "CHAIN");
 
                     // 右の腹筋
-                    //// 右の腹筋の左
-                    //DrawLine_Rec(canvas, T, item,
-                    //    (midSpan - leftHook_R) + offset1.X, yChainMid + 7515 + offset1.Y,
-                    //    midSpan + offset1.X, yChainMid + 7515 + offset1.Y,
-                    //    Brushes.Black, 1.5, null, "CHAIN");
-
-                    // 右の腹筋の中央
                     DrawLine_Rec(canvas, T, item,
                          (midSpan - leftHook_R) + offset1.X, yChainMid + 7515 + offset1.Y,
                         (xB + rightHook_R) + offset1.X, yChainMid + 7515 + offset1.Y,
                         Brushes.Orange, 1.5, null, "CHAIN");
-                    //// 右の腹筋の右
-                    //DrawLine_Rec(canvas, T, item,
-                    //    xB + offset1.X, yChainMid + 7515 + offset1.Y,
-                    //    (xB + rightHook_R) + offset1.X, yChainMid + 7515 + offset1.Y,
-                    //    Brushes.Red, 1.5, null, "CHAIN");
                     // Chéo của thanh bên phải
                     DrawLine_Rec(canvas, T, item,
                         (midSpan - leftHook_R) + offset1.X, yChainMid + 7515 + offset1.Y,
@@ -6080,21 +6055,10 @@ namespace RevitProjectDataAddin
                     double midSpanX = xA + ((xB - xA) / 2.0);
 
                     // 左の腹筋
-                    ////左の腹筋の左
-                    //DrawLine_Rec(canvas, T, item,
-                    //             (xA - leftHook_L) + offset2.X, yChainMid + 7500 + offset2.Y,
-                    //            xA + offset2.X, yChainMid + 7500 + offset2.Y,
-                    //             Brushes.DimGray, 1.5, null, "CHAIN");
-                    //左の腹筋の中央
                     DrawLine_Rec(canvas, T, item,
                                   (xA - leftHook_L) + offset2.X, yChainMid + 7500 + offset2.Y,
                                   midSpanX + rightHook_L + offset2.X, yChainMid + 7500 + offset2.Y,
                                  Brushes.Red, 1.5, null, "CHAIN");
-                    ////左の腹筋の右
-                    //DrawLine_Rec(canvas, T, item,
-                    //             midSpanX + offset2.X, yChainMid + 7500 + offset2.Y,
-                    //             midSpanX + rightHook_L + offset2.X, yChainMid + 7500 + offset2.Y,
-                    //             Brushes.Blue, 1.5, null, "CHAIN");
                     // Chéo của thanh bên trái
                     DrawLine_Rec(canvas, T, item,
                                  midSpanX + rightHook_L + offset2.X, yChainMid + 7500 + offset2.Y,
@@ -6102,22 +6066,10 @@ namespace RevitProjectDataAddin
                                  Brushes.Blue, 1.5, null, "CHAIN");
 
                     //右の腹筋
-                    ////右の腹筋の左
-                    //DrawLine_Rec(canvas, T, item,
-                    //              midSpanX - leftHook_R + offset2.X, yChainMid + 7515 + offset2.Y,
-                    //             midSpanX + offset2.X, yChainMid + 7515 + offset2.Y,
-                    //             Brushes.Black, 1.5, null, "CHAIN");
-
-                    //右の腹筋の中央
                     DrawLine_Rec(canvas, T, item,
                                  midSpanX - leftHook_R + offset2.X, yChainMid + 7515 + offset2.Y,
                                   (xB + rightHook_R) + offset2.X, yChainMid + 7515 + offset2.Y,
                                 Brushes.Orange, 1.5, null, "CHAIN");
-                    ////右の腹筋の右
-                    //DrawLine_Rec(canvas, T, item,
-                    //         xB + offset2.X, yChainMid + 7515 + offset2.Y,
-                    //        (xB + rightHook_R) + offset2.X, yChainMid + 7515 + offset2.Y,
-                    //        Brushes.Red, 1.5, null, "CHAIN");
                     // Chéo của thanh bên phải
                     DrawLine_Rec(canvas, T, item,
                                  midSpanX - leftHook_R + offset2.X, yChainMid + 7515 + offset2.Y,
@@ -12380,7 +12332,7 @@ namespace RevitProjectDataAddin
                         Text = "❯",
                         VerticalAlignment = VerticalAlignment.Center,
                         HorizontalAlignment = HorizontalAlignment.Right,
-                        Margin = new Thickness(12, 0, 0, 0)
+                        Margin = new Thickness(10, 0, 0, 0)
                     };
                     Grid.SetColumn(arrow, 1);
                     grid.Children.Add(arrow);
@@ -12390,7 +12342,7 @@ namespace RevitProjectDataAddin
                         Content = grid,
                         HorizontalContentAlignment = HorizontalAlignment.Stretch,
                         VerticalContentAlignment = VerticalAlignment.Center,
-                        Padding = new Thickness(12, 6, 12, 6),
+                        Padding = new Thickness(10, 6, 10, 6),
                         Background = normalBg,
                         BorderBrush = Brushes.Transparent,
                         BorderThickness = new Thickness(0),
@@ -12432,7 +12384,7 @@ namespace RevitProjectDataAddin
                         Text = "❯",
                         VerticalAlignment = VerticalAlignment.Center,
                         HorizontalAlignment = HorizontalAlignment.Right,
-                        Margin = new Thickness(12, 0, 0, 0),
+                        Margin = new Thickness(10, 0, 0, 0),
                         Opacity = 0.0 // submenu items don't need arrow, but user asked "each row": keep layout consistent
                     };
                     Grid.SetColumn(arrow, 2);
@@ -12446,7 +12398,7 @@ namespace RevitProjectDataAddin
                         Content = grid,
                         HorizontalContentAlignment = HorizontalAlignment.Stretch,
                         VerticalContentAlignment = VerticalAlignment.Center,
-                        Padding = new Thickness(12, 6, 12, 6),
+                        Padding = new Thickness(10, 6, 10, 6),
                         Background = normalBg,
                         BorderBrush = Brushes.Transparent,
                         BorderThickness = new Thickness(0),
@@ -12545,9 +12497,6 @@ namespace RevitProjectDataAddin
                     }
 
                     double newLen = currentLen + signedDelta;
-                    if (newLen <= 0)
-                        return false;
-
                     return ApplyTanbuHookLength(item, spanIndex, isRightAbdominal, endIsRight, newLen);
                 }
 
@@ -12560,12 +12509,12 @@ namespace RevitProjectDataAddin
                     if (changed) Redraw(canvas, item);
                 };
 
-                Func<bool, string> getHookLenText = endIsRight =>
-                {
-                    double fallback = endIsRight ? fallbackRight : fallbackLeft;
-                    double currentLen = GetTanbuHookLength(item, spanIndex, isRightAbdominal, endIsRight, fallback);
-                    return currentLen.ToString(CultureInfo.InvariantCulture);
-                };
+                //Func<bool, string> getHookLenText = endIsRight =>
+                //{
+                //    double fallback = endIsRight ? fallbackRight : fallbackLeft;
+                //    double currentLen = GetTanbuHookLength(item, spanIndex, isRightAbdominal, endIsRight, fallback);
+                //    return currentLen.ToString(CultureInfo.InvariantCulture);
+                //};
 
                 Button MakeInlineLenRow(string sideLabel, bool endIsRight, bool pullLeft, Action closeAll, Action<Button> selectSub, Func<ControlTemplate> getFlatBtnTemplate)
                 {
@@ -12578,17 +12527,148 @@ namespace RevitProjectDataAddin
                     };
                     DockPanel.SetDock(lbl, Dock.Left);
 
-                    var preview = CreateLengthPreviewCanvas(!endIsRight);
+                    var preview = CreateLengthPreviewCanvas(pullLeft);
                     DockPanel.SetDock(preview, Dock.Right);
 
                     var tbx = new TextBox
                     {
-                        Text = getHookLenText(endIsRight),
+                        Text = string.Empty,
                         Width = 50,
                         MinWidth = 50,
                         VerticalContentAlignment = VerticalAlignment.Center,
                         Visibility = System.Windows.Visibility.Collapsed
                     };
+
+                    var lenBorder = new FrameworkElementFactory(typeof(Border));
+                    lenBorder.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
+                    lenBorder.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Control.BorderBrushProperty));
+                    lenBorder.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(Control.BorderThicknessProperty));
+                    lenBorder.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
+                    lenBorder.SetValue(Border.SnapsToDevicePixelsProperty, true);
+
+                    var lenContentHost = new FrameworkElementFactory(typeof(ScrollViewer), "PART_ContentHost");
+                    lenContentHost.SetValue(FrameworkElement.SnapsToDevicePixelsProperty, true);
+                    lenBorder.AppendChild(lenContentHost);
+
+                    tbx.Template = new ControlTemplate(typeof(TextBox))
+                    {
+                        VisualTree = lenBorder
+                    };
+
+                    if (tbx.ReadLocalValue(Control.BorderBrushProperty) == DependencyProperty.UnsetValue)
+                        tbx.BorderBrush = Brushes.Gray;
+
+                    if (tbx.ReadLocalValue(Control.BorderThicknessProperty) == DependencyProperty.UnsetValue)
+                        tbx.BorderThickness = new Thickness(1);
+
+                    if (tbx.ReadLocalValue(Control.BackgroundProperty) == DependencyProperty.UnsetValue)
+                        tbx.Background = Brushes.White;
+
+                    tbx.FocusVisualStyle = null;
+
+                    Brush initialBackground = tbx.Background ?? Brushes.White;
+                    Brush initialBorderBrush = tbx.BorderBrush ?? Brushes.Gray;
+                    Thickness initialBorderThickness = tbx.BorderThickness;
+                    bool hasRejectedLenInput = false;
+
+                    bool IsDigitOnlyLenText(string text, bool allowEmpty = true)
+                    {
+                        if (string.IsNullOrEmpty(text))
+                            return allowEmpty;
+
+                        return text.All(char.IsDigit);
+                    }
+
+                    string BuildLenCandidateText(string incomingText)
+                    {
+                        string currentText = tbx.Text ?? string.Empty;
+                        int selectionStart = Math.Max(0, Math.Min(tbx.SelectionStart, currentText.Length));
+                        int selectionLength = Math.Max(0, Math.Min(tbx.SelectionLength, currentText.Length - selectionStart));
+
+                        return currentText.Remove(selectionStart, selectionLength)
+                            .Insert(selectionStart, incomingText ?? string.Empty);
+                    }
+
+                    Thickness EnsureVisibleLenBorder(Thickness thickness)
+                    {
+                        if (thickness.Left <= 0 && thickness.Top <= 0 && thickness.Right <= 0 && thickness.Bottom <= 0)
+                            return new Thickness(1);
+
+                        return thickness;
+                    }
+
+                    void SetLenValidityState(bool isValid)
+                    {
+                        tbx.Background = initialBackground;
+                        tbx.BorderBrush = isValid ? initialBorderBrush : Brushes.Red;
+                        tbx.BorderThickness = isValid
+                            ? initialBorderThickness
+                            : EnsureVisibleLenBorder(initialBorderThickness);
+                    }
+
+                    void ShowRejectedLenInputState()
+                    {
+                        hasRejectedLenInput = true;
+                        tbx.Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            if (hasRejectedLenInput)
+                                SetLenValidityState(false);
+                        }), DispatcherPriority.Input);
+                    }
+
+                    void ClearRejectedLenInputState()
+                    {
+                        hasRejectedLenInput = false;
+                        SetLenValidityState(IsDigitOnlyLenText(tbx.Text));
+                    }
+
+                    tbx.TextChanged += (_, __) =>
+                    {
+                        hasRejectedLenInput = false;
+                        SetLenValidityState(IsDigitOnlyLenText(tbx.Text));
+                    };
+
+                    tbx.PreviewTextInput += (_, inputArgs) =>
+                    {
+                        if (!IsDigitOnlyLenText(BuildLenCandidateText(inputArgs.Text), allowEmpty: true))
+                        {
+                            ShowRejectedLenInputState();
+                            inputArgs.Handled = true;
+                            return;
+                        }
+
+                        ClearRejectedLenInputState();
+                    };
+
+                    DataObject.AddPastingHandler(tbx, new DataObjectPastingEventHandler((_, pasteArgs) =>
+                    {
+                        string pastedText = null;
+
+                        if (pasteArgs.SourceDataObject != null)
+                        {
+                            if (pasteArgs.SourceDataObject.GetDataPresent(DataFormats.UnicodeText))
+                                pastedText = pasteArgs.SourceDataObject.GetData(DataFormats.UnicodeText) as string;
+                            else if (pasteArgs.SourceDataObject.GetDataPresent(DataFormats.Text))
+                                pastedText = pasteArgs.SourceDataObject.GetData(DataFormats.Text) as string;
+                        }
+
+                        if (!IsDigitOnlyLenText(BuildLenCandidateText(pastedText ?? string.Empty), allowEmpty: true))
+                        {
+                            ShowRejectedLenInputState();
+                            pasteArgs.CancelCommand();
+                            return;
+                        }
+
+                        ClearRejectedLenInputState();
+                    }));
+
+                    tbx.LostKeyboardFocus += (_, __) =>
+                    {
+                        hasRejectedLenInput = false;
+                        SetLenValidityState(IsDigitOnlyLenText(tbx.Text));
+                    };
+
+                    SetLenValidityState(IsDigitOnlyLenText(tbx.Text));
                     DockPanel.SetDock(tbx, Dock.Right);
 
                     row.Children.Add(lbl);
@@ -12600,7 +12680,7 @@ namespace RevitProjectDataAddin
                         Content = row,
                         HorizontalContentAlignment = HorizontalAlignment.Stretch,
                         VerticalContentAlignment = VerticalAlignment.Center,
-                        Padding = new Thickness(12, 6, 12, 6),
+                        Padding = new Thickness(12, 6, 10, 6),
                         Background = Brushes.Transparent,
                         BorderBrush = Brushes.Transparent,
                         BorderThickness = new Thickness(0),
@@ -12721,7 +12801,7 @@ namespace RevitProjectDataAddin
                             StaysOpen = true
                         };
 
-                        var root = new StackPanel { Orientation = Orientation.Vertical };
+                        var root = new StackPanel { Orientation = Orientation.Vertical, Width = 120 };
                         root.Children.Add(WithRowDivider(
                             MakeInlineLenRow("左へ引く", endIsRight, true, closeAll, selectSub, getFlatBtnTemplate)));
                         root.Children.Add(WithRowDivider(
@@ -12736,12 +12816,12 @@ namespace RevitProjectDataAddin
                             };
                             DockPanel.SetDock(lbl, Dock.Left);
 
-                            var preview = new TextBlock
-                            {
-                                Text = "❯",
-                                VerticalAlignment = VerticalAlignment.Center
-                            };
-                            DockPanel.SetDock(preview, Dock.Right);
+                            //var preview = new TextBlock
+                            //{
+                            //    Text = "❯",
+                            //    VerticalAlignment = VerticalAlignment.Center
+                            //};
+                            //DockPanel.SetDock(preview, Dock.Right);
 
                             var totalBox = new TextBox
                             {
@@ -12755,14 +12835,14 @@ namespace RevitProjectDataAddin
 
                             row.Children.Add(lbl);
                             row.Children.Add(totalBox);
-                            row.Children.Add(preview);
+                            //row.Children.Add(preview);
 
                             var totalButton = new Button
                             {
                                 Content = row,
                                 HorizontalContentAlignment = HorizontalAlignment.Stretch,
                                 VerticalContentAlignment = VerticalAlignment.Center,
-                                Padding = new Thickness(12, 6, 12, 6),
+                                Padding = new Thickness(10, 6, 10, 6),
                                 Background = Brushes.Transparent,
                                 BorderBrush = Brushes.Transparent,
                                 BorderThickness = new Thickness(0),
@@ -12785,13 +12865,13 @@ namespace RevitProjectDataAddin
                             void EndTotalEdit()
                             {
                                 totalBox.Visibility = System.Windows.Visibility.Collapsed;
-                                preview.Visibility = System.Windows.Visibility.Visible;
+                                //preview.Visibility = System.Windows.Visibility.Visible;
                             }
 
                             void BeginTotalEdit()
                             {
                                 totalBox.Text = GetCurrentTanbuTotalLength().ToString(CultureInfo.InvariantCulture);
-                                preview.Visibility = System.Windows.Visibility.Collapsed;
+                                //preview.Visibility = System.Windows.Visibility.Collapsed;
                                 totalBox.Visibility = System.Windows.Visibility.Visible;
                                 FocusTotalBox();
                             }
@@ -12942,7 +13022,7 @@ namespace RevitProjectDataAddin
         }
         private bool ApplyTanbuHookLength(GridBotsecozu item, int spanIndex, bool isRightAbdominal, bool isRightEnd, double newLength)
         {
-            if (newLength <= 0)
+            if (double.IsNaN(newLength) || double.IsInfinity(newLength))
                 return false;
 
             return SetTanbuHookLength(item, spanIndex, isRightAbdominal, isRightEnd, newLength);
