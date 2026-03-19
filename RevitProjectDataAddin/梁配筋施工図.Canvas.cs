@@ -4646,15 +4646,13 @@ namespace RevitProjectDataAddin
         {
             if (item != null
                 && _tanbuHookOverrides.TryGetValue(item, out var spanDict)
-                && spanDict.TryGetValue((spanIndex, isRightAbdominal, isRightEnd), out var val)
-                && val > 0)
+                && spanDict.TryGetValue((spanIndex, isRightAbdominal, isRightEnd), out var val))
             {
                 return val;
             }
 
             if (item?.TanbuHookOverrides != null
-                && item.TanbuHookOverrides.TryGetValue(MakeTanbuHookKey(spanIndex, isRightAbdominal, isRightEnd), out var persisted)
-                && persisted > 0)
+                && item.TanbuHookOverrides.TryGetValue(MakeTanbuHookKey(spanIndex, isRightAbdominal, isRightEnd), out var persisted))
             {
                 return persisted;
             }
@@ -4665,7 +4663,7 @@ namespace RevitProjectDataAddin
         //private void SetTanbuHookLength(GridBotsecozu item, int spanIndex, double newLength)
         private bool SetTanbuHookLength(GridBotsecozu item, int spanIndex, bool isRightAbdominal, bool isRightEnd, double newLength)
         {
-            if (item == null || spanIndex < 0 || newLength <= 0)
+            if (item == null || spanIndex < 0 || double.IsNaN(newLength) || double.IsInfinity(newLength))
                 return false;
 
             if (!_tanbuHookOverrides.TryGetValue(item, out var spanDict))
@@ -5985,21 +5983,10 @@ namespace RevitProjectDataAddin
 
                     double midSpan = xA + ((xB - xA) / 2.0);
                     // 左の腹筋
-                    //// 左の腹筋の左
-                    //DrawLine_Rec(canvas, T, item,
-                    //    (xA - leftHook_L) + offset1.X, yChainMid + 7500 + offset1.Y,
-                    //    xA + offset1.X, yChainMid + 7500 + offset1.Y,
-                    //    Brushes.DimGray, 1.5, null, "CHAIN");
-                    // 左の腹筋の中央
                     DrawLine_Rec(canvas, T, item,
                         (xA - leftHook_L) + offset1.X, yChainMid + 7500 + offset1.Y,
-                         (midSpan + rightHook_L) + offset1.X, yChainMid + 7500 + offset1.Y,
+                        (midSpan + rightHook_L) + offset1.X, yChainMid + 7500 + offset1.Y,
                         Brushes.Red, 1.5, null, "CHAIN");
-                    //// 左の腹筋の右
-                    //DrawLine_Rec(canvas, T, item,
-                    //    midSpan + offset1.X, yChainMid + 7500 + offset1.Y,
-                    //    (midSpan + rightHook_L) + offset1.X, yChainMid + 7500 + offset1.Y,
-                    //    Brushes.Blue, 1.5, null, "CHAIN");
                     // Chéo của thanh bên trái
                     DrawLine_Rec(canvas, T, item,
                        (midSpan + rightHook_L) + offset1.X, yChainMid + 7500 + offset1.Y,
@@ -6007,22 +5994,10 @@ namespace RevitProjectDataAddin
                        Brushes.Blue, 1.5, null, "CHAIN");
 
                     // 右の腹筋
-                    //// 右の腹筋の左
-                    //DrawLine_Rec(canvas, T, item,
-                    //    (midSpan - leftHook_R) + offset1.X, yChainMid + 7515 + offset1.Y,
-                    //    midSpan + offset1.X, yChainMid + 7515 + offset1.Y,
-                    //    Brushes.Black, 1.5, null, "CHAIN");
-                 
-                    // 右の腹筋の中央
                     DrawLine_Rec(canvas, T, item,
                          (midSpan - leftHook_R) + offset1.X, yChainMid + 7515 + offset1.Y,
                         (xB + rightHook_R) + offset1.X, yChainMid + 7515 + offset1.Y,
                         Brushes.Orange, 1.5, null, "CHAIN");
-                    //// 右の腹筋の右
-                    //DrawLine_Rec(canvas, T, item,
-                    //    xB + offset1.X, yChainMid + 7515 + offset1.Y,
-                    //    (xB + rightHook_R) + offset1.X, yChainMid + 7515 + offset1.Y,
-                    //    Brushes.Red, 1.5, null, "CHAIN");
                     // Chéo của thanh bên phải
                     DrawLine_Rec(canvas, T, item,
                         (midSpan - leftHook_R) + offset1.X, yChainMid + 7515 + offset1.Y,
@@ -6077,21 +6052,10 @@ namespace RevitProjectDataAddin
                     double midSpanX = xA + ((xB - xA) / 2.0);
 
                     // 左の腹筋
-                    ////左の腹筋の左
-                    //DrawLine_Rec(canvas, T, item,
-                    //             (xA - leftHook_L) + offset2.X, yChainMid + 7500 + offset2.Y,
-                    //            xA + offset2.X, yChainMid + 7500 + offset2.Y,
-                    //             Brushes.DimGray, 1.5, null, "CHAIN");
-                    //左の腹筋の中央
                     DrawLine_Rec(canvas, T, item,
                                   (xA - leftHook_L) + offset2.X, yChainMid + 7500 + offset2.Y,
                                   midSpanX + rightHook_L + offset2.X, yChainMid + 7500 + offset2.Y,
                                  Brushes.Red, 1.5, null, "CHAIN");
-                    ////左の腹筋の右
-                    //DrawLine_Rec(canvas, T, item,
-                    //             midSpanX + offset2.X, yChainMid + 7500 + offset2.Y,
-                    //             midSpanX + rightHook_L + offset2.X, yChainMid + 7500 + offset2.Y,
-                    //             Brushes.Blue, 1.5, null, "CHAIN");
                     // Chéo của thanh bên trái
                     DrawLine_Rec(canvas, T, item,
                                  midSpanX + rightHook_L + offset2.X, yChainMid + 7500 + offset2.Y,
@@ -6099,22 +6063,10 @@ namespace RevitProjectDataAddin
                                  Brushes.Blue, 1.5, null, "CHAIN");
 
                     //右の腹筋
-                    ////右の腹筋の左
-                    //DrawLine_Rec(canvas, T, item,
-                    //              midSpanX - leftHook_R + offset2.X, yChainMid + 7515 + offset2.Y,
-                    //             midSpanX + offset2.X, yChainMid + 7515 + offset2.Y,
-                    //             Brushes.Black, 1.5, null, "CHAIN");
-                 
-                    //右の腹筋の中央
                     DrawLine_Rec(canvas, T, item,
                                  midSpanX - leftHook_R + offset2.X, yChainMid + 7515 + offset2.Y,
                                   (xB + rightHook_R) + offset2.X, yChainMid + 7515 + offset2.Y,
                                 Brushes.Orange, 1.5, null, "CHAIN");
-                    ////右の腹筋の右
-                    //DrawLine_Rec(canvas, T, item,
-                    //         xB + offset2.X, yChainMid + 7515 + offset2.Y,
-                    //        (xB + rightHook_R) + offset2.X, yChainMid + 7515 + offset2.Y,
-                    //        Brushes.Red, 1.5, null, "CHAIN");
                     // Chéo của thanh bên phải
                     DrawLine_Rec(canvas, T, item,
                                  midSpanX - leftHook_R + offset2.X, yChainMid + 7515 + offset2.Y,
@@ -12542,9 +12494,6 @@ namespace RevitProjectDataAddin
                     }
 
                     double newLen = currentLen + signedDelta;
-                    if (newLen <= 0)
-                        return false;
-
                     return ApplyTanbuHookLength(item, spanIndex, isRightAbdominal, endIsRight, newLen);
                 }
 
@@ -13070,7 +13019,7 @@ namespace RevitProjectDataAddin
         }
         private bool ApplyTanbuHookLength(GridBotsecozu item, int spanIndex, bool isRightAbdominal, bool isRightEnd, double newLength)
         {
-            if (newLength <= 0)
+            if (double.IsNaN(newLength) || double.IsInfinity(newLength))
                 return false;
 
             return SetTanbuHookLength(item, spanIndex, isRightAbdominal, isRightEnd, newLength);
