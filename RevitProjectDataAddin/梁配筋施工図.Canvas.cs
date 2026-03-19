@@ -12377,7 +12377,7 @@ namespace RevitProjectDataAddin
                         Text = "❯",
                         VerticalAlignment = VerticalAlignment.Center,
                         HorizontalAlignment = HorizontalAlignment.Right,
-                        Margin = new Thickness(12, 0, 0, 0)
+                        Margin = new Thickness(10, 0, 0, 0)
                     };
                     Grid.SetColumn(arrow, 1);
                     grid.Children.Add(arrow);
@@ -12387,7 +12387,7 @@ namespace RevitProjectDataAddin
                         Content = grid,
                         HorizontalContentAlignment = HorizontalAlignment.Stretch,
                         VerticalContentAlignment = VerticalAlignment.Center,
-                        Padding = new Thickness(12, 6, 12, 6),
+                        Padding = new Thickness(10, 6, 10, 6),
                         Background = normalBg,
                         BorderBrush = Brushes.Transparent,
                         BorderThickness = new Thickness(0),
@@ -12429,7 +12429,7 @@ namespace RevitProjectDataAddin
                         Text = "❯",
                         VerticalAlignment = VerticalAlignment.Center,
                         HorizontalAlignment = HorizontalAlignment.Right,
-                        Margin = new Thickness(12, 0, 0, 0),
+                        Margin = new Thickness(10, 0, 0, 0),
                         Opacity = 0.0 // submenu items don't need arrow, but user asked "each row": keep layout consistent
                     };
                     Grid.SetColumn(arrow, 2);
@@ -12443,7 +12443,7 @@ namespace RevitProjectDataAddin
                         Content = grid,
                         HorizontalContentAlignment = HorizontalAlignment.Stretch,
                         VerticalContentAlignment = VerticalAlignment.Center,
-                        Padding = new Thickness(12, 6, 12, 6),
+                        Padding = new Thickness(10, 6, 10, 6),
                         Background = normalBg,
                         BorderBrush = Brushes.Transparent,
                         BorderThickness = new Thickness(0),
@@ -12586,6 +12586,46 @@ namespace RevitProjectDataAddin
                         VerticalContentAlignment = VerticalAlignment.Center,
                         Visibility = System.Windows.Visibility.Collapsed
                     };
+
+                    bool IsDigitOnlyLenText(string text, bool allowEmpty = true)
+                    {
+                        if (string.IsNullOrEmpty(text))
+                            return allowEmpty;
+
+                        return text.All(char.IsDigit);
+                    }
+
+                    string BuildLenCandidateText(string incomingText)
+                    {
+                        string currentText = tbx.Text ?? string.Empty;
+                        int selectionStart = Math.Max(0, Math.Min(tbx.SelectionStart, currentText.Length));
+                        int selectionLength = Math.Max(0, Math.Min(tbx.SelectionLength, currentText.Length - selectionStart));
+
+                        return currentText.Remove(selectionStart, selectionLength)
+                            .Insert(selectionStart, incomingText ?? string.Empty);
+                    }
+
+                    tbx.PreviewTextInput += (_, inputArgs) =>
+                    {
+                        if (!IsDigitOnlyLenText(BuildLenCandidateText(inputArgs.Text), allowEmpty: true))
+                            inputArgs.Handled = true;
+                    };
+
+                    DataObject.AddPastingHandler(tbx, new DataObjectPastingEventHandler((_, pasteArgs) =>
+                    {
+                        string pastedText = null;
+
+                        if (pasteArgs.SourceDataObject != null)
+                        {
+                            if (pasteArgs.SourceDataObject.GetDataPresent(DataFormats.UnicodeText))
+                                pastedText = pasteArgs.SourceDataObject.GetData(DataFormats.UnicodeText) as string;
+                            else if (pasteArgs.SourceDataObject.GetDataPresent(DataFormats.Text))
+                                pastedText = pasteArgs.SourceDataObject.GetData(DataFormats.Text) as string;
+                        }
+
+                        if (!IsDigitOnlyLenText(BuildLenCandidateText(pastedText ?? string.Empty), allowEmpty: true))
+                            pasteArgs.CancelCommand();
+                    }));
                     DockPanel.SetDock(tbx, Dock.Right);
 
                     row.Children.Add(lbl);
@@ -12759,7 +12799,7 @@ namespace RevitProjectDataAddin
                                 Content = row,
                                 HorizontalContentAlignment = HorizontalAlignment.Stretch,
                                 VerticalContentAlignment = VerticalAlignment.Center,
-                                Padding = new Thickness(12, 6, 12, 6),
+                                Padding = new Thickness(10, 6, 10, 6),
                                 Background = Brushes.Transparent,
                                 BorderBrush = Brushes.Transparent,
                                 BorderThickness = new Thickness(0),
