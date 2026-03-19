@@ -1,4 +1,4 @@
-﻿
+
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -335,7 +335,8 @@ namespace RevitProjectDataAddin
 
             var textColor = ColorFromBrush(color ?? Brushes.Black, Colors.Black);
             string fontFamily = this.FontFamily?.Source ?? "Yu Mincho";
-            SceneFor(owner).Add(new DxfText(text ?? "", wx, wy, effectiveHeightMm, hAlign: h, vAlign: v, rotDeg: 0,
+            //toàn bộ text dxf
+            SceneFor(owner).Add(new DxfText(text ?? "", wx, wy+25, effectiveHeightMm, hAlign: h, vAlign: v, rotDeg: 0,
                                              layer: layer, style: "STANDARD", fontPx: effectiveFontPx,
                                              fontFamily: fontFamily, color: textColor, hAnchor: ha, vAnchor: va));
             return DrawTextW(c, T, text, wx, wy, effectiveFontPx, color, ha, va);
@@ -3522,18 +3523,20 @@ namespace RevitProjectDataAddin
                             FocusBox();
                         }
 
-                        void TryCommitOrRefocus()
+                        bool TryCommitOrRefocus(bool closeAllAfterValid)
                         {
                             string now = (box.Text ?? string.Empty).Trim();
                             if (!TryParseNumber(now, out var val))
                             {
                                 FocusBox();
-                                return;
+                                return false;
                             }
                             bool changed = ApplyOrangeSegLengthDelta(owner, key, isLeftMenu, pullLeft, val);
                             if (changed)
                                 Redraw(canvas, owner);
                             EndEditShowPreview();
+                            if (closeAllAfterValid) CloseAll();
+                            return true;
                         }
 
                         rowHost.MouseLeftButtonDown += (ss, ee) =>
@@ -3559,7 +3562,7 @@ namespace RevitProjectDataAddin
                         {
                             if (ee.Key == Key.Enter)
                             {
-                                TryCommitOrRefocus();
+                                TryCommitOrRefocus(closeAllAfterValid: true);
                                 ee.Handled = true;
                             }
                             else if (ee.Key == Key.Escape)
@@ -5545,8 +5548,8 @@ namespace RevitProjectDataAddin
             // ==== Cấu hình hiển thị kích thước cho đoạn cam ====
             const bool ShowOrangeDims = true;     // Cho phép tắt nhanh
             const double MinDimLen = 200.0;       // Chỉ hiển thị nếu đoạn ≥ ngưỡng (mm)
-            const double DimDyUpper = 180.0;      // Độ lệch chữ (nhóm trên)
-            const double DimDyLower = -180.0;     // Độ lệch chữ (nhóm dưới)
+            const double OrangeDimPrimaryTextGapMm = 20.0;
+            const double OrangeDimSecondaryTextGapMm = 0.0;
 
             // NEW: Bật/tắt chấm đen "tiền xử lý" (cm/cE2...) — MẶC ĐỊNH TẮT
             const bool ShowPreRoundCutMarks = false;
@@ -6012,7 +6015,7 @@ namespace RevitProjectDataAddin
                     //    (midSpan - leftHook_R) + offset1.X, yChainMid + 7515 + offset1.Y,
                     //    midSpan + offset1.X, yChainMid + 7515 + offset1.Y,
                     //    Brushes.Black, 1.5, null, "CHAIN");
-                 
+
                     // 右の腹筋の中央
                     DrawLine_Rec(canvas, T, item,
                          (midSpan - leftHook_R) + offset1.X, yChainMid + 7515 + offset1.Y,
@@ -6104,7 +6107,7 @@ namespace RevitProjectDataAddin
                     //              midSpanX - leftHook_R + offset2.X, yChainMid + 7515 + offset2.Y,
                     //             midSpanX + offset2.X, yChainMid + 7515 + offset2.Y,
                     //             Brushes.Black, 1.5, null, "CHAIN");
-                 
+
                     //右の腹筋の中央
                     DrawLine_Rec(canvas, T, item,
                                  midSpanX - leftHook_R + offset2.X, yChainMid + 7515 + offset2.Y,
@@ -6343,7 +6346,7 @@ namespace RevitProjectDataAddin
                 double cx = (x0 + x1) / 2.0;
                 double yChainLocal = yChainLocalBase;
                 // Span chính //
-                DrawEditableSpanLabel(canvas, T, cx, yChainLocal - 150, i, spans[i].ToString("0"), tsuIsX, tsuIsY, item);
+                DrawEditableSpanLabel(canvas, T, cx, yChainLocal, i, spans[i].ToString("0"), tsuIsX, tsuIsY, item);
                 DrawLine_Rec(canvas, T, item, qL, yChainLocal + 600, qL, yChainLocal + offset4.Y + 10000, Brushes.Green, 1.2, null, "MARK");
                 DrawLine_Rec(canvas, T, item, qR, yChainLocal + 600, qR, yChainLocal + offset4.Y + 10000, Brushes.Green, 1.2, null, "MARK");
 
@@ -7679,7 +7682,7 @@ namespace RevitProjectDataAddin
                             out double defaultLeftSigned,
                             out double defaultRightSigned);
                         double wxTop = 0.5 * (seg.X1 + seg.X2);
-                        double wyTop = y + DimDyUpper - 200;
+                        double wyTop = y - OrangeDimPrimaryTextGapMm;
                         var topKey = new OrangeDimTextKey(kRow, true, wxTop, wyTop);
                         double leftSigned = GetAnkaOverrideBySegKeyOrDefault(item, segKey, AnkaSide.Left, defaultLeftSigned);
                         double rightSigned = GetAnkaOverrideBySegKeyOrDefault(item, segKey, AnkaSide.Right, defaultRightSigned);
@@ -7725,7 +7728,7 @@ namespace RevitProjectDataAddin
                         DimOrangeSegmentWithAnkaLabels(
                             canvas, T, item,
                             seg.X1, seg.X2,
-                            y, /*dyTop*/ DimDyUpper - 200, /*dyBottom*/ -DimDyUpper + 180,
+                            y, /*dyTop*/ -OrangeDimPrimaryTextGapMm, /*dyBottom*/ OrangeDimSecondaryTextGapMm,
                             diaMidArr, spanLeftArr, spanRightArr, spanCount,
                             defaultLeftSigned, defaultRightSigned,
                             leftSigned, rightSigned,
@@ -8028,7 +8031,7 @@ namespace RevitProjectDataAddin
                             out double defaultLeftSigned,
                             out double defaultRightSigned);
                         double wxTop = 0.5 * (seg.X1 + seg.X2);
-                        double wyTop = y + DimDyUpper - 200;
+                        double wyTop = y - OrangeDimPrimaryTextGapMm;
                         var topKey = new OrangeDimTextKey(kRow, true, wxTop, wyTop);
                         double leftSigned = GetAnkaOverrideBySegKeyOrDefault(item, segKey, AnkaSide.Left, defaultLeftSigned);
                         double rightSigned = GetAnkaOverrideBySegKeyOrDefault(item, segKey, AnkaSide.Right, defaultRightSigned);
@@ -8074,7 +8077,7 @@ namespace RevitProjectDataAddin
                         DimOrangeSegmentWithAnkaLabels(
                             canvas, T, item,
                             seg.X1, seg.X2,
-                            y, /*dyTop*/ DimDyUpper - 200, /*dyBottom*/ -DimDyUpper + 180,
+                            y, /*dyTop*/ -OrangeDimPrimaryTextGapMm, /*dyBottom*/ OrangeDimSecondaryTextGapMm,
                             diaMidChu1Arr, spanLeftArr, spanRightArr, spanCount,
                             defaultLeftSigned, defaultRightSigned,
                             leftSigned, rightSigned,
@@ -8338,7 +8341,7 @@ namespace RevitProjectDataAddin
                             out double defaultLeftSigned,
                             out double defaultRightSigned);
                         double wxTop = 0.5 * (seg.X1 + seg.X2);
-                        double wyTop = y + DimDyUpper - 200;
+                        double wyTop = y - OrangeDimPrimaryTextGapMm;
                         var topKey = new OrangeDimTextKey(kRow, true, wxTop, wyTop);
                         double leftSigned = GetAnkaOverrideBySegKeyOrDefault(item, segKey, AnkaSide.Left, defaultLeftSigned);
                         double rightSigned = GetAnkaOverrideBySegKeyOrDefault(item, segKey, AnkaSide.Right, defaultRightSigned);
@@ -8384,7 +8387,7 @@ namespace RevitProjectDataAddin
                         DimOrangeSegmentWithAnkaLabels(
                             canvas, T, item,
                             seg.X1, seg.X2,
-                            y, /*dyTop*/ DimDyUpper - 200, /*dyBottom*/ -DimDyUpper + 180,
+                            y, /*dyTop*/ -OrangeDimPrimaryTextGapMm, /*dyBottom*/ OrangeDimSecondaryTextGapMm,
                             diaMidChu2Arr, spanLeftArr, spanRightArr, spanCount,
                             defaultLeftSigned, defaultRightSigned,
                             leftSigned, rightSigned,
@@ -8655,7 +8658,7 @@ namespace RevitProjectDataAddin
                             out double defaultLeftSigned,
                             out double defaultRightSigned);
                         double wxTop = 0.5 * (seg.X1 + seg.X2);
-                        double wyTop = y + DimDyLower - 100;
+                        double wyTop = y - OrangeDimPrimaryTextGapMm;
                         var topKey = new OrangeDimTextKey(kRow, true, wxTop, wyTop);
                         double leftSigned = GetAnkaOverrideBySegKeyOrDefault(item, segKey, AnkaSide.Left, defaultLeftSigned);
                         double rightSigned = GetAnkaOverrideBySegKeyOrDefault(item, segKey, AnkaSide.Right, defaultRightSigned);
@@ -8697,15 +8700,15 @@ namespace RevitProjectDataAddin
 
                         DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X2, y, Brushes.Orange, 1.2, null, "MARK");
 
-                        // TEXT CAM (nhóm dưới): textAboveLine=false, dùng DimDyLower
+                        // TEXT CAM (nhóm dưới): dùng cùng khoảng cách chuẩn như nhóm trên
                         DimOrangeSegmentWithAnkaLabels(
                             canvas, T, item,
                             seg.X1, seg.X2,
-                            y, /*dyTop*/ DimDyLower - 100, /*dyBottom*/ -DimDyLower + 50,
+                            y, /*dyTop*/ -OrangeDimPrimaryTextGapMm, /*dyBottom*/ OrangeDimSecondaryTextGapMm,
                             diaMidShitaChu2Arr, spanLeftArr, spanRightArr, spanCount,
                             defaultLeftSigned, defaultRightSigned,
                             leftSigned, rightSigned,
-                            /*textAboveLine*/ false, seg.BaseX1, seg.BaseX2,
+                            /*textAboveLine*/ true, seg.BaseX1, seg.BaseX2,
                                 suppressAnkaInTopLength: seg.IsEqualCutChild,
                             forceShowForCutChild: seg.IsEqualCutChild,
                                 rowIndex: kRow
@@ -8971,7 +8974,7 @@ namespace RevitProjectDataAddin
                             out double defaultLeftSigned,
                             out double defaultRightSigned);
                         double wxTop = 0.5 * (seg.X1 + seg.X2);
-                        double wyTop = y + DimDyLower - 100;
+                        double wyTop = y - OrangeDimPrimaryTextGapMm;
                         var topKey = new OrangeDimTextKey(kRow, true, wxTop, wyTop);
                         double leftSigned = GetAnkaOverrideBySegKeyOrDefault(item, segKey, AnkaSide.Left, defaultLeftSigned);
                         double rightSigned = GetAnkaOverrideBySegKeyOrDefault(item, segKey, AnkaSide.Right, defaultRightSigned);
@@ -9017,11 +9020,11 @@ namespace RevitProjectDataAddin
                         DimOrangeSegmentWithAnkaLabels(
                             canvas, T, item,
                             seg.X1, seg.X2,
-                            y, /*dyTop*/ DimDyLower - 100, /*dyBottom*/ -DimDyLower + 50,
+                            y, /*dyTop*/ -OrangeDimPrimaryTextGapMm, /*dyBottom*/ OrangeDimSecondaryTextGapMm,
                             diaMidShitaChu1Arr, spanLeftArr, spanRightArr, spanCount,
                             defaultLeftSigned, defaultRightSigned,
                             leftSigned, rightSigned,
-                            /*textAboveLine*/ false, seg.BaseX1, seg.BaseX2,
+                            /*textAboveLine*/ true, seg.BaseX1, seg.BaseX2,
                                 suppressAnkaInTopLength: seg.IsEqualCutChild,
                             forceShowForCutChild: seg.IsEqualCutChild,
                                 rowIndex: kRow
@@ -9353,7 +9356,7 @@ namespace RevitProjectDataAddin
                                 out double defaultLeftSigned,
                                 out double defaultRightSigned);
                             double wxTop = 0.5 * (seg.X1 + seg.X2);
-                            double wyTop = y + DimDyLower - 100;
+                            double wyTop = y - OrangeDimPrimaryTextGapMm;
                             var topKey = new OrangeDimTextKey(kRow, true, wxTop, wyTop);
                             double leftSigned = GetAnkaOverrideBySegKeyOrDefault(item, segKey, AnkaSide.Left, defaultLeftSigned);
                             double rightSigned = GetAnkaOverrideBySegKeyOrDefault(item, segKey, AnkaSide.Right, defaultRightSigned);
@@ -9401,11 +9404,11 @@ namespace RevitProjectDataAddin
                             DimOrangeSegmentWithAnkaLabels(
                                 canvas, T, item,
                                 seg.X1, seg.X2,
-                                y, /*dyTop*/ DimDyLower - 100, /*dyBottom*/ -DimDyLower + 50,
+                                y, /*dyTop*/ -OrangeDimPrimaryTextGapMm, /*dyBottom*/ OrangeDimSecondaryTextGapMm,
                                 diaMidShitaArr, spanLeftArr, spanRightArr, spanCount,
                                 defaultLeftSigned, defaultRightSigned,
                                 leftSigned, rightSigned,
-                                /*textAboveLine*/ false, seg.BaseX1, seg.BaseX2,
+                                /*textAboveLine*/ true, seg.BaseX1, seg.BaseX2,
                                 suppressAnkaInTopLength: seg.IsEqualCutChild,
                             forceShowForCutChild: seg.IsEqualCutChild,
                                 rowIndex: kRow
@@ -16609,17 +16612,7 @@ namespace RevitProjectDataAddin
             const double dxfTextHeightMm = 150.0;
             double effectiveFontPx = Math.Max(1.0, dxfTextHeightMm * scalePxPerMm);
             string fontFamilyName = this.FontFamily?.Source ?? "Yu Mincho";
-            double gapMm = gapPx / scalePxPerMm;
             var fontFamily = new FontFamily(fontFamilyName);
-            var typeface = new Typeface(fontFamily, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
-
-            double wDiaPx = MeasureTextWidthPx(canvas, diaText, typeface, effectiveFontPx);
-            double wPitchPx = MeasureTextWidthPx(canvas, pitchText, typeface, effectiveFontPx);
-            double wMatPx = hasMat ? MeasureTextWidthPx(canvas, matText, typeface, effectiveFontPx) : 0;
-
-            if (wDiaPx <= 0) wDiaPx = Math.Max(1.0, diaText.Length * effectiveFontPx * 0.7);
-            if (wPitchPx <= 0) wPitchPx = Math.Max(1.0, pitchText.Length * effectiveFontPx * 0.7);
-            if (hasMat && wMatPx <= 0) wMatPx = Math.Max(1.0, matText.Length * effectiveFontPx * 0.7);
 
             Point anchorPx = T.P(centerXmm, yMm);
 
@@ -16660,24 +16653,10 @@ namespace RevitProjectDataAddin
             Canvas.SetTop(tripletHost, topPx);
             canvas.Children.Add(tripletHost);
 
-            double wDiaMm = wDiaPx / scalePxPerMm;
-            double wPitchMm = wPitchPx / scalePxPerMm;
-            double wMatMm = wMatPx / scalePxPerMm;
-            double totalMm = wDiaMm + gapMm + wPitchMm + (hasMat ? gapMm + wMatMm : 0);
-            double xStartMm = centerXmm - totalMm / 2.0;
-            double xDia = xStartMm + wDiaMm / 2.0;
-            double xPitch = xStartMm + wDiaMm + gapMm + wPitchMm / 2.0;
-            double xMat = xStartMm + wDiaMm + gapMm + wPitchMm + (hasMat ? gapMm : 0) + wMatMm / 2.0;
-
             var (h, v) = ToDxfAlign(HAnchor.Center, VAnchor.Bottom);
             var textColor = ColorFromBrush(brush ?? Brushes.Black, Colors.Black);
-            SceneFor(item).Add(new DxfText(diaText ?? "", xDia, yMm, dxfTextHeightMm, hAlign: h, vAlign: v, rotDeg: 0,
-                                           layer: "TEXT", style: "STANDARD", fontPx: effectiveFontPx,
-                                           fontFamily: fontFamilyName, color: textColor, hAnchor: HAnchor.Center, vAnchor: VAnchor.Bottom));
-            SceneFor(item).Add(new DxfText(pitchText ?? "", xPitch, yMm, dxfTextHeightMm, hAlign: h, vAlign: v, rotDeg: 0,
-                                           layer: "TEXT", style: "STANDARD", fontPx: effectiveFontPx,
-                                           fontFamily: fontFamilyName, color: textColor, hAnchor: HAnchor.Center, vAnchor: VAnchor.Bottom));
-            SceneFor(item).Add(new DxfText(matText ?? "", xMat, yMm, dxfTextHeightMm, hAlign: h, vAlign: v, rotDeg: 0,
+            string fullText = string.Join(" ", new[] { diaText, pitchText, matText }.Where(s => !string.IsNullOrWhiteSpace(s)));
+            SceneFor(item).Add(new DxfText(fullText, centerXmm, yMm, dxfTextHeightMm, hAlign: h, vAlign: v, rotDeg: 0,
                                            layer: "TEXT", style: "STANDARD", fontPx: effectiveFontPx,
                                            fontFamily: fontFamilyName, color: textColor, hAnchor: HAnchor.Center, vAnchor: VAnchor.Bottom));
         }
@@ -17040,4 +17019,3 @@ namespace RevitProjectDataAddin
 
     }
 }
-
