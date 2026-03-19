@@ -12587,6 +12587,38 @@ namespace RevitProjectDataAddin
                         Visibility = System.Windows.Visibility.Collapsed
                     };
 
+                    var lenBorder = new FrameworkElementFactory(typeof(Border));
+                    lenBorder.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
+                    lenBorder.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Control.BorderBrushProperty));
+                    lenBorder.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(Control.BorderThicknessProperty));
+                    lenBorder.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
+                    lenBorder.SetValue(Border.SnapsToDevicePixelsProperty, true);
+
+                    var lenContentHost = new FrameworkElementFactory(typeof(ScrollViewer), "PART_ContentHost");
+                    lenContentHost.SetValue(FrameworkElement.SnapsToDevicePixelsProperty, true);
+                    lenBorder.AppendChild(lenContentHost);
+
+                    tbx.Template = new ControlTemplate(typeof(TextBox))
+                    {
+                        VisualTree = lenBorder
+                    };
+
+                    if (tbx.ReadLocalValue(Control.BorderBrushProperty) == DependencyProperty.UnsetValue)
+                        tbx.BorderBrush = Brushes.Gray;
+
+                    if (tbx.ReadLocalValue(Control.BorderThicknessProperty) == DependencyProperty.UnsetValue)
+                        tbx.BorderThickness = new Thickness(1);
+
+                    if (tbx.ReadLocalValue(Control.BackgroundProperty) == DependencyProperty.UnsetValue)
+                        tbx.Background = Brushes.White;
+
+                    tbx.FocusVisualStyle = null;
+
+                    Brush initialBackground = tbx.Background ?? Brushes.White;
+                    Brush initialBorderBrush = tbx.BorderBrush ?? Brushes.Gray;
+                    Thickness initialBorderThickness = tbx.BorderThickness;
+                    bool hasRejectedLenInput = false;
+
                     bool IsDigitOnlyLenText(string text, bool allowEmpty = true)
                     {
                         if (string.IsNullOrEmpty(text))
@@ -12605,10 +12637,55 @@ namespace RevitProjectDataAddin
                             .Insert(selectionStart, incomingText ?? string.Empty);
                     }
 
+                    Thickness EnsureVisibleLenBorder(Thickness thickness)
+                    {
+                        if (thickness.Left <= 0 && thickness.Top <= 0 && thickness.Right <= 0 && thickness.Bottom <= 0)
+                            return new Thickness(1);
+
+                        return thickness;
+                    }
+
+                    void SetLenValidityState(bool isValid)
+                    {
+                        tbx.Background = initialBackground;
+                        tbx.BorderBrush = isValid ? initialBorderBrush : Brushes.Red;
+                        tbx.BorderThickness = isValid
+                            ? initialBorderThickness
+                            : EnsureVisibleLenBorder(initialBorderThickness);
+                    }
+
+                    void ShowRejectedLenInputState()
+                    {
+                        hasRejectedLenInput = true;
+                        tbx.Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            if (hasRejectedLenInput)
+                                SetLenValidityState(false);
+                        }), DispatcherPriority.Input);
+                    }
+
+                    void ClearRejectedLenInputState()
+                    {
+                        hasRejectedLenInput = false;
+                        SetLenValidityState(IsDigitOnlyLenText(tbx.Text));
+                    }
+
+                    tbx.TextChanged += (_, __) =>
+                    {
+                        hasRejectedLenInput = false;
+                        SetLenValidityState(IsDigitOnlyLenText(tbx.Text));
+                    };
+
                     tbx.PreviewTextInput += (_, inputArgs) =>
                     {
                         if (!IsDigitOnlyLenText(BuildLenCandidateText(inputArgs.Text), allowEmpty: true))
+                        {
+                            ShowRejectedLenInputState();
                             inputArgs.Handled = true;
+                            return;
+                        }
+
+                        ClearRejectedLenInputState();
                     };
 
                     DataObject.AddPastingHandler(tbx, new DataObjectPastingEventHandler((_, pasteArgs) =>
@@ -12624,8 +12701,22 @@ namespace RevitProjectDataAddin
                         }
 
                         if (!IsDigitOnlyLenText(BuildLenCandidateText(pastedText ?? string.Empty), allowEmpty: true))
+                        {
+                            ShowRejectedLenInputState();
                             pasteArgs.CancelCommand();
+                            return;
+                        }
+
+                        ClearRejectedLenInputState();
                     }));
+
+                    tbx.LostKeyboardFocus += (_, __) =>
+                    {
+                        hasRejectedLenInput = false;
+                        SetLenValidityState(IsDigitOnlyLenText(tbx.Text));
+                    };
+
+                    SetLenValidityState(IsDigitOnlyLenText(tbx.Text));
                     DockPanel.SetDock(tbx, Dock.Right);
 
                     row.Children.Add(lbl);
