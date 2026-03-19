@@ -12579,6 +12579,17 @@ namespace RevitProjectDataAddin
                         return text.All(char.IsDigit);
                     }
 
+                    bool IsLenWithinCurrentTotal(string text, bool allowEmpty = true)
+                    {
+                        if (string.IsNullOrEmpty(text))
+                            return allowEmpty;
+
+                        if (!double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed))
+                            return false;
+
+                        return parsed <= GetCurrentTanbuTotalLength();
+                    }
+
                     string BuildLenCandidateText(string incomingText)
                     {
                         string currentText = tbx.Text ?? string.Empty;
@@ -12619,18 +12630,25 @@ namespace RevitProjectDataAddin
                     void ClearRejectedLenInputState()
                     {
                         hasRejectedLenInput = false;
-                        SetLenValidityState(IsDigitOnlyLenText(tbx.Text));
+                        SetLenValidityState(IsDigitOnlyLenText(tbx.Text) && IsLenWithinCurrentTotal(tbx.Text));
                     }
 
                     tbx.TextChanged += (_, __) =>
                     {
                         hasRejectedLenInput = false;
-                        SetLenValidityState(IsDigitOnlyLenText(tbx.Text));
+                        SetLenValidityState(IsDigitOnlyLenText(tbx.Text) && IsLenWithinCurrentTotal(tbx.Text));
                     };
 
                     tbx.PreviewTextInput += (_, inputArgs) =>
                     {
                         if (!IsDigitOnlyLenText(BuildLenCandidateText(inputArgs.Text), allowEmpty: true))
+                        {
+                            ShowRejectedLenInputState();
+                            inputArgs.Handled = true;
+                            return;
+                        }
+
+                        if (!IsLenWithinCurrentTotal(BuildLenCandidateText(inputArgs.Text), allowEmpty: true))
                         {
                             ShowRejectedLenInputState();
                             inputArgs.Handled = true;
@@ -12659,16 +12677,23 @@ namespace RevitProjectDataAddin
                             return;
                         }
 
+                        if (!IsLenWithinCurrentTotal(BuildLenCandidateText(pastedText ?? string.Empty), allowEmpty: true))
+                        {
+                            ShowRejectedLenInputState();
+                            pasteArgs.CancelCommand();
+                            return;
+                        }
+
                         ClearRejectedLenInputState();
                     }));
 
                     tbx.LostKeyboardFocus += (_, __) =>
                     {
                         hasRejectedLenInput = false;
-                        SetLenValidityState(IsDigitOnlyLenText(tbx.Text));
+                        SetLenValidityState(IsDigitOnlyLenText(tbx.Text) && IsLenWithinCurrentTotal(tbx.Text));
                     };
 
-                    SetLenValidityState(IsDigitOnlyLenText(tbx.Text));
+                    SetLenValidityState(IsDigitOnlyLenText(tbx.Text) && IsLenWithinCurrentTotal(tbx.Text));
                     DockPanel.SetDock(tbx, Dock.Right);
 
                     row.Children.Add(lbl);
@@ -12728,6 +12753,13 @@ namespace RevitProjectDataAddin
                     {
                         if (k.Key == Key.Enter)
                         {
+                            if (!IsDigitOnlyLenText(tbx.Text) || !IsLenWithinCurrentTotal(tbx.Text))
+                            {
+                                ShowRejectedLenInputState();
+                                k.Handled = true;
+                                return;
+                            }
+
                             applyHookLenFromText(endIsRight, pullLeft, tbx.Text);
                             EndEditShowPreview();
                             closeAll();
