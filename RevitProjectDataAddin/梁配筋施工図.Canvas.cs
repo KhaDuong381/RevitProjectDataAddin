@@ -6225,11 +6225,11 @@ namespace RevitProjectDataAddin
                         double hookLengthRight = (eff / 2.0) + leftHook_R + rightHook_R;  // 右の腹筋 total
 
 
-                        string leftDisplay = $"D{端部1腹筋径}- {hookLengthLeft:0}";
-                        string rightDisplay = $"D{端部1腹筋径}- {hookLengthRight:0}";
+                        //string leftDisplay = $"D{端部1腹筋径}-{hookLengthLeft:0}";
+                        //string rightDisplay = $"D{端部1腹筋径}-{hookLengthRight:0}";
 
-                        string leftDisplayText = $"D{leftTanbuDiameter}- {hookLengthLeft:0}";
-                        string rightDisplayText = $"D{rightTanbuDiameter}- {hookLengthRight:0}";
+                        string leftDisplayText = $"D{leftTanbuDiameter}-{hookLengthLeft:0}";
+                        string rightDisplayText = $"D{rightTanbuDiameter}-{hookLengthRight:0}";
                         double hookCenter = pos[i] + (eff / 2.0);
 
                         var offset3 = OffsetTanbuText;
@@ -12579,7 +12579,12 @@ namespace RevitProjectDataAddin
                         return text.All(char.IsDigit);
                     }
 
-                    bool IsLenWithinCurrentTotal(string text, bool allowEmpty = true)
+                    bool ShrinksCurrentTotal()
+                    {
+                        return pullLeft == endIsRight;
+                    }
+
+                    bool IsLenAllowedForCurrentAction(string text, bool allowEmpty = true)
                     {
                         if (string.IsNullOrEmpty(text))
                             return allowEmpty;
@@ -12587,7 +12592,10 @@ namespace RevitProjectDataAddin
                         if (!double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed))
                             return false;
 
-                        return parsed <= GetCurrentTanbuTotalLength();
+                        if (!ShrinksCurrentTotal())
+                            return true;
+
+                        return parsed < GetCurrentTanbuTotalLength();
                     }
 
                     string BuildLenCandidateText(string incomingText)
@@ -12630,13 +12638,13 @@ namespace RevitProjectDataAddin
                     void ClearRejectedLenInputState()
                     {
                         hasRejectedLenInput = false;
-                        SetLenValidityState(IsDigitOnlyLenText(tbx.Text) && IsLenWithinCurrentTotal(tbx.Text));
+                        SetLenValidityState(IsDigitOnlyLenText(tbx.Text) && IsLenAllowedForCurrentAction(tbx.Text));
                     }
 
                     tbx.TextChanged += (_, __) =>
                     {
                         hasRejectedLenInput = false;
-                        SetLenValidityState(IsDigitOnlyLenText(tbx.Text) && IsLenWithinCurrentTotal(tbx.Text));
+                        SetLenValidityState(IsDigitOnlyLenText(tbx.Text) && IsLenAllowedForCurrentAction(tbx.Text));
                     };
 
                     tbx.PreviewTextInput += (_, inputArgs) =>
@@ -12648,7 +12656,7 @@ namespace RevitProjectDataAddin
                             return;
                         }
 
-                        if (!IsLenWithinCurrentTotal(BuildLenCandidateText(inputArgs.Text), allowEmpty: true))
+                        if (!IsLenAllowedForCurrentAction(BuildLenCandidateText(inputArgs.Text), allowEmpty: true))
                         {
                             ShowRejectedLenInputState();
                             inputArgs.Handled = true;
@@ -12677,7 +12685,7 @@ namespace RevitProjectDataAddin
                             return;
                         }
 
-                        if (!IsLenWithinCurrentTotal(BuildLenCandidateText(pastedText ?? string.Empty), allowEmpty: true))
+                        if (!IsLenAllowedForCurrentAction(BuildLenCandidateText(pastedText ?? string.Empty), allowEmpty: true))
                         {
                             ShowRejectedLenInputState();
                             pasteArgs.CancelCommand();
@@ -12690,10 +12698,10 @@ namespace RevitProjectDataAddin
                     tbx.LostKeyboardFocus += (_, __) =>
                     {
                         hasRejectedLenInput = false;
-                        SetLenValidityState(IsDigitOnlyLenText(tbx.Text) && IsLenWithinCurrentTotal(tbx.Text));
+                        SetLenValidityState(IsDigitOnlyLenText(tbx.Text) && IsLenAllowedForCurrentAction(tbx.Text));
                     };
 
-                    SetLenValidityState(IsDigitOnlyLenText(tbx.Text) && IsLenWithinCurrentTotal(tbx.Text));
+                    SetLenValidityState(IsDigitOnlyLenText(tbx.Text) && IsLenAllowedForCurrentAction(tbx.Text));
                     DockPanel.SetDock(tbx, Dock.Right);
 
                     row.Children.Add(lbl);
@@ -12753,7 +12761,7 @@ namespace RevitProjectDataAddin
                     {
                         if (k.Key == Key.Enter)
                         {
-                            if (!IsDigitOnlyLenText(tbx.Text) || !IsLenWithinCurrentTotal(tbx.Text))
+                            if (!IsDigitOnlyLenText(tbx.Text) || !IsLenAllowedForCurrentAction(tbx.Text))
                             {
                                 ShowRejectedLenInputState();
                                 k.Handled = true;
