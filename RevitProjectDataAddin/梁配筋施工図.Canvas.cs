@@ -1,4 +1,4 @@
-
+﻿
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -2893,7 +2893,7 @@ namespace RevitProjectDataAddin
             };
 
             // ===== On click =====
-            tb.MouseLeftButtonDown += (s, e) =>
+            tb.MouseLeftButtonUp += (s, e) =>
             {
                 CloseExistingPopups();
 
@@ -5252,13 +5252,15 @@ namespace RevitProjectDataAddin
                 hoverFill: new SolidColorBrush(Color.FromArgb(100, 30, 144, 255)),
                 hoverStroke: Brushes.Blue);
 
+            System.Windows.Controls.Primitives.Popup beamSizePopup = null;
 
-            tb.MouseLeftButtonDown += (s, e) =>
+            tb.MouseLeftButtonUp += (s, e) =>
             {
                 e.Handled = true;
 
                 tb.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
                 var sz = tb.DesiredSize;
+                double popupFontSize = SystemFonts.MessageFontSize;
 
                 double initW = 0;
                 double initH = 0;
@@ -5279,123 +5281,258 @@ namespace RevitProjectDataAddin
                     return new TextBox
                     {
                         Text = value,
-                        FontSize = tb.FontSize,
+                        FontSize = popupFontSize,
                         Width = Math.Max(60, sz.Width / 3.0),
-                        Height = Math.Max(26, sz.Height + 6),
+                        MinWidth = 60,
+                        VerticalContentAlignment = VerticalAlignment.Center,
                         Margin = new Thickness(2, 0, 2, 0),
-                        Background = Brushes.White
+                        Background = Brushes.White,
+                        Foreground = Brushes.Black,
+                        Visibility = System.Windows.Visibility.Collapsed
                     };
                 }
 
                 var widthBox = CreateNumericBox(initW > 0 ? initW.ToString(CultureInfo.InvariantCulture) : string.Empty);
                 var heightBox = CreateNumericBox(initH > 0 ? initH.ToString(CultureInfo.InvariantCulture) : string.Empty);
-
-                var container = new StackPanel
+                try
                 {
-                    Orientation = Orientation.Horizontal,
-                    Background = Brushes.White,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Margin = new Thickness(0),
-                };
+                    if (beamSizePopup != null)
+                    {
+                        beamSizePopup.IsOpen = false;
+                        beamSizePopup = null;
+                    }
+                }
+                catch { }
 
-                var openParen = new TextBlock { Text = "(", FontSize = tb.FontSize, VerticalAlignment = VerticalAlignment.Center };
-                var cross = new TextBlock { Text = "x", FontSize = tb.FontSize, VerticalAlignment = VerticalAlignment.Center };
-                var closeParen = new TextBlock { Text = ")", FontSize = tb.FontSize, VerticalAlignment = VerticalAlignment.Center };
+                Brush normalBg = Brushes.Transparent;
+                Brush selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
+                Brush dividerBrush = Brushes.LightGray;
 
-                container.Children.Add(openParen);
-                container.Children.Add(widthBox);
-                container.Children.Add(cross);
-                container.Children.Add(heightBox);
-                container.Children.Add(closeParen);
-
-                var p = T.P(wx, wy);
-                container.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-                var desired = container.DesiredSize;
-                Canvas.SetLeft(container, p.X - desired.Width / 2.0);
-                Canvas.SetTop(container, p.Y - desired.Height);
-                Panel.SetZIndex(container, 2200);
-                canvas.Children.Add(container);
-
-
-                bool isClosing = false;
-
-                void RemoveEditor()
+                UIElement WithRowDivider(UIElement child)
                 {
-                    if (isClosing) return;
-                    isClosing = true;
-                    canvas.Children.Remove(container);
+                    return new Border
+                    {
+                        BorderBrush = dividerBrush,
+                        BorderThickness = new Thickness(0, 0, 0, 1),
+                        Child = child
+                    };
                 }
 
-                void CommitAndRedraw()
+                ControlTemplate flatBtnTemplate = null;
+                ControlTemplate GetFlatBtnTemplate()
                 {
-                    if (isClosing) return;
+                    if (flatBtnTemplate != null) return flatBtnTemplate;
 
+                    var border = new FrameworkElementFactory(typeof(Border));
+                    border.SetValue(Border.SnapsToDevicePixelsProperty, true);
+                    border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Button.BackgroundProperty));
+                    border.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Button.BorderBrushProperty));
+                    border.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(Button.BorderThicknessProperty));
+                    border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Button.PaddingProperty));
+
+                    var cp = new FrameworkElementFactory(typeof(ContentPresenter));
+                    cp.SetValue(ContentPresenter.ContentProperty, new TemplateBindingExtension(Button.ContentProperty));
+                    cp.SetValue(ContentPresenter.HorizontalAlignmentProperty, new TemplateBindingExtension(Button.HorizontalContentAlignmentProperty));
+                    cp.SetValue(ContentPresenter.VerticalAlignmentProperty, new TemplateBindingExtension(Button.VerticalContentAlignmentProperty));
+                    border.AppendChild(cp);
+
+                    flatBtnTemplate = new ControlTemplate(typeof(Button)) { VisualTree = border };
+                    return flatBtnTemplate;
+                }
+
+                Border WrapBox(UIElement child)
+                {
+                    var host = new ContentControl
+                    {
+                        Content = child,
+                        Width = 100,
+                        FontSize = SystemFonts.MessageFontSize,
+                        FontFamily = SystemFonts.MessageFontFamily
+                    };
+
+                    return new Border
+                    {
+                        Background = Brushes.White,
+                        BorderBrush = Brushes.DimGray,
+                        BorderThickness = new Thickness(1.5),
+                        CornerRadius = new CornerRadius(2),
+                        Child = host
+                    };
+                }
+
+                Button CreateRowButton(string label, TextBox editor)
+                {
+                    var row = new DockPanel { LastChildFill = true, Width = 90 };
+
+                    var lbl = new TextBlock
+                    {
+                        Text = label,
+                        FontSize = popupFontSize,
+                        Foreground = Brushes.Black,
+                        HorizontalAlignment = HorizontalAlignment.Left,
+                        VerticalAlignment = VerticalAlignment.Center
+                    };
+                    DockPanel.SetDock(lbl, Dock.Left);
+                    DockPanel.SetDock(editor, Dock.Right);
+
+                    row.Children.Add(lbl);
+                    row.Children.Add(editor);
+
+                    var rowButton = new Button
+                    {
+                        Content = row,
+                        HorizontalContentAlignment = HorizontalAlignment.Left,
+                        VerticalContentAlignment = VerticalAlignment.Center,
+                        Padding = new Thickness(10, 6, 10, 6),
+                        Background = normalBg,
+                        BorderBrush = Brushes.Transparent,
+                        BorderThickness = new Thickness(0),
+                        MinWidth = 150,
+                        OverridesDefaultStyle = true,
+                        Template = GetFlatBtnTemplate(),
+                        Focusable = false,
+                        IsTabStop = false
+                    };
+
+                    rowButton.MouseEnter += (_, __) => rowButton.Background = selectedBg;
+                    rowButton.MouseLeave += (_, __) =>
+                    {
+                        editor.Visibility = System.Windows.Visibility.Collapsed;
+                        rowButton.Background = normalBg;
+                    };
+
+                    return rowButton;
+                }
+
+                Button rowWidth = null;
+                Button rowHeight = null;
+
+                void HideEditors()
+                {
+                    widthBox.Visibility = System.Windows.Visibility.Collapsed;
+                    heightBox.Visibility = System.Windows.Visibility.Collapsed;
+                    if (rowWidth != null) rowWidth.Background = normalBg;
+                    if (rowHeight != null) rowHeight.Background = normalBg;
+                }
+
+                void FocusEditor(TextBox editor)
+                {
+                    editor.Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        editor.Focus();
+                        editor.SelectAll();
+                    }), DispatcherPriority.Input);
+                }
+
+                void BeginPopupEdit(TextBox editor, Button rowButton)
+                {
+                    HideEditors();
+                    editor.Visibility = System.Windows.Visibility.Visible;
+                    rowButton.Background = selectedBg;
+                    FocusEditor(editor);
+                }
+
+                void CloseBeamSizePopup()
+                {
+                    try
+                    {
+                        if (beamSizePopup != null)
+                            beamSizePopup.IsOpen = false;
+                    }
+                    catch { }
+                    beamSizePopup = null;
+                }
+
+                bool TryCommitAndRedraw()
+                {
                     double newW = 0;
                     double newH = 0;
 
                     bool okW = ParseNumber(widthBox.Text, out newW);
                     bool okH = ParseNumber(heightBox.Text, out newH);
-                    bool ok = okW && okH;
+                    if (!okW || !okH)
+                        return false;
 
-                    RemoveEditor();
+                    if (!ApplyBeamDimensions(kai, gSym, newW, newH))
+                        return false;
 
-                    if (ok && ApplyBeamDimensions(kai, gSym, newW, newH))
-                        Redraw(canvas, item);
+                    Redraw(canvas, item);
+                    CloseBeamSizePopup();
+                    return true;
                 }
 
+                rowWidth = CreateRowButton("\u5E45", widthBox);
+                rowHeight = CreateRowButton("\u6210", heightBox);
+
+                rowWidth.Click += (_, clickArgs) =>
+                {
+                    clickArgs.Handled = true;
+                    BeginPopupEdit(widthBox, rowWidth);
+                };
+                rowHeight.Click += (_, clickArgs) =>
+                {
+                    clickArgs.Handled = true;
+                    BeginPopupEdit(heightBox, rowHeight);
+                };
 
                 void HandleKeyDown(object ks, KeyEventArgs ke)
                 {
                     if (ke.Key == Key.Enter)
                     {
-                        CommitAndRedraw();
+                        if (!TryCommitAndRedraw())
+                            FocusEditor((TextBox)ks);
                         ke.Handled = true;
                     }
                     else if (ke.Key == Key.Escape)
                     {
-                        RemoveEditor();
+                        HideEditors();
+                        CloseBeamSizePopup();
                         ke.Handled = true;
                     }
                     else if (ke.Key == Key.Tab)
                     {
-                        // cho Tab qua lại 2 ô
                         if (ReferenceEquals(ks, widthBox))
-                        {
-                            heightBox.Focus();
-                            heightBox.SelectAll();
-                            ke.Handled = true;
-                        }
+                            BeginPopupEdit(heightBox, rowHeight);
                         else if (ReferenceEquals(ks, heightBox))
-                        {
-                            widthBox.Focus();
-                            widthBox.SelectAll();
-                            ke.Handled = true;
-                        }
+                            BeginPopupEdit(widthBox, rowWidth);
+                        ke.Handled = true;
                     }
                 }
 
                 widthBox.KeyDown += HandleKeyDown;
                 heightBox.KeyDown += HandleKeyDown;
 
-                void HandleLostFocus(object ls, RoutedEventArgs le)
+                widthBox.LostKeyboardFocus += (_, __) =>
                 {
-                    if (isClosing) return;
+                    if (widthBox.Visibility == System.Windows.Visibility.Visible)
+                        HideEditors();
+                };
+                heightBox.LostKeyboardFocus += (_, __) =>
+                {
+                    if (heightBox.Visibility == System.Windows.Visibility.Visible)
+                        HideEditors();
+                };
 
-                    // Defer: đợi focus chuyển xong rồi mới quyết định commit
-                    Dispatcher.BeginInvoke(new Action(() =>
-                    {
-                        if (isClosing) return;
-                        if (!container.IsKeyboardFocusWithin)
-                            CommitAndRedraw();
-                    }), DispatcherPriority.Background);
-                }
+                var root = new StackPanel { Orientation = Orientation.Vertical };
+                root.Children.Add(WithRowDivider(rowWidth));
+                root.Children.Add(WithRowDivider(rowHeight));
 
-                widthBox.LostKeyboardFocus += HandleLostFocus;
-                heightBox.LostKeyboardFocus += HandleLostFocus;
+                beamSizePopup = new System.Windows.Controls.Primitives.Popup
+                {
+                    PlacementTarget = tb,
+                    Placement = System.Windows.Controls.Primitives.PlacementMode.Right,
+                    HorizontalOffset = 6,
+                    VerticalOffset = -2,
+                    AllowsTransparency = true,
+                    StaysOpen = false,
+                    Child = WrapBox(root)
+                };
 
-                // vẫn focus width trước như cũ
-                widthBox.Focus();
-                widthBox.SelectAll();
+                tb.Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (beamSizePopup != null)
+                        beamSizePopup.IsOpen = true;
+                }), DispatcherPriority.Input);
 
             };
         }
