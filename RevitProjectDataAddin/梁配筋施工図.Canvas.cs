@@ -61,7 +61,7 @@ namespace RevitProjectDataAddin
         private static (double X, double Y) OffsetLegendColumn { get; set; } = (0, 10000);         // Offset cho ///////////// 5 chổ //////////////
         private static readonly string[] _standardRebarDiameters = { "10", "13", "16", "19", "22", "25", "29", "32", "35", "38" };
         private static readonly string[] _standardRebarDiameters1 = { "10", "13", "16", "19", "22", "25", "29", "32", "35", "38" };
-        private const double UiMarkerDotRadiusMm = 25.0; // kích thước dấu chấm tròn
+        private const double UiMarkerDotRadiusMm = 20.0; // kích thước dấu chấm tròn
 
         // DIM hover/base brushes (class scope to avoid missing-variable compile issues)
         private readonly Brush dimBaseFg = Brushes.Black;
@@ -336,7 +336,7 @@ namespace RevitProjectDataAddin
             var textColor = ColorFromBrush(color ?? Brushes.Black, Colors.Black);
             string fontFamily = this.FontFamily?.Source ?? "Yu Mincho";
             //toàn bộ text dxf
-            SceneFor(owner).Add(new DxfText(text ?? "", wx, wy+25, effectiveHeightMm, hAlign: h, vAlign: v, rotDeg: 0,
+            SceneFor(owner).Add(new DxfText(text ?? "", wx, wy + 25, effectiveHeightMm, hAlign: h, vAlign: v, rotDeg: 0,
                                              layer: layer, style: "STANDARD", fontPx: effectiveFontPx,
                                              fontFamily: fontFamily, color: textColor, hAnchor: ha, vAnchor: va));
             return DrawTextW(c, T, text, wx, wy, effectiveFontPx, color, ha, va);
@@ -1553,6 +1553,7 @@ namespace RevitProjectDataAddin
                         orangeTextOverrides[key] = entry.Value.Trim();
                     }
                 }
+
             }
             _orangeDimTextOverrides[owner] = orangeTextOverrides;
 
@@ -2059,6 +2060,12 @@ namespace RevitProjectDataAddin
             double newX2 = curX2;
             double deltaVal = Math.Abs(delta);
 
+            if (TryGetOrangeSegLengthDeltaLimit(owner, segKey, isLeftMenu, pullLeft, out var maxAllowed)
+                && deltaVal > maxAllowed + 1e-6)
+            {
+                return false;
+            }
+
             if (isLeftMenu)
             {
                 newX1 += pullLeft ? -deltaVal : deltaVal;
@@ -2103,6 +2110,74 @@ namespace RevitProjectDataAddin
             if (changed)
                 RebuildOrangeCutMarkersForRow(owner, segKey.RowIndex, segKey.Y_10 / 10.0);
             return changed;
+        }
+
+        private bool TryGetOrangeSegLengthDeltaLimit(
+            GridBotsecozu owner,
+            OrangeDimTextKey dimKey,
+            bool isLeftMenu,
+            bool pullLeft,
+            out double maxAllowed)
+        {
+            maxAllowed = 0.0;
+            if (owner == null) return false;
+
+            if (!_orangeDimToSegInfo.TryGetValue(owner, out var dict) || dict == null
+                || !dict.TryGetValue(dimKey, out var info))
+            {
+                return false;
+            }
+
+            return TryGetOrangeSegLengthDeltaLimit(owner, info.SegKey, isLeftMenu, pullLeft, out maxAllowed);
+        }
+
+        private bool TryGetOrangeSegLengthDeltaLimit(
+            GridBotsecozu owner,
+            OrangeSegKey segKey,
+            bool isLeftMenu,
+            bool pullLeft,
+            out double maxAllowed)
+        {
+            maxAllowed = 0.0;
+            if (owner == null) return false;
+
+            double baseX1 = segKey.X1_10 / 10.0;
+            double baseX2 = segKey.X2_10 / 10.0;
+            var (curX1, curX2) = GetOrangeSegOverride(owner, segKey, baseX1, baseX2);
+            double curLength = Math.Max(0.0, curX2 - curX1);
+
+            if (isLeftMenu)
+            {
+                if (pullLeft)
+                {
+                    if (!TryGetNeighborSegKey(owner, segKey, findLeft: true, out var leftKey))
+                        return false;
+
+                    double leftBaseX1 = leftKey.X1_10 / 10.0;
+                    double leftBaseX2 = leftKey.X2_10 / 10.0;
+                    var (leftX1, _) = GetOrangeSegOverride(owner, leftKey, leftBaseX1, leftBaseX2);
+                    maxAllowed = Math.Max(0.0, curX1 - leftX1);
+                    return true;
+                }
+
+                maxAllowed = curLength;
+                return true;
+            }
+
+            if (pullLeft)
+            {
+                maxAllowed = curLength;
+                return true;
+            }
+
+            if (!TryGetNeighborSegKey(owner, segKey, findLeft: false, out var rightKey))
+                return false;
+
+            double rightBaseX1 = rightKey.X1_10 / 10.0;
+            double rightBaseX2 = rightKey.X2_10 / 10.0;
+            var (_, rightX2) = GetOrangeSegOverride(owner, rightKey, rightBaseX1, rightBaseX2);
+            maxAllowed = Math.Max(0.0, rightX2 - curX2);
+            return true;
         }
 
 
@@ -2619,7 +2694,7 @@ namespace RevitProjectDataAddin
                     return;
 
                 if (box.ReadLocalValue(Control.BorderBrushProperty) == DependencyProperty.UnsetValue)
-                    box.BorderBrush = Brushes.Gray;
+                    box.BorderBrush = Brushes.Black;
 
                 if (box.ReadLocalValue(Control.BorderThicknessProperty) == DependencyProperty.UnsetValue)
                     box.BorderThickness = new Thickness(1);
@@ -2643,7 +2718,7 @@ namespace RevitProjectDataAddin
                 ApplyDimNumericTextBoxChrome(box);
 
                 Brush initialBackground = box.Background ?? Brushes.White;
-                Brush initialBorderBrush = box.BorderBrush ?? Brushes.Gray;
+                Brush initialBorderBrush = box.BorderBrush ?? Brushes.Black;
                 Thickness initialBorderThickness = box.BorderThickness;
 
                 Brush ResolveValidBackground()
@@ -3413,7 +3488,7 @@ namespace RevitProjectDataAddin
                         AttachDimIntegerValidation(
                             box,
                             () => box.IsReadOnly ? Brushes.Transparent : Brushes.White,
-                            () => box.IsReadOnly ? Brushes.Transparent : Brushes.Gray,
+                            () => box.IsReadOnly ? Brushes.Transparent : Brushes.Black,
                             () => box.IsReadOnly ? new Thickness(0) : new Thickness(1));
                         Grid.SetColumn(box, side == AnkaSide.Left ? 0 : 2);
 
@@ -3447,7 +3522,7 @@ namespace RevitProjectDataAddin
                         {
                             box.IsReadOnly = false;
                             box.BorderThickness = new Thickness(1);
-                            box.BorderBrush = Brushes.Gray;
+                            box.BorderBrush = Brushes.Black;
                             box.Background = Brushes.White;
                         }
 
@@ -3694,6 +3769,8 @@ namespace RevitProjectDataAddin
                             Visibility = System.Windows.Visibility.Collapsed
                         };
                         AttachDimIntegerValidation(box);
+                        Brush normalBorderBrush = box.BorderBrush ?? Brushes.Black;
+                        Thickness normalBorderThickness = box.BorderThickness;
                         DockPanel.SetDock(box, Dock.Right);
 
                         row.Children.Add(lbl);
@@ -3708,6 +3785,59 @@ namespace RevitProjectDataAddin
                                 box.Focus();
                                 box.SelectAll();
                             }), DispatcherPriority.Input);
+                        }
+
+                        Thickness GetInvalidBorderThickness()
+                        {
+                            if (normalBorderThickness.Left <= 0 && normalBorderThickness.Top <= 0
+                                && normalBorderThickness.Right <= 0 && normalBorderThickness.Bottom <= 0)
+                            {
+                                return new Thickness(1);
+                            }
+
+                            return normalBorderThickness;
+                        }
+
+                        void ApplyDeltaLimitValidationVisual()
+                        {
+                            if (!IsDigitOnlyText(box.Text))
+                                return;
+
+                            string now = (box.Text ?? string.Empty).Trim();
+                            if (!TryParseNumber(now, out var val) || val <= 0)
+                            {
+                                box.BorderBrush = normalBorderBrush;
+                                box.BorderThickness = normalBorderThickness;
+                                return;
+                            }
+
+                            bool exceedsLimit = TryGetOrangeSegLengthDeltaLimit(owner, key, isLeftMenu, pullLeft, out var maxAllowed)
+                                                && val > maxAllowed + 1e-6;
+
+                            box.BorderBrush = exceedsLimit ? Brushes.Red : normalBorderBrush;
+                            box.BorderThickness = exceedsLimit ? GetInvalidBorderThickness() : normalBorderThickness;
+                        }
+
+                        void ShowDeltaLimitRejectedState()
+                        {
+                            box.Dispatcher.BeginInvoke(new Action(() =>
+                            {
+                                box.BorderBrush = Brushes.Red;
+                                box.BorderThickness = GetInvalidBorderThickness();
+                            }), DispatcherPriority.Input);
+                        }
+
+                        bool WouldExceedDeltaLimit(string candidateText)
+                        {
+                            if (!IsDigitOnlyText(candidateText, allowEmpty: true))
+                                return false;
+
+                            string now = (candidateText ?? string.Empty).Trim();
+                            if (!TryParseNumber(now, out var val) || val <= 0)
+                                return false;
+
+                            return TryGetOrangeSegLengthDeltaLimit(owner, key, isLeftMenu, pullLeft, out var maxAllowed)
+                                   && val > maxAllowed + 1e-6;
                         }
 
                         void EndEditShowPreview()
@@ -3739,18 +3869,36 @@ namespace RevitProjectDataAddin
                             box.Tag = preview;
                             preview.Visibility = System.Windows.Visibility.Collapsed;
                             box.Visibility = System.Windows.Visibility.Visible;
+                            ApplyDeltaLimitValidationVisual();
                             FocusBox();
                         }
 
                         bool TryCommitOrRefocus(bool closeAllAfterValid)
                         {
                             string now = (box.Text ?? string.Empty).Trim();
-                            if (!TryParseNumber(now, out var val))
+                            if (!TryParseNumber(now, out var val) || val <= 0)
                             {
+                                ApplyDeltaLimitValidationVisual();
                                 FocusBox();
                                 return false;
                             }
+
+                            if (TryGetOrangeSegLengthDeltaLimit(owner, key, isLeftMenu, pullLeft, out var maxAllowed)
+                                && val > maxAllowed + 1e-6)
+                            {
+                                ApplyDeltaLimitValidationVisual();
+                                FocusBox();
+                                return false;
+                            }
+
                             bool changed = ApplyOrangeSegLengthDelta(owner, key, isLeftMenu, pullLeft, val);
+                            if (!changed)
+                            {
+                                ApplyDeltaLimitValidationVisual();
+                                FocusBox();
+                                return false;
+                            }
+
                             if (changed)
                                 Redraw(canvas, owner);
                             EndEditShowPreview();
@@ -3763,10 +3911,7 @@ namespace RevitProjectDataAddin
                             ee.Handled = true;
                             SelectLenDir(rowHost);
 
-                            if (box.Visibility != System.Windows.Visibility.Visible)
-                                BeginEdit();
-                            else
-                                FocusBox();
+                            BeginEdit();
                         };
 
                         rowHost.MouseEnter += (_, __) =>
@@ -3777,6 +3922,40 @@ namespace RevitProjectDataAddin
                             SelectLenDir(rowHost);
                         };
 
+                        box.TextChanged += (_, __) => ApplyDeltaLimitValidationVisual();
+
+                        box.PreviewTextInput += (_, ee) =>
+                        {
+                            if (ee.Handled)
+                                return;
+
+                            string candidate = BuildCandidateText(box, ee.Text);
+                            if (!WouldExceedDeltaLimit(candidate))
+                                return;
+
+                            ShowDeltaLimitRejectedState();
+                            ee.Handled = true;
+                        };
+
+                        DataObject.AddPastingHandler(box, new DataObjectPastingEventHandler((_, ee) =>
+                        {
+                            string pastedText = null;
+
+                            if (ee.SourceDataObject != null)
+                            {
+                                if (ee.SourceDataObject.GetDataPresent(DataFormats.UnicodeText))
+                                    pastedText = ee.SourceDataObject.GetData(DataFormats.UnicodeText) as string;
+                                else if (ee.SourceDataObject.GetDataPresent(DataFormats.Text))
+                                    pastedText = ee.SourceDataObject.GetData(DataFormats.Text) as string;
+                            }
+
+                            string candidate = BuildCandidateText(box, pastedText ?? string.Empty);
+                            if (!WouldExceedDeltaLimit(candidate))
+                                return;
+
+                            ShowDeltaLimitRejectedState();
+                            ee.CancelCommand();
+                        }));
                         rowHost.MouseLeave += (_, __) =>
                         {
                             rowHost.Dispatcher.BeginInvoke(new Action(() =>
@@ -3833,10 +4012,11 @@ namespace RevitProjectDataAddin
 
                         var box = new TextBox
                         {
-                            Width = 60,
-                            MinWidth = 60,
+                            Width = 50,
+                            MinWidth = 50,
                             VerticalContentAlignment = VerticalAlignment.Center,
-                            Visibility = System.Windows.Visibility.Collapsed
+                            TextAlignment = TextAlignment.Left,
+                            Margin = new Thickness(30, 0, 0, 0)
                         };
                         AttachDimIntegerValidation(box);
                         DockPanel.SetDock(box, Dock.Right);
@@ -3844,6 +4024,34 @@ namespace RevitProjectDataAddin
                         row.Children.Add(lbl);
                         row.Children.Add(box);
                         rowHost.Child = row;
+
+                        void RefreshBoxFromCurrent()
+                        {
+                            if (TryGetSegKeyForDimKey(owner, key, out var segKey)
+                                && TryGetSegLength(owner, segKey, out var segLength))
+                            {
+                                box.Text = segLength.ToString(CultureInfo.InvariantCulture);
+                            }
+                            else
+                            {
+                                box.Text = string.Empty;
+                            }
+                        }
+
+                        void SetDisplayMode()
+                        {
+                            box.IsReadOnly = true;
+                            box.BorderThickness = new Thickness(0);
+                            box.Background = Brushes.Transparent;
+                        }
+
+                        void SetEditMode()
+                        {
+                            box.IsReadOnly = false;
+                            box.BorderThickness = new Thickness(1);
+                            box.BorderBrush = Brushes.Black;
+                            box.Background = Brushes.White;
+                        }
 
                         void FocusBox()
                         {
@@ -3854,8 +4062,11 @@ namespace RevitProjectDataAddin
                             }), DispatcherPriority.Input);
                         }
 
-                        void EndEdit()
+                        void CancelEditWithoutCommit()
                         {
+                            RefreshBoxFromCurrent();
+                            SetDisplayMode();
+                            Keyboard.ClearFocus();
                             box.Visibility = System.Windows.Visibility.Collapsed;
                             if (activeLenBox == box) activeLenBox = null;
                             if (activeLenRow == rowHost) activeLenRow = null;
@@ -3864,6 +4075,9 @@ namespace RevitProjectDataAddin
 
                         void BeginEdit()
                         {
+                            CancelActiveLenEdit();
+                            RefreshBoxFromCurrent();
+                            SetEditMode();
                             if (activeLenBox != null && activeLenBox != box)
                                 CancelActiveLenEdit();
 
@@ -3888,33 +4102,41 @@ namespace RevitProjectDataAddin
                         bool TryCommitOrRefocus(bool closeAllAfterValid)
                         {
                             string now = (box.Text ?? string.Empty).Trim();
-                            if (!TryParseNumber(now, out var val))
+                            if (!TryParseNumber(now, out var val) || val <= 0)
                             {
                                 FocusBox();
                                 return false;
                             }
 
+                            bool changed = false;
                             if (owner != null && TryGetSegKeyForDimKey(owner, key, out var segKey))
                             {
                                 double newTotal = Math.Max(0, val);
-                                if (ApplyOrangeSegTotalLength(owner, segKey, anchorLeft: !isLeftMenu, newLength: newTotal))
-                                    Redraw(canvas, owner);
+                                changed = ApplyOrangeSegTotalLength(owner, segKey, anchorLeft: !isLeftMenu, newLength: newTotal);
                             }
 
-                            EndEdit();
+                            if (changed)
+                            {
+                                if (closeAllAfterValid) CloseAll();
+                                Redraw(canvas, owner);
+                                return true;
+                            }
+
+                            RefreshBoxFromCurrent();
+                            SetDisplayMode();
                             if (closeAllAfterValid) CloseAll();
                             return true;
                         }
+
+                        RefreshBoxFromCurrent();
+                        SetDisplayMode();
 
                         rowHost.MouseLeftButtonDown += (ss, ee) =>
                         {
                             ee.Handled = true;
                             SelectLenDir(rowHost);
 
-                            if (box.Visibility != System.Windows.Visibility.Visible)
-                                BeginEdit();
-                            else
-                                FocusBox();
+                            BeginEdit();
                         };
 
                         rowHost.MouseEnter += (_, __) =>
@@ -3923,6 +4145,14 @@ namespace RevitProjectDataAddin
                             SelectLenDir(rowHost);
                         };
 
+                        box.PreviewMouseLeftButtonDown += (ss, ee) =>
+                        {
+                            SelectLenDir(rowHost);
+                            if (box.IsReadOnly)
+                            {
+                                BeginEdit();
+                                ee.Handled = true;
+                            }
                         rowHost.MouseLeave += (_, __) =>
                         {
                             rowHost.Dispatcher.BeginInvoke(new Action(() =>
@@ -3943,15 +4173,15 @@ namespace RevitProjectDataAddin
                             }
                             else if (ee.Key == Key.Escape)
                             {
-                                EndEdit();
+                                CancelEditWithoutCommit();
                                 ee.Handled = true;
                             }
                         };
 
                         box.LostKeyboardFocus += (_, __) =>
                         {
-                            if (box.Visibility == System.Windows.Visibility.Visible)
-                                EndEdit();
+                            if (!box.IsReadOnly)
+                                CancelEditWithoutCommit();
                         };
 
                         return rowHost;
@@ -6011,21 +6241,104 @@ namespace RevitProjectDataAddin
                 }
             }
 
+            void RoundContiguousChainsInPlaceBySpan(
+                List<(double x1, double x2)> segs,
+                double step,
+                IReadOnlyList<double> breakPoints,
+                double eps = 1.0)
+            {
+                if (segs == null || segs.Count == 0) return;
+                if (breakPoints == null || breakPoints.Count == 0)
+                {
+                    RoundContiguousChainsInPlace(segs, step, eps);
+                    return;
+                }
+
+                bool IsSpanBreak(double x)
+                {
+                    for (int bi = 0; bi < breakPoints.Count; bi++)
+                    {
+                        if (Math.Abs(breakPoints[bi] - x) <= eps)
+                            return true;
+                    }
+
+                    return false;
+                }
+
+                int i = 0;
+                while (i < segs.Count)
+                {
+                    int j = i;
+                    while (j + 1 < segs.Count)
+                    {
+                        double joinX = 0.5 * (segs[j].x2 + segs[j + 1].x1);
+                        if (Math.Abs(segs[j].x2 - segs[j + 1].x1) > eps || IsSpanBreak(joinX))
+                            break;
+
+                        j++;
+                    }
+
+                    if (j > i)
+                    {
+                        double totalDelta = 0.0;
+
+                        for (int k2 = i; k2 < j; k2++)
+                        {
+                            var sk = segs[k2];
+                            double len = sk.x2 - sk.x1;
+                            double lenRounded = CeilToBase(len, step);
+                            double delta = Math.Max(0, lenRounded - len);
+                            if (delta <= 0) continue;
+
+                            for (int m = k2; m <= j; m++)
+                            {
+                                var sm = segs[m];
+                                if (m == k2) segs[m] = (sm.x1, sm.x2 + delta);
+                                else segs[m] = (sm.x1 + delta, sm.x2 + delta);
+                            }
+                            totalDelta += delta;
+                        }
+
+                        if (totalDelta > 0)
+                        {
+                            var last = segs[j];
+                            double lastLen = Math.Max(0, last.x2 - last.x1);
+                            double newLastLen = Math.Max(0, lastLen - totalDelta);
+                            segs[j] = (last.x1, last.x1 + newLastLen);
+                        }
+                    }
+
+                    i = j + 1;
+                }
+            }
+
             // =========================
             // Helper vẽ dot sau làm tròn (không dùng ??= để tương thích C# 7.3)
 
 
             void DrawAdjustedHardCutDots(
-                Canvas cvs, WCTransform tr, GridBotsecozu owner,
+                Canvas cvs, WCTransform tr, GridBotsecozu owner, int rowIndex,
                 List<(double x1, double x2)> segs, List<double> rowCuts,
+                double[] spanLeftArrLocal,
+                double[] spanRightArrLocal,
+                int spanCountLocal,
 
                 //double y, double dotR, Brush brush, double offsetX = 0)
 
                 double y, double dotR, Brush brush, double offsetX = 0,
-                Func<double, double> offsetSelector = null)
+                Func<double, double> offsetSelector = null,
+                Func<double, double, double> targetXSelector = null)
 
             {
                 if (segs == null || segs.Count < 2 || rowCuts == null || rowCuts.Count == 0) return;
+
+                int y10 = (int)Math.Round(y * 10.0);
+                if (_orangeSegCutMarkers.TryGetValue(owner, out var syncedMarkers)
+                    && syncedMarkers != null
+                    && syncedMarkers.Any(m => m.RowIndex == rowIndex && m.Y_10 == y10))
+                {
+                    return;
+                }
 
                 if (brush == null) brush = Brushes.Black;
 
@@ -6047,11 +6360,18 @@ namespace RevitProjectDataAddin
                 var used = new bool[borders.Count];
                 foreach (var cut in rowCuts)
                 {
+                    int cutSpanIdx = FindSpanIndexByX(cut, spanLeftArrLocal, spanRightArrLocal, spanCountLocal);
                     int best = -1;
                     double bestD = double.PositiveInfinity;
                     for (int i = 0; i < borders.Count; i++)
                     {
                         if (used[i]) continue;
+                        if (cutSpanIdx >= 0)
+                        {
+                            int borderSpanIdx = FindSpanIndexByX(borders[i], spanLeftArrLocal, spanRightArrLocal, spanCountLocal);
+                            if (borderSpanIdx != cutSpanIdx) continue;
+                        }
+
                         double d = Math.Abs(borders[i] - cut);
                         if (d < bestD)
                         {
@@ -6063,10 +6383,9 @@ namespace RevitProjectDataAddin
                     {
                         used[best] = true;
 
-                        //double xDot = borders[best] + offsetX;
-
-                        double appliedOffset = offsetSelector?.Invoke(borders[best]) ?? offsetX;
-                        double xDot = borders[best] + appliedOffset;
+                        double leftBaseX = segs[best].x1;
+                        double xDot = targetXSelector?.Invoke(cut, leftBaseX)
+                                      ?? (borders[best] + (offsetSelector?.Invoke(borders[best]) ?? offsetX));
 
 
                         DrawDotMm_Rec(cvs, tr, owner, xDot, y, rMm: dotR, layer: "MARK", fill: brush);
@@ -6077,7 +6396,11 @@ namespace RevitProjectDataAddin
             void ApplyTonariShiftToMergedCuts(
                 List<(double x1, double x2)> merged,
                 List<double> rowCuts,
-                Func<double, double> offsetSelector
+                double[] spanLeftArrLocal,
+                double[] spanRightArrLocal,
+                int spanCountLocal,
+                Func<double, double> offsetSelector,
+                Func<double, double, double> targetXSelector = null
 )
             {
                 if (merged == null || merged.Count < 2) return;
@@ -6097,12 +6420,19 @@ namespace RevitProjectDataAddin
 
                 foreach (var cut in rowCuts)
                 {
+                    int cutSpanIdx = FindSpanIndexByX(cut, spanLeftArrLocal, spanRightArrLocal, spanCountLocal);
                     int best = -1;
                     double bestD = double.MaxValue;
 
                     for (int i = 0; i < borders.Count; i++)
                     {
                         if (used[i]) continue;
+                        if (cutSpanIdx >= 0)
+                        {
+                            int borderSpanIdx = FindSpanIndexByX(borders[i], spanLeftArrLocal, spanRightArrLocal, spanCountLocal);
+                            if (borderSpanIdx != cutSpanIdx) continue;
+                        }
+
                         double d = Math.Abs(borders[i] - cut);
                         if (d < bestD)
                         {
@@ -6114,7 +6444,10 @@ namespace RevitProjectDataAddin
                     if (best < 0) continue;
                     used[best] = true;
 
-                    double delta = offsetSelector?.Invoke(borders[best]) ?? 0;
+                    double leftBaseX = merged[best].x1;
+                    double targetX = targetXSelector?.Invoke(cut, leftBaseX)
+                                     ?? (borders[best] + (offsetSelector?.Invoke(borders[best]) ?? 0));
+                    double delta = targetX - borders[best];
                     if (Math.Abs(delta) < 1e-6) continue;
 
                     var L = merged[best];
@@ -6294,12 +6627,12 @@ namespace RevitProjectDataAddin
                     DrawLine_Rec(canvas, T, item, pos[i], y0, pos[i], axisLineEndY, Brushes.Red, AxisStrokeThickness, null, "AXIS");
 
                     // Trục X xám 2 bên
-                    DrawLine_Rec(canvas, T, item, xLeft, y0, xLeft, axisLineEndY, Brushes.DimGray, 1.2, null, "OFFSET");
-                    DrawLine_Rec(canvas, T, item, xRight, y0, xRight, axisLineEndY, Brushes.DimGray, 1.2, null, "OFFSET");
+                    DrawLine_Rec(canvas, T, item, xLeft, y0, xLeft, axisLineEndY, Brushes.Black, 1.2, null, "OFFSET");
+                    DrawLine_Rec(canvas, T, item, xRight, y0, xRight, axisLineEndY, Brushes.Black, 1.2, null, "OFFSET");
 
                     if (pos[i] > xLeft)
                     {
-                        DrawLine_Rec(canvas, T, item, xLeft, yChainMid, pos[i], yChainMid, dimBrush, 1.2, null, "DIM");
+                        DrawLine_Rec(canvas, T, item, xLeft, yChainMid, pos[i], yChainMid, Brushes.Black, 1.2, null, "DIM");
                         DrawDotMm_Rec(canvas, T, item, xLeft, yChainMid, rMm: 30, layer: "DIM", fill: dimBrush);
                         DrawDotMm_Rec(canvas, T, item, pos[i], yChainMid, rMm: 30, layer: "DIM", fill: dimBrush);
                         double cxL = (xLeft + pos[i]) / 2.0;
@@ -6307,7 +6640,7 @@ namespace RevitProjectDataAddin
                     }
                     if (xRight > pos[i])
                     {
-                        DrawLine_Rec(canvas, T, item, pos[i], yChainMid, xRight, yChainMid, dimBrush, 1.2, null, "DIM");
+                        DrawLine_Rec(canvas, T, item, pos[i], yChainMid, xRight, yChainMid, Brushes.Black, 1.2, null, "DIM");
                         DrawDotMm_Rec(canvas, T, item, pos[i], yChainMid, rMm: 30, layer: "DIM", fill: dimBrush);
                         DrawDotMm_Rec(canvas, T, item, xRight, yChainMid, rMm: 30, layer: "DIM", fill: dimBrush);
                         double cxR = (pos[i] + xRight) / 2.0;
@@ -6321,12 +6654,12 @@ namespace RevitProjectDataAddin
                     // Trục Y đỏ
                     DrawLine_Rec(canvas, T, item, pos[i], y0, pos[i], axisLineEndY, Brushes.Red, AxisStrokeThickness, null, "AXIS");
                     // Trục Y xám 2 bên
-                    DrawLine_Rec(canvas, T, item, xLeft, y0, xLeft, axisLineEndY, Brushes.DimGray, 1.2, null, "OFFSET");
-                    DrawLine_Rec(canvas, T, item, xRight, y0, xRight, axisLineEndY, Brushes.DimGray, 1.2, null, "OFFSET");
+                    DrawLine_Rec(canvas, T, item, xLeft, y0, xLeft, axisLineEndY, Brushes.Black, 1.2, null, "OFFSET");
+                    DrawLine_Rec(canvas, T, item, xRight, y0, xRight, axisLineEndY, Brushes.Black, 1.2, null, "OFFSET");
 
                     if (pos[i] > xLeft)
                     {
-                        DrawLine_Rec(canvas, T, item, xLeft, yChainMid, pos[i], yChainMid, dimBrush, 1.2, null, "DIM");
+                        DrawLine_Rec(canvas, T, item, xLeft, yChainMid, pos[i], yChainMid, Brushes.Black, 1.2, null, "DIM");
                         DrawDotMm_Rec(canvas, T, item, xLeft, yChainMid, rMm: 30, layer: "DIM", fill: dimBrush);
                         DrawDotMm_Rec(canvas, T, item, pos[i], yChainMid, rMm: 30, layer: "DIM", fill: dimBrush);
                         double cxL = (xLeft + pos[i]) / 2.0;
@@ -6334,7 +6667,7 @@ namespace RevitProjectDataAddin
                     }
                     if (xRight > pos[i])
                     {
-                        DrawLine_Rec(canvas, T, item, pos[i], yChainMid, xRight, yChainMid, dimBrush, 1.2, null, "DIM");
+                        DrawLine_Rec(canvas, T, item, pos[i], yChainMid, xRight, yChainMid, Brushes.Black, 1.2, null, "DIM");
                         DrawDotMm_Rec(canvas, T, item, pos[i], yChainMid, rMm: 30, layer: "DIM", fill: dimBrush);
                         DrawDotMm_Rec(canvas, T, item, xRight, yChainMid, rMm: 30, layer: "DIM", fill: dimBrush);
                         double cxR = (pos[i] + xRight) / 2.0;
@@ -6355,8 +6688,8 @@ namespace RevitProjectDataAddin
                     double eff = (pos[j + 1] - pos[j]) - (down[j] + up[j + 1]);
                     double cx = (xA + xB) / 2.0;
 
-                    DrawLine_Rec(canvas, T, item, xA, yChainMid, xB, yChainMid, Brushes.DimGray, 1.2, null, "CHAIN");
-                    DrawText_Rec(canvas, T, item, $"{eff:0}", cx, yChainMid, dimFont, Brushes.Gray, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                    DrawLine_Rec(canvas, T, item, xA, yChainMid, xB, yChainMid, Brushes.Black, 1.2, null, "CHAIN");
+                    DrawText_Rec(canvas, T, item, $"{eff:0}", cx, yChainMid, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
 
                     ////////////////1 chổ////////
                     ////腹筋
@@ -6388,7 +6721,7 @@ namespace RevitProjectDataAddin
                     DrawLine_Rec(canvas, T, item,
                          (midSpan - leftHook_R) + offset1.X, yChainMid + 7515 + offset1.Y,
                         (xB + rightHook_R) + offset1.X, yChainMid + 7515 + offset1.Y,
-                        Brushes.Orange, 1.5, null, "CHAIN");
+                        Brushes.Black, 1.5, null, "CHAIN");
                     // Chéo của thanh bên phải
                     DrawLine_Rec(canvas, T, item,
                         (midSpan - leftHook_R) + offset1.X, yChainMid + 7515 + offset1.Y,
@@ -6400,16 +6733,16 @@ namespace RevitProjectDataAddin
                     double xQ1 = xA + 0.25 * Lspan;
                     double xQ3 = xA + 0.75 * Lspan;
 
-                    DrawLine_Rec(canvas, T, item, xA, yChainBot, xQ1, yChainBot, Brushes.DimGray, 1.2, null, "CHAIN");
-                    DrawLine_Rec(canvas, T, item, xQ1, yChainBot, xQ3, yChainBot, Brushes.DimGray, 1.2, null, "CHAIN");
-                    DrawLine_Rec(canvas, T, item, xQ3, yChainBot, xB, yChainBot, Brushes.DimGray, 1.2, null, "CHAIN");
+                    DrawLine_Rec(canvas, T, item, xA, yChainBot, xQ1, yChainBot, Brushes.Black, 1.2, null, "CHAIN");
+                    DrawLine_Rec(canvas, T, item, xQ1, yChainBot, xQ3, yChainBot, Brushes.Black, 1.2, null, "CHAIN");
+                    DrawLine_Rec(canvas, T, item, xQ3, yChainBot, xB, yChainBot, Brushes.Black, 1.2, null, "CHAIN");
 
                     double v14 = eff * 0.25, v12 = eff * 0.50;
-                    DrawText_Rec(canvas, T, item, $"{v14:0}", (xA + xQ1) / 2.0, yChainBot, dimFont, Brushes.Gray, HAnchor.Center, VAnchor.Bottom, 160, "TEXT");
-                    DrawText_Rec(canvas, T, item, $"{v12:0}", (xQ1 + xQ3) / 2.0, yChainBot, dimFont, Brushes.Gray, HAnchor.Center, VAnchor.Bottom, 160, "TEXT");
-                    DrawText_Rec(canvas, T, item, $"{v14:0}", (xQ3 + xB) / 2.0, yChainBot, dimFont, Brushes.Gray, HAnchor.Center, VAnchor.Bottom, 160, "TEXT");
+                    DrawText_Rec(canvas, T, item, $"{v14:0}", (xA + xQ1) / 2.0, yChainBot, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 160, "TEXT");
+                    DrawText_Rec(canvas, T, item, $"{v12:0}", (xQ1 + xQ3) / 2.0, yChainBot, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 160, "TEXT");
+                    DrawText_Rec(canvas, T, item, $"{v14:0}", (xQ3 + xB) / 2.0, yChainBot, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 160, "TEXT");
 
-                    DrawDotMm_Rec(canvas, T, item, xQ1, yChainBot, rMm: 25, layer: "MARK", fill: Brushes.Gray);
+                    DrawDotMm_Rec(canvas, T, item, xQ1, yChainBot, rMm: 25, layer: "MARK", fill: Brushes.Black);
                     DrawDotMm_Rec(canvas, T, item, xQ3, yChainBot, rMm: 25, layer: "MARK");
                 }
             }
@@ -6424,8 +6757,8 @@ namespace RevitProjectDataAddin
                     double eff = (pos[j + 1] - pos[j]) - (right[j] + left[j + 1]);
                     double cx = (xA + xB) / 2.0;
 
-                    DrawLine_Rec(canvas, T, item, xA, yChainMid, xB, yChainMid, Brushes.DimGray, 1.2, null, "CHAIN");
-                    DrawText_Rec(canvas, T, item, $"{eff:0}", cx, yChainMid, dimFont, Brushes.Gray, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                    DrawLine_Rec(canvas, T, item, xA, yChainMid, xB, yChainMid, Brushes.Black, 1.2, null, "CHAIN");
+                    DrawText_Rec(canvas, T, item, $"{eff:0}", cx, yChainMid, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
 
                     ///////////////// 2 chổ /////////////////
                     ////腹筋
@@ -6457,7 +6790,7 @@ namespace RevitProjectDataAddin
                     DrawLine_Rec(canvas, T, item,
                                  midSpanX - leftHook_R + offset2.X, yChainMid + 7515 + offset2.Y,
                                   (xB + rightHook_R) + offset2.X, yChainMid + 7515 + offset2.Y,
-                                Brushes.Orange, 1.5, null, "CHAIN");
+                                Brushes.Black, 1.5, null, "CHAIN");
                     // Chéo của thanh bên phải
                     DrawLine_Rec(canvas, T, item,
                                  midSpanX - leftHook_R + offset2.X, yChainMid + 7515 + offset2.Y,
@@ -6470,16 +6803,16 @@ namespace RevitProjectDataAddin
                     double xQ1 = xA + 0.25 * Lspan;
                     double xQ3 = xA + 0.75 * Lspan;
 
-                    DrawLine_Rec(canvas, T, item, xA, yChainBot, xQ1, yChainBot, Brushes.DimGray, 1.2, null, "CHAIN");
-                    DrawLine_Rec(canvas, T, item, xQ1, yChainBot, xQ3, yChainBot, Brushes.DimGray, 1.2, null, "CHAIN");
-                    DrawLine_Rec(canvas, T, item, xQ3, yChainBot, xB, yChainBot, Brushes.DimGray, 1.2, null, "CHAIN");
+                    DrawLine_Rec(canvas, T, item, xA, yChainBot, xQ1, yChainBot, Brushes.Black, 1.2, null, "CHAIN");
+                    DrawLine_Rec(canvas, T, item, xQ1, yChainBot, xQ3, yChainBot, Brushes.Black, 1.2, null, "CHAIN");
+                    DrawLine_Rec(canvas, T, item, xQ3, yChainBot, xB, yChainBot, Brushes.Black, 1.2, null, "CHAIN");
 
                     double v14 = eff * 0.25, v12 = eff * 0.50;
-                    DrawText_Rec(canvas, T, item, $"{v14:0}", (xA + xQ1) / 2.0, yChainBot, dimFont, Brushes.Gray, HAnchor.Center, VAnchor.Bottom, 160, "TEXT");
-                    DrawText_Rec(canvas, T, item, $"{v12:0}", (xQ1 + xQ3) / 2.0, yChainBot, dimFont, Brushes.Gray, HAnchor.Center, VAnchor.Bottom, 160, "TEXT");
-                    DrawText_Rec(canvas, T, item, $"{v14:0}", (xQ3 + xB) / 2.0, yChainBot, dimFont, Brushes.Gray, HAnchor.Center, VAnchor.Bottom, 160, "TEXT");
+                    DrawText_Rec(canvas, T, item, $"{v14:0}", (xA + xQ1) / 2.0, yChainBot, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 160, "TEXT");
+                    DrawText_Rec(canvas, T, item, $"{v12:0}", (xQ1 + xQ3) / 2.0, yChainBot, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 160, "TEXT");
+                    DrawText_Rec(canvas, T, item, $"{v14:0}", (xQ3 + xB) / 2.0, yChainBot, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 160, "TEXT");
 
-                    DrawDotMm_Rec(canvas, T, item, xQ1, yChainBot, rMm: 25, layer: "MARK", fill: Brushes.Gray);
+                    DrawDotMm_Rec(canvas, T, item, xQ1, yChainBot, rMm: 25, layer: "MARK", fill: Brushes.Black);
                     DrawDotMm_Rec(canvas, T, item, xQ3, yChainBot, rMm: 25, layer: "MARK");
                 }
             }
@@ -6506,20 +6839,6 @@ namespace RevitProjectDataAddin
             // ===== Hằng số khoảng cách hiển thị giá trị dưới nhãn =====
             const double LabelDy = 250.0;
             const double ValueDy = 800.0;
-
-            DrawLine_Rec(canvas, T, item,
-                leftEdge - 1500, yChainBot + 2600,
-                rightEdge + 1500, yChainBot + 2600,
-                Brushes.Aqua, 1.2, null, "CHAIN");
-            DrawText_Rec(canvas, T, item, "上筋", leftEdge - 1300, yChainBot + 2600 + LabelDy, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-            // <<< ニゲ TEXT >>>
-            if (nige1 == true)
-            {
-                DrawText_Rec(canvas, T, item, $"ニゲ {nigeUwa:0}", leftEdge - 1100, yChainBot + 2600 + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                DrawText_Rec(canvas, T, item, $"ニゲ {nigeUwa:0}", rightEdge + 1100, yChainBot + 2600 + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-            }
-
-
             // === 3b) Thu thập dữ liệu span ===
             int spanCount = Math.Max(0, names.Count - 1);
             var qLArr = new double[spanCount];
@@ -6624,11 +6943,11 @@ namespace RevitProjectDataAddin
 
                         var leftText = DrawText_Rec(canvas, T, item, leftDisplayText,
                             hookCenter - 700 + offset3.X, tanbuTextY + offset3.Y,
-                            dimFont, Brushes.Gray, HAnchor.Center, VAnchor.Bottom, 160, "TEXT");
+                            dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 160, "TEXT");
 
                         var rightText = DrawText_Rec(canvas, T, item, rightDisplayText,
                             hookCenter + 1800 + offset3.X, tanbuTextY + offset3.Y,
-                            dimFont, Brushes.Gray, HAnchor.Center, VAnchor.Bottom, 160, "TEXT");
+                            dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 160, "TEXT");
 
                         MakeTanbuFukkinEditable(
                             leftText, canvas, T,
@@ -7821,6 +8140,63 @@ namespace RevitProjectDataAddin
                 return daiOnKoiOff ? tonariOo : tonariKo;
             }
 
+            double GetShitaHardCutAnchorX(int spanIndex)
+            {
+                if (spanIndex < 0 || spanIndex >= spanCount)
+                    return 0.0;
+
+                // Keep the existing sole/tonari spacing between lower-layer cut points,
+                // but shift the whole cluster so it is referenced from the green qR line.
+                return qRArr[spanIndex];
+            }
+
+            double GetUwaHardCutAnchorX(int spanIndex)
+            {
+                if (spanIndex < 0 || spanIndex >= spanCount)
+                    return 0.0;
+
+                // The upper-bar anchor follows the center of the blue box drawn at mid.
+                double boxLeft = midArr[spanIndex] - 500.0;
+                double boxRight = midArr[spanIndex] + 500.0;
+                return 0.5 * (boxLeft + boxRight);
+            }
+
+            var shitaSpanBreaks = new List<double>(Math.Max(0, spanCount - 1));
+            for (int i = 1; i < spanCount; i++)
+                shitaSpanBreaks.Add(spanLeftArr[i]);
+
+            const double visibleLayerGap = 400.0;
+
+            int GetMaxLayerRowCount(int[] end1ArrLocal, int[] midArrLocal, int[] end2ArrLocal)
+            {
+                int maxRows = 0;
+                for (int i = 0; i < spanCount; i++)
+                    maxRows = Math.Max(maxRows, Math.Max(end1ArrLocal[i], Math.Max(midArrLocal[i], end2ArrLocal[i])));
+                return maxRows;
+            }
+
+            TextBlock DrawRebarLayerHeader(double yBase, string label, double nigeValue)
+            {
+                DrawLine_Rec(canvas, T, item,
+                    leftEdge - 1500, yBase,
+                    rightEdge + 1500, yBase,
+                    Brushes.Aqua, 1.2, null, "CHAIN");
+
+                var labelTb = DrawText_Rec(canvas, T, item, label,
+                    leftEdge - 1300, yBase + LabelDy, dimFont, Brushes.Red,
+                    HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+
+                if (nige1 == true)
+                {
+                    DrawText_Rec(canvas, T, item, $"ニゲ {nigeValue:0}", leftEdge - 1100, yBase + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                    DrawText_Rec(canvas, T, item, $"ニゲ {nigeValue:0}", rightEdge + 1100, yBase + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                }
+
+                return labelTb;
+            }
+
+            double nextRebarLayerBaseY = yChainBot + 2600;
+
             double lastYOfUwagane = 0.0;
             {
                 double yStart = yChainBot + 2850 + 200;
@@ -7837,9 +8213,8 @@ namespace RevitProjectDataAddin
 
                 double dotR = 30.0;
 
-                int nRowsGlobal = 0;
-                for (int i = 0; i < spanCount; i++)
-                    nRowsGlobal = Math.Max(nRowsGlobal, Math.Max(nEnd1Arr[i], Math.Max(nMidArr[i], nEnd2Arr[i])));
+                int nRowsGlobal = GetMaxLayerRowCount(nEnd1Arr, nMidArr, nEnd2Arr);
+                bool hasVisibleUwagane = false;
 
                 // Vị trí ANKA biên theo hàng (cố định theo span biên)
                 double leftAnkaX_Global = (spanCount > 0) ? spanLeftArr[0] + Math.Max(0, nigeUwaLocal) : double.NaN;
@@ -7852,7 +8227,6 @@ namespace RevitProjectDataAddin
                     //double tonariOffset = GetTonariDotOffset(kRow);
 
                     double y = yStart + kRow * barSpacing;
-                    if (kRow == nRowsGlobal - 1) lastYOfUwagane = y;
 
                     var rowSegs = new List<(double x1, double x2)>();
                     var rowCuts = new List<double>();
@@ -7908,7 +8282,9 @@ namespace RevitProjectDataAddin
 
                         if (hasTriple)
                         {
-                            double cm = 0.5 * (x1 + x2);
+                            double cm = GetUwaHardCutAnchorX(i);
+                            cm = Math.Max(cm, x1 + minGap);
+                            cm = Math.Min(cm, x2 - minGap);
                             rowSegs.Add((x1, cm));
                             rowSegs.Add((cm, x2));
                             rowCuts.Add(cm);
@@ -7984,25 +8360,35 @@ namespace RevitProjectDataAddin
                     merged.Add(cur);
 
                     // === NEW: Làm tròn theo bội 500 cho các chuỗi liền nhau trước khi vẽ ===
-                    RoundContiguousChainsInPlace(merged, 500.0, 1.0);
+                    RoundContiguousChainsInPlaceBySpan(merged, 500.0, shitaSpanBreaks, 1.0);
 
                     // ① DỊCH BIÊN CẮT THẬT
                     ApplyTonariShiftToMergedCuts(
                         merged,
                         rowCuts,
-                        x => GetTonariDotOffset(kRow, x)
+                        spanLeftArr,
+                        spanRightArr,
+                        spanCount,
+                        x => GetTonariDotOffset(kRow, x),
+                        (cut, leftBaseX) => leftBaseX + CeilToBase(cut - leftBaseX, 500.0) + GetTonariDotOffset(kRow, cut)
                     );
 
                     var visibleSegs = GetVisibleOrangeSegs(item, kRow, y, merged);
+                    if (visibleSegs.Count == 0) continue;
+
+                    hasVisibleUwagane = true;
+                    lastYOfUwagane = y;
 
                     // ② VẼ DOT KHÔNG OFFSET NỮA
                     DrawAdjustedHardCutDots(
-                        canvas, T, item,
+                        canvas, T, item, kRow,
                         visibleSegs.Select(seg => (seg.X1, seg.X2)).ToList(), rowCuts,
+                        spanLeftArr, spanRightArr, spanCount,
                         y, dotR,
                         Brushes.Black,
                         0,
-                        null
+                        null,
+                        (cut, leftBaseX) => leftBaseX + CeilToBase(cut - leftBaseX, 500.0) + GetTonariDotOffset(kRow, cut)
                     );
 
                     foreach (var seg in visibleSegs)
@@ -8017,8 +8403,8 @@ namespace RevitProjectDataAddin
                             rightAnkaX_Global,
                             hasLeftAnka_Global,
                             hasRightAnka_Global,
-                            +ankaUwa,
-                            +ankaUwa,
+                            -ankaUwa,
+                            -ankaUwa,
                             out bool hitLeftBoundary,
                             out bool hitRightBoundary,
                             out double defaultLeftSigned,
@@ -8046,7 +8432,7 @@ namespace RevitProjectDataAddin
                         {
                             if (Math.Abs(leftSigned) > 0.0001)
                             {
-                                DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X1, y - leftSigned, Brushes.Orange, 1.2, null, "MARK");
+                                DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X1, y - leftSigned, Brushes.Black, 1.2, null, "MARK");
                                 if (anka1 == true)
                                 {
                                     DrawText_Rec(canvas, T, item, $"{Math.Abs(leftSigned):0}", seg.X1 - 650, y - leftSigned / 2.0 + 100, dimFont,
@@ -8055,7 +8441,7 @@ namespace RevitProjectDataAddin
                             }
                             if (Math.Abs(rightSigned) > 0.0001)
                             {
-                                DrawLine_Rec(canvas, T, item, seg.X2, y, seg.X2, y - rightSigned, Brushes.Orange, 1.2, null, "MARK");
+                                DrawLine_Rec(canvas, T, item, seg.X2, y, seg.X2, y - rightSigned, Brushes.Black, 1.2, null, "MARK");
                                 if (anka1 == true)
                                 {
                                     DrawText_Rec(canvas, T, item, $"{Math.Abs(rightSigned):0}", seg.X2 + 250, y - rightSigned / 2.0 + 100, dimFont,
@@ -8064,7 +8450,7 @@ namespace RevitProjectDataAddin
                             }
                         }
 
-                        DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X2, y, Brushes.Orange, 1.2, null, "MARK");
+                        DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X2, y, Brushes.Black, 1.2, null, "MARK");
 
                         // TEXT CAM: dùng chiều dài đã làm tròn (hoặc đoạn cuối không làm tròn)
                         DimOrangeSegmentWithAnkaLabels(
@@ -8081,6 +8467,13 @@ namespace RevitProjectDataAddin
                         );
                     }
                 }
+
+                if (hasVisibleUwagane)
+                {
+                    DrawRebarLayerHeader(nextRebarLayerBaseY, "\u4e0a\u7b4b", nigeUwa);
+                    nextRebarLayerBaseY = lastYOfUwagane + visibleLayerGap;
+                }
+
             }
 
             // === 3c) Chuỗi bổ sung do user chèn ===
@@ -8158,19 +8551,7 @@ namespace RevitProjectDataAddin
             }
 
             // Vẽ đường Aqua "上宙1"
-            double gapBelowUwagane = 400.0;
-            double yChu1Base = (lastYOfUwagane > 0 ? lastYOfUwagane + gapBelowUwagane : yChainBot + 2600 + 2000);
-            DrawLine_Rec(canvas, T, item,
-                leftEdge - 1500, yChu1Base,
-                rightEdge + 1500, yChu1Base,
-                Brushes.Aqua, 1.2, null, "CHAIN");
-            DrawText_Rec(canvas, T, item, "上宙1", leftEdge - 1300, yChu1Base + LabelDy, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-            // <<< ニゲ TEXT >>>
-            if (nige1 == true)
-            {
-                DrawText_Rec(canvas, T, item, $"ニゲ {nigeUwaChu1:0}", leftEdge - 1100, yChu1Base + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                DrawText_Rec(canvas, T, item, $"ニゲ {nigeUwaChu1:0}", rightEdge + 1100, yChu1Base + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-            }
+            double yChu1Base = nextRebarLayerBaseY;
             // 上宙1
             double lastYOfChu1 = 0.0;
             {
@@ -8193,16 +8574,14 @@ namespace RevitProjectDataAddin
                 bool hasLeftAnka_Global = (!teiUwaChuNow) && (ankaUwaChu > 0) && (spanCount > 0);
                 bool hasRightAnka_Global = (!teiUwaChuNow) && (ankaUwaChu > 0) && (spanCount > 0);
 
-                int nRowsGlobalChu1 = 0;
-                for (int i = 0; i < spanCount; i++)
-                    nRowsGlobalChu1 = Math.Max(nRowsGlobalChu1, Math.Max(nEnd1Chu1Arr[i], Math.Max(nMidChu1Arr[i], nEnd2Chu1Arr[i])));
+                int nRowsGlobalChu1 = GetMaxLayerRowCount(nEnd1Chu1Arr, nMidChu1Arr, nEnd2Chu1Arr);
+                bool hasVisibleChu1 = false;
 
                 for (int kRow = 0; kRow < nRowsGlobalChu1; kRow++)
                 {
                     //double tonariOffset = GetTonariDotOffset(kRow);
 
                     double y = yStartChu1 + kRow * barSpacing;
-                    if (kRow == nRowsGlobalChu1 - 1) lastYOfChu1 = y;
 
                     var rowSegs = new List<(double x1, double x2)>();
                     var rowCuts = new List<double>();
@@ -8258,7 +8637,9 @@ namespace RevitProjectDataAddin
 
                         if (hasTriple)
                         {
-                            double cm = 0.5 * (x1 + x2);
+                            double cm = GetUwaHardCutAnchorX(i);
+                            cm = Math.Max(cm, x1 + minGap);
+                            cm = Math.Min(cm, x2 - minGap);
                             rowSegs.Add((x1, cm));
                             rowSegs.Add((cm, x2));
                             rowCuts.Add(cm);
@@ -8333,25 +8714,35 @@ namespace RevitProjectDataAddin
                     merged.Add(cur);
 
                     // NEW: Làm tròn bội 500 cho chuỗi liền nhau
-                    RoundContiguousChainsInPlace(merged, 500.0, 1.0);
+                    RoundContiguousChainsInPlaceBySpan(merged, 500.0, shitaSpanBreaks, 1.0);
 
                     // ① DỊCH BIÊN CẮT THẬT
                     ApplyTonariShiftToMergedCuts(
                         merged,
                         rowCuts,
-                        x => GetTonariDotOffset(kRow, x)
+                        spanLeftArr,
+                        spanRightArr,
+                        spanCount,
+                        x => GetTonariDotOffset(kRow, x),
+                        (cut, leftBaseX) => leftBaseX + CeilToBase(cut - leftBaseX, 500.0) + GetTonariDotOffset(kRow, cut)
                     );
 
                     var visibleSegs = GetVisibleOrangeSegs(item, kRow, y, merged);
+                    if (visibleSegs.Count == 0) continue;
+
+                    hasVisibleChu1 = true;
+                    lastYOfChu1 = y;
 
                     // ② VẼ DOT KHÔNG OFFSET NỮA
                     DrawAdjustedHardCutDots(
-                        canvas, T, item,
+                        canvas, T, item, kRow,
                         visibleSegs.Select(seg => (seg.X1, seg.X2)).ToList(), rowCuts,
+                        spanLeftArr, spanRightArr, spanCount,
                         y, dotR,
                         Brushes.Black,
                         0,
-                        null
+                        null,
+                        (cut, leftBaseX) => leftBaseX + CeilToBase(cut - leftBaseX, 500.0) + GetTonariDotOffset(kRow, cut)
                     );
 
                     foreach (var seg in visibleSegs)
@@ -8366,8 +8757,8 @@ namespace RevitProjectDataAddin
                             rightAnkaX_Global,
                             hasLeftAnka_Global,
                             hasRightAnka_Global,
-                            +ankaUwaChu,
-                            +ankaUwaChu,
+                            -ankaUwaChu,
+                            -ankaUwaChu,
                             out bool hitLeftBoundary,
                             out bool hitRightBoundary,
                             out double defaultLeftSigned,
@@ -8395,7 +8786,7 @@ namespace RevitProjectDataAddin
                         {
                             if (Math.Abs(leftSigned) > 0.0001)
                             {
-                                DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X1, y - leftSigned, Brushes.Orange, 1.2, null, "MARK");
+                                DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X1, y - leftSigned, Brushes.Black, 1.2, null, "MARK");
                                 if (anka1 == true)
                                 {
                                     DrawText_Rec(canvas, T, item, $"{Math.Abs(leftSigned):0}", seg.X1 - 650, y - leftSigned / 2.0 + 100, dimFont,
@@ -8404,7 +8795,7 @@ namespace RevitProjectDataAddin
                             }
                             if (Math.Abs(rightSigned) > 0.0001)
                             {
-                                DrawLine_Rec(canvas, T, item, seg.X2, y, seg.X2, y - rightSigned, Brushes.Orange, 1.2, null, "MARK");
+                                DrawLine_Rec(canvas, T, item, seg.X2, y, seg.X2, y - rightSigned, Brushes.Black, 1.2, null, "MARK");
                                 if (anka1 == true)
                                 {
                                     DrawText_Rec(canvas, T, item, $"{Math.Abs(rightSigned):0}", seg.X2 + 250, y - rightSigned / 2.0 + 100, dimFont,
@@ -8413,7 +8804,7 @@ namespace RevitProjectDataAddin
                             }
                         }
 
-                        DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X2, y, Brushes.Orange, 1.2, null, "MARK");
+                        DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X2, y, Brushes.Black, 1.2, null, "MARK");
 
                         // TEXT CAM
                         DimOrangeSegmentWithAnkaLabels(
@@ -8430,6 +8821,12 @@ namespace RevitProjectDataAddin
 
                         );
                     }
+                }
+
+                if (hasVisibleChu1)
+                {
+                    DrawRebarLayerHeader(yChu1Base, "上宙1", nigeUwaChu1);
+                    nextRebarLayerBaseY = lastYOfChu1 + visibleLayerGap;
                 }
             }
 
@@ -8464,19 +8861,7 @@ namespace RevitProjectDataAddin
             }
 
             // Line Aqua + label "上宙2"
-            double gapBelowChu1 = 400.0;
-            double yChu2Base = (lastYOfChu1 > 0 ? lastYOfChu1 + gapBelowChu1 : yChu1Base + 2000);
-            DrawLine_Rec(canvas, T, item,
-                leftEdge - 1500, yChu2Base,
-                rightEdge + 1500, yChu2Base,
-                Brushes.Aqua, 1.2, null, "CHAIN");
-            DrawText_Rec(canvas, T, item, "上宙2", leftEdge - 1300, yChu2Base + LabelDy, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-            // <<< ニゲ TEXT >>>
-            if (nige1 == true)
-            {
-                DrawText_Rec(canvas, T, item, $"ニゲ {nigeUwaChu2:0}", leftEdge - 1100, yChu2Base + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                DrawText_Rec(canvas, T, item, $"ニゲ {nigeUwaChu2:0}", rightEdge + 1100, yChu2Base + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-            }
+            double yChu2Base = nextRebarLayerBaseY;
             // 上宙2 — GIỮ LOGIC giống 上筋/上宙1 (cắt giữa đoạn trung tâm khi hasTriple)
             double lastYOfChu2 = 0.0;
             {
@@ -8499,16 +8884,14 @@ namespace RevitProjectDataAddin
                 bool hasLeftAnka_Global = (!teiUwaChuNow) && (ankaUwaChu > 0) && (spanCount > 0);
                 bool hasRightAnka_Global = (!teiUwaChuNow) && (ankaUwaChu > 0) && (spanCount > 0);
 
-                int nRowsGlobalChu2 = 0;
-                for (int i = 0; i < spanCount; i++)
-                    nRowsGlobalChu2 = Math.Max(nRowsGlobalChu2, Math.Max(nEnd1Chu2Arr[i], Math.Max(nMidChu2Arr[i], nEnd2Chu2Arr[i])));
+                int nRowsGlobalChu2 = GetMaxLayerRowCount(nEnd1Chu2Arr, nMidChu2Arr, nEnd2Chu2Arr);
+                bool hasVisibleChu2 = false;
 
                 for (int kRow = 0; kRow < nRowsGlobalChu2; kRow++)
                 {
                     //double tonariOffset = GetTonariDotOffset(kRow);
 
                     double y = yStartChu2 + kRow * barSpacing;
-                    if (kRow == nRowsGlobalChu2 - 1) lastYOfChu2 = y;
 
                     var rowSegs = new List<(double x1, double x2)>();
                     var rowCuts = new List<double>();
@@ -8564,7 +8947,9 @@ namespace RevitProjectDataAddin
 
                         if (hasTriple)
                         {
-                            double cm = 0.5 * (x1 + x2);
+                            double cm = GetUwaHardCutAnchorX(i);
+                            cm = Math.Max(cm, x1 + minGap);
+                            cm = Math.Min(cm, x2 - minGap);
                             rowSegs.Add((x1, cm));
                             rowSegs.Add((cm, x2));
                             rowCuts.Add(cm);
@@ -8643,25 +9028,35 @@ namespace RevitProjectDataAddin
                     merged.Add(cur);
 
                     // NEW: Làm tròn bội 500
-                    RoundContiguousChainsInPlace(merged, 500.0, 1.0);
+                    RoundContiguousChainsInPlaceBySpan(merged, 500.0, shitaSpanBreaks, 1.0);
 
                     // ① DỊCH BIÊN CẮT THẬT
                     ApplyTonariShiftToMergedCuts(
                         merged,
                         rowCuts,
-                        x => GetTonariDotOffset(kRow, x)
+                        spanLeftArr,
+                        spanRightArr,
+                        spanCount,
+                        x => GetTonariDotOffset(kRow, x),
+                        (cut, leftBaseX) => leftBaseX + CeilToBase(cut - leftBaseX, 500.0) + GetTonariDotOffset(kRow, cut)
                     );
 
                     var visibleSegs = GetVisibleOrangeSegs(item, kRow, y, merged);
+                    if (visibleSegs.Count == 0) continue;
+
+                    hasVisibleChu2 = true;
+                    lastYOfChu2 = y;
 
                     // ② VẼ DOT KHÔNG OFFSET NỮA
                     DrawAdjustedHardCutDots(
-                        canvas, T, item,
+                        canvas, T, item, kRow,
                         visibleSegs.Select(seg => (seg.X1, seg.X2)).ToList(), rowCuts,
+                        spanLeftArr, spanRightArr, spanCount,
                         y, dotR,
                         Brushes.Black,
                         0,
-                        null
+                        null,
+                        (cut, leftBaseX) => leftBaseX + CeilToBase(cut - leftBaseX, 500.0) + GetTonariDotOffset(kRow, cut)
                     );
 
                     foreach (var seg in visibleSegs)
@@ -8676,8 +9071,8 @@ namespace RevitProjectDataAddin
                             rightAnkaX_Global,
                             hasLeftAnka_Global,
                             hasRightAnka_Global,
-                            +ankaUwaChu,
-                            +ankaUwaChu,
+                            -ankaUwaChu,
+                            -ankaUwaChu,
                             out bool hitLeftBoundary,
                             out bool hitRightBoundary,
                             out double defaultLeftSigned,
@@ -8705,7 +9100,7 @@ namespace RevitProjectDataAddin
                         {
                             if (Math.Abs(leftSigned) > 0.0001)
                             {
-                                DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X1, y - leftSigned, Brushes.Orange, 1.2, null, "MARK");
+                                DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X1, y - leftSigned, Brushes.Black, 1.2, null, "MARK");
                                 if (anka1 == true)
                                 {
                                     DrawText_Rec(canvas, T, item, $"{Math.Abs(leftSigned):0}", seg.X1 - 650, y - leftSigned / 2.0 + 100, dimFont,
@@ -8714,7 +9109,7 @@ namespace RevitProjectDataAddin
                             }
                             if (Math.Abs(rightSigned) > 0.0001)
                             {
-                                DrawLine_Rec(canvas, T, item, seg.X2, y, seg.X2, y - rightSigned, Brushes.Orange, 1.2, null, "MARK");
+                                DrawLine_Rec(canvas, T, item, seg.X2, y, seg.X2, y - rightSigned, Brushes.Black, 1.2, null, "MARK");
                                 if (anka1 == true)
                                 {
                                     DrawText_Rec(canvas, T, item, $"{Math.Abs(rightSigned):0}", seg.X2 + 250, y - rightSigned / 2.0 + 100, dimFont,
@@ -8723,7 +9118,7 @@ namespace RevitProjectDataAddin
                             }
                         }
 
-                        DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X2, y, Brushes.Orange, 1.2, null, "MARK");
+                        DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X2, y, Brushes.Black, 1.2, null, "MARK");
 
                         // TEXT CAM
                         DimOrangeSegmentWithAnkaLabels(
@@ -8740,6 +9135,12 @@ namespace RevitProjectDataAddin
 
                         );
                     }
+                }
+
+                if (hasVisibleChu2)
+                {
+                    DrawRebarLayerHeader(yChu2Base, "上宙2", nigeUwaChu2);
+                    nextRebarLayerBaseY = lastYOfChu2 + visibleLayerGap;
                 }
             }
 
@@ -8774,19 +9175,7 @@ namespace RevitProjectDataAddin
             }
 
             // Kẻ line Aqua & nhãn “下宙2”
-            double gapBelowChu2ToShita2 = 400.0;
-            double yShitaChu2Base = (lastYOfChu2 > 0 ? lastYOfChu2 + gapBelowChu2ToShita2 : yChu2Base + 2000);
-            DrawLine_Rec(canvas, T, item,
-                leftEdge - 1500, yShitaChu2Base,
-                rightEdge + 1500, yShitaChu2Base,
-                Brushes.Aqua, 1.2, null, "CHAIN");
-            DrawText_Rec(canvas, T, item, "下宙2", leftEdge - 1300, yShitaChu2Base + LabelDy, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-            // <<< ニゲ TEXT >>>
-            if (nige1 == true)
-            {
-                DrawText_Rec(canvas, T, item, $"ニゲ {nigeShitaChu2:0}", leftEdge - 1100, yShitaChu2Base + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                DrawText_Rec(canvas, T, item, $"ニゲ {nigeShitaChu2:0}", rightEdge + 1100, yShitaChu2Base + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-            }
+            double yShitaChu2Base = nextRebarLayerBaseY;
             // 下宙2 — CẮT Ở GIỮA ĐOẠN E2
             double lastYOfShitaChu2 = 0.0;
             {
@@ -8809,9 +9198,8 @@ namespace RevitProjectDataAddin
                 bool hasLeftAnka_Global = (!teiShitaChuNow) && (ankaShitaChu > 0) && (spanCount > 0);
                 bool hasRightAnka_Global = (!teiShitaChuNow) && (ankaShitaChu > 0) && (spanCount > 0);
 
-                int nRowsGlobalShitaChu2 = 0;
-                for (int i = 0; i < spanCount; i++)
-                    nRowsGlobalShitaChu2 = Math.Max(nRowsGlobalShitaChu2, Math.Max(nEnd1ShitaChu2Arr[i], Math.Max(nMidShitaChu2Arr[i], nEnd2ShitaChu2Arr[i])));
+                int nRowsGlobalShitaChu2 = GetMaxLayerRowCount(nEnd1ShitaChu2Arr, nMidShitaChu2Arr, nEnd2ShitaChu2Arr);
+                bool hasVisibleShitaChu2 = false;
 
                 for (int kRow = 0; kRow < nRowsGlobalShitaChu2; kRow++)
                 {
@@ -8819,7 +9207,6 @@ namespace RevitProjectDataAddin
                     //double tonariOffset = GetTonariDotOffset(kRow);
 
                     double y = yStartShitaChu2 + kRow * barSpacing;
-                    if (kRow == nRowsGlobalShitaChu2 - 1) lastYOfShitaChu2 = y;
 
                     var rowSegs = new List<(double x1, double x2)>();
                     var rowCuts = new List<double>();
@@ -8876,8 +9263,8 @@ namespace RevitProjectDataAddin
 
                         if (hasTriple)
                         {
-                            // cE2 lấy từ qR1, nhưng clamp trong vùng cho phép
-                            double cE2 = qR1Arr[i];
+                            // Anchor cụm cut của lớp dưới theo line xanh qR, rồi giữ nguyên clamp/rule hiện có.
+                            double cE2 = GetShitaHardCutAnchorX(i);
                             cE2 = Math.Max(cE2, midArr[i] + minGap);
                             cE2 = Math.Max(cE2, x1 + minGap);
                             cE2 = Math.Min(cE2, spanRightArr[i] - minGap);
@@ -8960,25 +9347,35 @@ namespace RevitProjectDataAddin
                     merged.Add(cur);
 
                     // NEW: Làm tròn bội 500
-                    RoundContiguousChainsInPlace(merged, 500.0, 1.0);
+                    RoundContiguousChainsInPlaceBySpan(merged, 500.0, shitaSpanBreaks, 1.0);
 
                     // ① DỊCH BIÊN CẮT THẬT
                     ApplyTonariShiftToMergedCuts(
                         merged,
                         rowCuts,
-                        x => GetTonariDotOffset(kRow, x)
+                        spanLeftArr,
+                        spanRightArr,
+                        spanCount,
+                        x => GetTonariDotOffset(kRow, x),
+                        (cut, leftBaseX) => leftBaseX + CeilToBase(cut - leftBaseX, 500.0) + 500.0 + GetTonariDotOffset(kRow, cut)
                     );
 
                     var visibleSegs = GetVisibleOrangeSegs(item, kRow, y, merged);
+                    if (visibleSegs.Count == 0) continue;
+
+                    hasVisibleShitaChu2 = true;
+                    lastYOfShitaChu2 = y;
 
                     // ② VẼ DOT KHÔNG OFFSET NỮA
                     DrawAdjustedHardCutDots(
-                        canvas, T, item,
+                        canvas, T, item, kRow,
                         visibleSegs.Select(seg => (seg.X1, seg.X2)).ToList(), rowCuts,
+                        spanLeftArr, spanRightArr, spanCount,
                         y, dotR,
                         Brushes.Black,
                         0,
-                        null
+                        null,
+                        (cut, leftBaseX) => leftBaseX + CeilToBase(cut - leftBaseX, 500.0) + 500.0 + GetTonariDotOffset(kRow, cut)
                     );
 
                     foreach (var seg in visibleSegs)
@@ -8993,8 +9390,8 @@ namespace RevitProjectDataAddin
                             rightAnkaX_Global,
                             hasLeftAnka_Global,
                             hasRightAnka_Global,
-                            -ankaShitaChu,
-                            -ankaShitaChu,
+                            +ankaShitaChu,
+                            +ankaShitaChu,
                             out bool hitLeftBoundary,
                             out bool hitRightBoundary,
                             out double defaultLeftSigned,
@@ -9022,7 +9419,7 @@ namespace RevitProjectDataAddin
                         {
                             if (Math.Abs(leftSigned) > 0.0001)
                             {
-                                DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X1, y - leftSigned, Brushes.Orange, 1.2, null, "MARK");
+                                DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X1, y - leftSigned, Brushes.Black, 1.2, null, "MARK");
                                 if (anka1 == true)
                                 {
                                     DrawText_Rec(canvas, T, item, $"{Math.Abs(leftSigned):0}", seg.X1 - 650, y - leftSigned / 2.0 + 100, dimFont,
@@ -9031,7 +9428,7 @@ namespace RevitProjectDataAddin
                             }
                             if (Math.Abs(rightSigned) > 0.0001)
                             {
-                                DrawLine_Rec(canvas, T, item, seg.X2, y, seg.X2, y - rightSigned, Brushes.Orange, 1.2, null, "MARK");
+                                DrawLine_Rec(canvas, T, item, seg.X2, y, seg.X2, y - rightSigned, Brushes.Black, 1.2, null, "MARK");
                                 if (anka1 == true)
                                 {
                                     DrawText_Rec(canvas, T, item, $"{Math.Abs(rightSigned):0}", seg.X2 + 250, y - rightSigned / 2.0 + 100, dimFont,
@@ -9040,7 +9437,7 @@ namespace RevitProjectDataAddin
                             }
                         }
 
-                        DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X2, y, Brushes.Orange, 1.2, null, "MARK");
+                        DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X2, y, Brushes.Black, 1.2, null, "MARK");
 
                         // TEXT CAM (nhóm dưới): dùng cùng khoảng cách chuẩn như nhóm trên
                         DimOrangeSegmentWithAnkaLabels(
@@ -9057,6 +9454,12 @@ namespace RevitProjectDataAddin
 
                         );
                     }
+                }
+
+                if (hasVisibleShitaChu2)
+                {
+                    DrawRebarLayerHeader(yShitaChu2Base, "\u4e0b\u5b99\u0032", nigeShitaChu2);
+                    nextRebarLayerBaseY = lastYOfShitaChu2 + visibleLayerGap;
                 }
             }
 
@@ -9091,19 +9494,7 @@ namespace RevitProjectDataAddin
             }
 
             // Kẻ line Aqua & nhãn “下宙1”
-            double gapBelowShitaChu2ToShita1 = 400.0;
-            double yShitaChu1Base = (lastYOfShitaChu2 > 0 ? lastYOfShitaChu2 + gapBelowShitaChu2ToShita1 : yShitaChu2Base + 2000);
-            DrawLine_Rec(canvas, T, item,
-                leftEdge - 1500, yShitaChu1Base,
-                rightEdge + 1500, yShitaChu1Base,
-                Brushes.Aqua, 1.2, null, "CHAIN");
-            DrawText_Rec(canvas, T, item, "下宙1", leftEdge - 1300, yShitaChu1Base + LabelDy, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-            // <<< ニゲ TEXT >>>
-            if (nige1 == true)
-            {
-                DrawText_Rec(canvas, T, item, $"ニゲ {nigeShitaChu1:0}", leftEdge - 1100, yShitaChu1Base + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                DrawText_Rec(canvas, T, item, $"ニゲ {nigeShitaChu1:0}", rightEdge + 1100, yShitaChu1Base + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-            }
+            double yShitaChu1Base = nextRebarLayerBaseY;
             double lastYOfShitaChu1 = 0.0;
 
             // 下宙1 — CẮT Ở GIỮA ĐOẠN E2
@@ -9127,9 +9518,8 @@ namespace RevitProjectDataAddin
                 bool hasLeftAnka_Global = (!teiShitaChuNow) && (ankaShitaChu > 0) && (spanCount > 0);
                 bool hasRightAnka_Global = (!teiShitaChuNow) && (ankaShitaChu > 0) && (spanCount > 0);
 
-                int nRowsGlobalShitaChu1 = 0;
-                for (int i = 0; i < spanCount; i++)
-                    nRowsGlobalShitaChu1 = Math.Max(nRowsGlobalShitaChu1, Math.Max(nEnd1ShitaChu1Arr[i], Math.Max(nMidShitaChu1Arr[i], nEnd2ShitaChu1Arr[i])));
+                int nRowsGlobalShitaChu1 = GetMaxLayerRowCount(nEnd1ShitaChu1Arr, nMidShitaChu1Arr, nEnd2ShitaChu1Arr);
+                bool hasVisibleShitaChu1 = false;
 
                 for (int kRow = 0; kRow < nRowsGlobalShitaChu1; kRow++)
                 {
@@ -9137,8 +9527,6 @@ namespace RevitProjectDataAddin
 
                     double y = yStartShitaChu1 + kRow * barSpacing;
                     // ⭐ Thêm dòng này — giống hệt 下宙2
-                    if (kRow == nRowsGlobalShitaChu1 - 1)
-                        lastYOfShitaChu1 = y;
 
                     var rowSegs = new List<(double x1, double x2)>();
                     var rowCuts = new List<double>();
@@ -9194,7 +9582,7 @@ namespace RevitProjectDataAddin
 
                         if (hasTriple)
                         {
-                            double cE2 = qR1Arr[i];
+                            double cE2 = GetShitaHardCutAnchorX(i);
                             cE2 = Math.Max(cE2, midArr[i] + minGap);
                             cE2 = Math.Max(cE2, x1 + minGap);
                             cE2 = Math.Min(cE2, spanRightArr[i] - minGap);
@@ -9276,25 +9664,35 @@ namespace RevitProjectDataAddin
                     merged.Add(cur);
 
                     // NEW: Làm tròn bội 500
-                    RoundContiguousChainsInPlace(merged, 500.0, 1.0);
+                    RoundContiguousChainsInPlaceBySpan(merged, 500.0, shitaSpanBreaks, 1.0);
 
                     // ① DỊCH BIÊN CẮT THẬT
                     ApplyTonariShiftToMergedCuts(
                         merged,
                         rowCuts,
-                        x => GetTonariDotOffset(kRow, x)
+                        spanLeftArr,
+                        spanRightArr,
+                        spanCount,
+                        x => GetTonariDotOffset(kRow, x),
+                        (cut, leftBaseX) => leftBaseX + CeilToBase(cut - leftBaseX, 500.0) + 500.0 + GetTonariDotOffset(kRow, cut)
                     );
 
                     var visibleSegs = GetVisibleOrangeSegs(item, kRow, y, merged);
+                    if (visibleSegs.Count == 0) continue;
+
+                    hasVisibleShitaChu1 = true;
+                    lastYOfShitaChu1 = y;
 
                     // ② VẼ DOT KHÔNG OFFSET NỮA
                     DrawAdjustedHardCutDots(
-                        canvas, T, item,
+                        canvas, T, item, kRow,
                         visibleSegs.Select(seg => (seg.X1, seg.X2)).ToList(), rowCuts,
+                        spanLeftArr, spanRightArr, spanCount,
                         y, dotR,
                         Brushes.Black,
                         0,
-                        null
+                        null,
+                        (cut, leftBaseX) => leftBaseX + CeilToBase(cut - leftBaseX, 500.0) + 500.0 + GetTonariDotOffset(kRow, cut)
                     );
 
                     foreach (var seg in visibleSegs)
@@ -9309,8 +9707,8 @@ namespace RevitProjectDataAddin
                             rightAnkaX_Global,
                             hasLeftAnka_Global,
                             hasRightAnka_Global,
-                            -ankaShitaChu,
-                            -ankaShitaChu,
+                            +ankaShitaChu,
+                            +ankaShitaChu,
                             out bool hitLeftBoundary,
                             out bool hitRightBoundary,
                             out double defaultLeftSigned,
@@ -9338,7 +9736,7 @@ namespace RevitProjectDataAddin
                         {
                             if (Math.Abs(leftSigned) > 0.0001)
                             {
-                                DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X1, y - leftSigned, Brushes.Orange, 1.2, null, "MARK");
+                                DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X1, y - leftSigned, Brushes.Black, 1.2, null, "MARK");
                                 if (anka1 == true)
                                 {
                                     DrawText_Rec(canvas, T, item, $"{Math.Abs(leftSigned):0}", seg.X1 - 650, y - leftSigned / 2.0 + 100, dimFont,
@@ -9347,7 +9745,7 @@ namespace RevitProjectDataAddin
                             }
                             if (Math.Abs(rightSigned) > 0.0001)
                             {
-                                DrawLine_Rec(canvas, T, item, seg.X2, y, seg.X2, y - rightSigned, Brushes.Orange, 1.2, null, "MARK");
+                                DrawLine_Rec(canvas, T, item, seg.X2, y, seg.X2, y - rightSigned, Brushes.Black, 1.2, null, "MARK");
                                 if (anka1 == true)
                                 {
                                     DrawText_Rec(canvas, T, item, $"{Math.Abs(rightSigned):0}", seg.X2 + 250, y - rightSigned / 2.0 + 100, dimFont,
@@ -9356,7 +9754,7 @@ namespace RevitProjectDataAddin
                             }
                         }
 
-                        DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X2, y, Brushes.Orange, 1.2, null, "MARK");
+                        DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X2, y, Brushes.Black, 1.2, null, "MARK");
 
                         // TEXT CAM (nhóm dưới)
                         DimOrangeSegmentWithAnkaLabels(
@@ -9373,6 +9771,12 @@ namespace RevitProjectDataAddin
 
                         );
                     }
+                }
+
+                if (hasVisibleShitaChu1)
+                {
+                    DrawRebarLayerHeader(yShitaChu1Base, "\u4e0b\u5b99\u0031", nigeShitaChu1);
+                    nextRebarLayerBaseY = lastYOfShitaChu1 + visibleLayerGap;
                 }
             }
 
@@ -9411,15 +9815,9 @@ namespace RevitProjectDataAddin
                 }
 
                 // Baseline & nhãn "下筋" – đặt ngay dưới 下宙1
-                //double yShitaganeBase = (yShitaChu1Base + 2000);
-                double gapBelowShitaChu1ToShita = 400.0;  // bạn có thể giữ 400 như Chu1 → Shita2
-                double yShitaganeBase =
-                    (lastYOfShitaChu1 > 0
-                        ? lastYOfShitaChu1 + gapBelowShitaChu1ToShita
-                        : yShitaChu1Base + 2000);
+                double yShitaganeBase = nextRebarLayerBaseY;
 
-
-                DrawLine_Rec(canvas, T, item,
+                var shitaHeaderLine = DrawLine_Rec(canvas, T, item,
                     leftEdge - 1500, yShitaganeBase,
                     rightEdge + 1500, yShitaganeBase,
                     Brushes.Aqua, 1.2, null, "CHAIN");
@@ -9427,15 +9825,18 @@ namespace RevitProjectDataAddin
 
                 var shitaLabel = DrawText_Rec(canvas, T, item, "下筋", leftEdge - 1300, yShitaganeBase + LabelDy, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
                 // <<< ニゲ TEXT >>>
+                TextBlock shitaNigeLeft = null;
+                TextBlock shitaNigeRight = null;
                 if (nige1 == true)
                 {
-                    DrawText_Rec(canvas, T, item, $"ニゲ {nigeShita:0}", leftEdge - 1100, yShitaganeBase + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    DrawText_Rec(canvas, T, item, $"ニゲ {nigeShita:0}", rightEdge + 1100, yShitaganeBase + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                    shitaNigeLeft = DrawText_Rec(canvas, T, item, $"ニゲ {nigeShita:0}", leftEdge - 1100, yShitaganeBase + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                    shitaNigeRight = DrawText_Rec(canvas, T, item, $"ニゲ {nigeShita:0}", rightEdge + 1100, yShitaganeBase + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
                 }
                 var shitaAnkaYs = ShitaganeAnkaYsFor(item);
                 shitaAnkaYs.Clear();
                 var shitaOrangeYs = ShitaganeOrangeYsFor(item);
                 shitaOrangeYs.Clear();
+                bool hasVisibleShita = false;
                 if (shitaLabel != null)
                 {
                     shitaLabel.Cursor = Cursors.Hand;
@@ -9508,9 +9909,7 @@ namespace RevitProjectDataAddin
                     bool hasLeftAnka_Global = (!teiShitaNow) && (ankaShita > 0) && (spanCount > 0);
                     bool hasRightAnka_Global = (!teiShitaNow) && (ankaShita > 0) && (spanCount > 0);
 
-                    int nRowsGlobalShita = 0;
-                    for (int i = 0; i < spanCount; i++)
-                        nRowsGlobalShita = Math.Max(nRowsGlobalShita, Math.Max(nEnd1ShitaArr[i], Math.Max(nMidShitaArr[i], nEnd2ShitaArr[i])));
+                    int nRowsGlobalShita = GetMaxLayerRowCount(nEnd1ShitaArr, nMidShitaArr, nEnd2ShitaArr);
 
                     for (int kRow = 0; kRow < nRowsGlobalShita; kRow++)
                     {
@@ -9574,7 +9973,7 @@ namespace RevitProjectDataAddin
 
                             if (hasTriple)
                             {
-                                double cE2 = qR1Arr[i];                 // dùng qR1 làm vị trí cắt
+                                double cE2 = GetShitaHardCutAnchorX(i);  // anchor cụm cut theo line xanh qR
                                 cE2 = Math.Max(cE2, midArr[i] + minGap);
                                 cE2 = Math.Max(cE2, x1 + minGap);
                                 cE2 = Math.Min(cE2, spanRightArr[i] - minGap);
@@ -9624,8 +10023,6 @@ namespace RevitProjectDataAddin
                         }
 
                         if (rowSegs.Count == 0) continue;
-                        if (!shitaOrangeYs.Contains(y))
-                            shitaOrangeYs.Add(y);
                         rowSegs.Sort((a, b) => a.x1.CompareTo(b.x1));
 
                         var merged = new List<(double x1, double x2)>();
@@ -9658,25 +10055,38 @@ namespace RevitProjectDataAddin
                         merged.Add(cur);
 
                         // NEW: Làm tròn bội 500
-                        RoundContiguousChainsInPlace(merged, 500.0, 1.0);
+                        RoundContiguousChainsInPlaceBySpan(merged, 500.0, shitaSpanBreaks, 1.0);
 
                         // ① DỊCH BIÊN CẮT THẬT
                         ApplyTonariShiftToMergedCuts(
                             merged,
                             rowCuts,
-                            x => GetTonariDotOffset(kRow, x)
+                            spanLeftArr,
+                            spanRightArr,
+                            spanCount,
+                            x => GetTonariDotOffset(kRow, x),
+                            (cut, leftBaseX) => leftBaseX + CeilToBase(cut - leftBaseX, 500.0) + 500.0 + GetTonariDotOffset(kRow, cut)
                         );
 
                         var visibleSegs = GetVisibleOrangeSegs(item, kRow, y, merged);
+                        if (visibleSegs.Count == 0) continue;
+
+                        hasVisibleShita = true;
+                        lastYOfShitakin1 = y;
+
+                        if (!shitaOrangeYs.Contains(y))
+                            shitaOrangeYs.Add(y);
 
                         // ② VẼ DOT KHÔNG OFFSET NỮA
                         DrawAdjustedHardCutDots(
-                            canvas, T, item,
+                            canvas, T, item, kRow,
                             visibleSegs.Select(seg => (seg.X1, seg.X2)).ToList(), rowCuts,
+                            spanLeftArr, spanRightArr, spanCount,
                             y, dotR,
                             Brushes.Black,
                             0,
-                            null
+                            null,
+                            (cut, leftBaseX) => leftBaseX + CeilToBase(cut - leftBaseX, 500.0) + 500.0 + GetTonariDotOffset(kRow, cut)
                         );
 
                         foreach (var seg in visibleSegs)
@@ -9691,8 +10101,8 @@ namespace RevitProjectDataAddin
                                 rightAnkaX_Global,
                                 hasLeftAnka_Global,
                                 hasRightAnka_Global,
-                                -ankaShita,
-                                -ankaShita,
+                                +ankaShita,
+                                +ankaShita,
                                 out bool hitLeftBoundary,
                                 out bool hitRightBoundary,
                                 out double defaultLeftSigned,
@@ -9720,7 +10130,7 @@ namespace RevitProjectDataAddin
                             {
                                 if (Math.Abs(leftSigned) > 0.0001)
                                 {
-                                    DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X1, y - leftSigned, Brushes.Orange, 1.2, null, "MARK");
+                                    DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X1, y - leftSigned, Brushes.Black, 1.2, null, "MARK");
                                     shitaAnkaYs.Add((y, y - leftSigned));
                                     if (anka1 == true)
                                     {
@@ -9730,7 +10140,7 @@ namespace RevitProjectDataAddin
                                 }
                                 if (Math.Abs(rightSigned) > 0.0001)
                                 {
-                                    DrawLine_Rec(canvas, T, item, seg.X2, y, seg.X2, y - rightSigned, Brushes.Orange, 1.2, null, "MARK");
+                                    DrawLine_Rec(canvas, T, item, seg.X2, y, seg.X2, y - rightSigned, Brushes.Black, 1.2, null, "MARK");
                                     shitaAnkaYs.Add((y, y - rightSigned));
                                     if (anka1 == true)
                                     {
@@ -9740,7 +10150,7 @@ namespace RevitProjectDataAddin
                                 }
                             }
 
-                            DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X2, y, Brushes.Orange, 1.2, null, "MARK");
+                            DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X2, y, Brushes.Black, 1.2, null, "MARK");
 
                             // TEXT CAM (nhóm dưới)
                             DimOrangeSegmentWithAnkaLabels(
@@ -9758,6 +10168,18 @@ namespace RevitProjectDataAddin
                             );
                         }
                     }
+                }
+
+                if (!hasVisibleShita)
+                {
+                    if (shitaHeaderLine != null) shitaHeaderLine.Visibility = System.Windows.Visibility.Collapsed;
+                    if (shitaLabel != null) shitaLabel.Visibility = System.Windows.Visibility.Collapsed;
+                    if (shitaNigeLeft != null) shitaNigeLeft.Visibility = System.Windows.Visibility.Collapsed;
+                    if (shitaNigeRight != null) shitaNigeRight.Visibility = System.Windows.Visibility.Collapsed;
+                }
+                else
+                {
+                    nextRebarLayerBaseY = lastYOfShitakin1 + visibleLayerGap;
                 }
 
                 if (shitaOrangeYs.Count > 0)
@@ -10608,7 +11030,7 @@ namespace RevitProjectDataAddin
                 {
                     Text = "Khung review theo tỷ lệ A4 để dễ đối chiếu khi xuất PDF.",
                     FontSize = 12,
-                    Foreground = Brushes.Gray,
+                    Foreground = Brushes.Black,
                     Margin = new Thickness(0, 8, 0, 0)
                 };
                 previewPanel.Children.Add(note);
@@ -12947,7 +13369,7 @@ namespace RevitProjectDataAddin
                     };
 
                     if (tbx.ReadLocalValue(Control.BorderBrushProperty) == DependencyProperty.UnsetValue)
-                        tbx.BorderBrush = Brushes.Gray;
+                        tbx.BorderBrush = Brushes.Black;
 
                     if (tbx.ReadLocalValue(Control.BorderThicknessProperty) == DependencyProperty.UnsetValue)
                         tbx.BorderThickness = new Thickness(1);
@@ -12958,7 +13380,7 @@ namespace RevitProjectDataAddin
                     tbx.FocusVisualStyle = null;
 
                     Brush initialBackground = tbx.Background ?? Brushes.White;
-                    Brush initialBorderBrush = tbx.BorderBrush ?? Brushes.Gray;
+                    Brush initialBorderBrush = tbx.BorderBrush ?? Brushes.Black;
                     Thickness initialBorderThickness = tbx.BorderThickness;
                     bool hasRejectedLenInput = false;
 
@@ -14184,7 +14606,7 @@ namespace RevitProjectDataAddin
                 Width = w,
                 Height = h,
                 Background = Brushes.White,
-                BorderBrush = Brushes.Gray,
+                BorderBrush = Brushes.Black,
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(0),
                 Padding = new Thickness(6)
@@ -14204,7 +14626,7 @@ namespace RevitProjectDataAddin
             {
                 Text = "中子 " + shape.ToString(CultureInfo.InvariantCulture),
                 FontSize = 11,
-                Foreground = Brushes.Gray
+                Foreground = Brushes.Black
             };
             Canvas.SetLeft(title, 2);
             Canvas.SetTop(title, 2);
@@ -14847,7 +15269,7 @@ namespace RevitProjectDataAddin
                 Width = w,
                 Height = h,
                 Background = Brushes.White,
-                BorderBrush = Brushes.Gray,
+                BorderBrush = Brushes.Black,
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(0),
                 Padding = new Thickness(6)
@@ -14865,7 +15287,7 @@ namespace RevitProjectDataAddin
             {
                 Text = "スタラップ " + shape.ToString(CultureInfo.InvariantCulture),
                 FontSize = 11,
-                Foreground = Brushes.Gray
+                Foreground = Brushes.Black
             };
             Canvas.SetLeft(title, 4);
             Canvas.SetTop(title, 2);
