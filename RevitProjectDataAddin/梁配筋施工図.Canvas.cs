@@ -4073,6 +4073,11 @@ namespace RevitProjectDataAddin
                             if (activeLenHide != null && activeLenBox == null) activeLenHide = null;
                         }
 
+                        void EndEdit()
+                        {
+                            CancelEditWithoutCommit();
+                        }
+
                         void BeginEdit()
                         {
                             CancelActiveLenEdit();
@@ -4153,6 +4158,8 @@ namespace RevitProjectDataAddin
                                 BeginEdit();
                                 ee.Handled = true;
                             }
+                        };
+
                         rowHost.MouseLeave += (_, __) =>
                         {
                             rowHost.Dispatcher.BeginInvoke(new Action(() =>
