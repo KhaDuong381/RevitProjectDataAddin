@@ -6250,6 +6250,7 @@ namespace RevitProjectDataAddin
                             端部1腹筋径,
                             i,
                             false,
+                            eff / 2.0,
                              //() => hookLengthFallback);
                              abdominalLeftFallback,
                             abdominalRightFallback);
@@ -6262,6 +6263,7 @@ namespace RevitProjectDataAddin
                             端部1腹筋径,
                             i,
                             true,
+                            eff / 2.0,
                             //() => hookLengthFallback);
                             abdominalLeftFallback,
                             abdominalRightFallback);
@@ -12004,6 +12006,7 @@ namespace RevitProjectDataAddin
             string diameter,
             int spanIndex,
             bool isRight,
+            double bodyBaseLength,
             double fallbackLeft,
             double fallbackRight)
         {
@@ -12802,7 +12805,7 @@ namespace RevitProjectDataAddin
 
                     double leftLen = GetTanbuHookLength(item, spanIndex, isRightAbdominal, false, fallbackLeft);
                     double rightLen = GetTanbuHookLength(item, spanIndex, isRightAbdominal, true, fallbackRight);
-                    return leftLen + rightLen;
+                    return bodyBaseLength + leftLen + rightLen;
                 }
 
                 bool ApplyTanbuTotalLength(bool anchorLeft, double newTotal)
@@ -12811,16 +12814,16 @@ namespace RevitProjectDataAddin
 
                     double leftLen = GetTanbuHookLength(item, spanIndex, isRightAbdominal, false, fallbackLeft);
                     double rightLen = GetTanbuHookLength(item, spanIndex, isRightAbdominal, true, fallbackRight);
-                    double bodyLen = Math.Max(0.0, GetCurrentTanbuTotalLength() - leftLen - rightLen);
+                    double bodyLen = Math.Max(0.0, bodyBaseLength);
 
                     if (anchorLeft)
                     {
                         double newRight = newTotal - bodyLen - leftLen;
-                        return newRight > 0 && ApplyTanbuHookLength(item, spanIndex, isRightAbdominal, true, newRight);
+                        return ApplyTanbuHookLength(item, spanIndex, isRightAbdominal, true, newRight);
                     }
 
                     double newLeft = newTotal - bodyLen - rightLen;
-                    return newLeft > 0 && ApplyTanbuHookLength(item, spanIndex, isRightAbdominal, false, newLeft);
+                    return ApplyTanbuHookLength(item, spanIndex, isRightAbdominal, false, newLeft);
                 }
 
                 Button MakeLenNavBtn(string sideLabel, bool endIsRight, Action closeAll, Action<Button> selectSub, Func<ControlTemplate> getFlatBtnTemplate)
