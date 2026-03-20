@@ -534,7 +534,7 @@ namespace RevitProjectDataAddin
             double fontScale = T.FontScale > 0 ? T.FontScale : 1.0;
             const double baseDimFont = 10.0;
             double labelFontPx = Math.Max(6.0, baseDimFont - 10 * Math.Max(0, previewAxisCount - 2));
-            double effectiveFontPx = labelFontPx * fontScale;
+            double effectiveFontPx = 12 ;
 
             var p = T.P(cx, cy);
 
@@ -555,12 +555,228 @@ namespace RevitProjectDataAddin
 
             tb.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
             var sz = tb.DesiredSize;
+            System.Windows.Controls.Primitives.Popup spanPopup = null;
 
-            tb.MouseLeftButtonDown += (s, e) =>
+            tb.MouseLeftButtonUp += (s, e) =>
             {
                 e.Handled = true;
 
                 string originalText = tb.Text ?? string.Empty;
+                try
+                {
+                    if (spanPopup != null)
+                    {
+                        spanPopup.IsOpen = false;
+                        spanPopup = null;
+                    }
+                }
+                catch { }
+
+                Brush normalBg = Brushes.Transparent;
+                Brush selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
+                Brush dividerBrush = Brushes.LightGray;
+
+                UIElement WithRowDivider(UIElement child)
+                {
+                    return new Border
+                    {
+                        BorderBrush = dividerBrush,
+                        BorderThickness = new Thickness(0, 0, 0, 1),
+                        Child = child
+                    };
+                }
+
+                ControlTemplate flatBtnTemplate = null;
+                ControlTemplate GetFlatBtnTemplate()
+                {
+                    if (flatBtnTemplate != null) return flatBtnTemplate;
+
+                    var b = new FrameworkElementFactory(typeof(Border));
+                    b.SetValue(Border.SnapsToDevicePixelsProperty, true);
+                    b.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Button.BackgroundProperty));
+                    b.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Button.BorderBrushProperty));
+                    b.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(Button.BorderThicknessProperty));
+                    b.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Button.PaddingProperty));
+
+                    var cp = new FrameworkElementFactory(typeof(ContentPresenter));
+                    cp.SetValue(ContentPresenter.ContentProperty, new TemplateBindingExtension(Button.ContentProperty));
+                    cp.SetValue(ContentPresenter.HorizontalAlignmentProperty, new TemplateBindingExtension(Button.HorizontalContentAlignmentProperty));
+                    cp.SetValue(ContentPresenter.VerticalAlignmentProperty, new TemplateBindingExtension(Button.VerticalContentAlignmentProperty));
+                    b.AppendChild(cp);
+
+                    flatBtnTemplate = new ControlTemplate(typeof(Button)) { VisualTree = b };
+                    return flatBtnTemplate;
+                }
+
+                Border WrapBox(UIElement child)
+                {
+                    var host = new ContentControl
+                    {
+                        Content = child,
+                        Width = 100,
+                        FontSize = SystemFonts.MessageFontSize,
+                        FontFamily = SystemFonts.MessageFontFamily
+                    };
+
+                    return new Border
+                    {
+                        Background = Brushes.White,
+                        BorderBrush = Brushes.DimGray,
+                        BorderThickness = new Thickness(1.5),
+                        CornerRadius = new CornerRadius(2),
+                        Child = host
+                    };
+                }
+
+                var row = new DockPanel { LastChildFill = true, Width = 90 };
+
+                var lbl = new TextBlock
+                {
+                    Text = "長さ",
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                DockPanel.SetDock(lbl, Dock.Left);
+                lbl.Text = "長さ";
+
+                var popupEditor = new TextBox
+                {
+                    Text = originalText,
+                    FontSize = effectiveFontPx,
+                    Width =　60,
+                    MinWidth = 60,
+                    VerticalContentAlignment = VerticalAlignment.Center,
+                    Background = Brushes.White,
+                    Visibility = System.Windows.Visibility.Collapsed
+                };
+                DockPanel.SetDock(popupEditor, Dock.Right);
+
+                row.Children.Add(lbl);
+                row.Children.Add(popupEditor);
+
+                var rowButton = new Button
+                {
+                    Content = row,
+                    HorizontalContentAlignment = HorizontalAlignment.Left,
+                    VerticalContentAlignment = VerticalAlignment.Center,
+                    Padding = new Thickness(10, 6, 10, 6),
+                    Background = normalBg,
+                    BorderBrush = Brushes.Transparent,
+                    BorderThickness = new Thickness(0),
+                    MinWidth = 150,
+                    OverridesDefaultStyle = true,
+                    Template = GetFlatBtnTemplate(),
+                    Focusable = false,
+                    IsTabStop = false
+                };
+                rowButton.MouseEnter += (_, __) => rowButton.Background = selectedBg;
+                rowButton.MouseLeave += (_, __) =>
+                {
+                    if (popupEditor.Visibility != System.Windows.Visibility.Visible)
+                        rowButton.Background = normalBg;
+                };
+
+                var root = new StackPanel { Orientation = Orientation.Vertical };
+                root.Children.Add(WithRowDivider(rowButton));
+
+                spanPopup = new System.Windows.Controls.Primitives.Popup
+                {
+                    PlacementTarget = tb,
+                    Placement = System.Windows.Controls.Primitives.PlacementMode.Right,
+                    HorizontalOffset = 6,
+                    VerticalOffset = -2,
+                    AllowsTransparency = true,
+                    StaysOpen = false,
+                    Child = WrapBox(root)
+                };
+
+                void FocusPopupEditor()
+                {
+                    popupEditor.Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        popupEditor.Focus();
+                        popupEditor.SelectAll();
+                    }), DispatcherPriority.Input);
+                }
+
+                void EndPopupEdit()
+                {
+                    popupEditor.Visibility = System.Windows.Visibility.Collapsed;
+                    rowButton.Background = normalBg;
+                }
+
+                void BeginPopupEdit()
+                {
+                    popupEditor.Text = tb.Text ?? originalText;
+                    popupEditor.Visibility = System.Windows.Visibility.Visible;
+                    rowButton.Background = selectedBg;
+                    FocusPopupEditor();
+                }
+
+                void CloseSpanPopup()
+                {
+                    try
+                    {
+                        if (spanPopup != null)
+                            spanPopup.IsOpen = false;
+                    }
+                    catch { }
+                    spanPopup = null;
+                }
+
+                void CommitPopupAndRedraw()
+                {
+                    if (double.TryParse(popupEditor.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var mm)
+                     || double.TryParse(popupEditor.Text, out mm))
+                    {
+                        if (mm > 0 && UpdateSpanValue(spanIndex, mm, tsuIsX, tsuIsY))
+                        {
+                            ClearTanbuHookOverridesForSpan(spanIndex);
+                            Redraw(canvas, item);
+                            CloseSpanPopup();
+                            return;
+                        }
+                    }
+
+                    EndPopupEdit();
+                }
+
+                rowButton.Click += (_, clickArgs) =>
+                {
+                    clickArgs.Handled = true;
+                    if (popupEditor.Visibility != System.Windows.Visibility.Visible)
+                        BeginPopupEdit();
+                    else
+                        FocusPopupEditor();
+                };
+
+                popupEditor.KeyDown += (_, ke) =>
+                {
+                    if (ke.Key == Key.Enter)
+                    {
+                        CommitPopupAndRedraw();
+                        ke.Handled = true;
+                    }
+                    else if (ke.Key == Key.Escape)
+                    {
+                        EndPopupEdit();
+                        CloseSpanPopup();
+                        ke.Handled = true;
+                    }
+                };
+
+                popupEditor.LostKeyboardFocus += (_, __) =>
+                {
+                    if (popupEditor.Visibility == System.Windows.Visibility.Visible)
+                        EndPopupEdit();
+                };
+
+                tb.Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (spanPopup != null)
+                        spanPopup.IsOpen = true;
+                }), DispatcherPriority.Input);
+                return;
 
                 var editor = new TextBox
                 {
@@ -12857,14 +13073,7 @@ namespace RevitProjectDataAddin
                                 Text = "全部",
                                 VerticalAlignment = VerticalAlignment.Center
                             };
-                            DockPanel.SetDock(lbl, Dock.Left);
-
-                            //var preview = new TextBlock
-                            //{
-                            //    Text = "❯",
-                            //    VerticalAlignment = VerticalAlignment.Center
-                            //};
-                            //DockPanel.SetDock(preview, Dock.Right);
+                            DockPanel.SetDock(lbl, Dock.Left);                                                     
 
                             var totalBox = new TextBox
                             {
