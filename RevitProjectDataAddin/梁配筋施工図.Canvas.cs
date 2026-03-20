@@ -3654,14 +3654,13 @@ namespace RevitProjectDataAddin
                     var root = new StackPanel { Orientation = Orientation.Vertical };
 
                     TextBox activeLenBox = null;
+                    Border activeLenRow = null;
+                    Action activeLenHide = null;
 
                     void CancelActiveLenEdit()
                     {
                         if (activeLenBox == null) return;
-                        if (activeLenBox.Tag is FrameworkElement prev)
-                            prev.Visibility = System.Windows.Visibility.Visible;
-                        activeLenBox.Visibility = System.Windows.Visibility.Collapsed;
-                        activeLenBox = null;
+                        activeLenHide?.Invoke();
                     }
 
                     Border MakeLenDirRow(string label, bool pullLeft)
@@ -3720,6 +3719,8 @@ namespace RevitProjectDataAddin
                                 preview.Visibility = System.Windows.Visibility.Visible;
 
                             if (activeLenBox == box) activeLenBox = null;
+                            if (activeLenRow == rowHost) activeLenRow = null;
+                            if (activeLenHide != null && activeLenBox == null) activeLenHide = null;
                         }
 
                         void BeginEdit()
@@ -3731,6 +3732,8 @@ namespace RevitProjectDataAddin
                                 activeLenBox.Visibility = System.Windows.Visibility.Collapsed;
                             }
                             activeLenBox = box;
+                            activeLenRow = rowHost;
+                            activeLenHide = EndEditShowPreview;
 
                             box.Text = (box.Text ?? string.Empty).Trim();
                             box.Tag = preview;
@@ -3772,6 +3775,16 @@ namespace RevitProjectDataAddin
                             if (activeLenBox != box)
                                 CancelActiveLenEdit();
                             SelectLenDir(rowHost);
+                        };
+
+                        rowHost.MouseLeave += (_, __) =>
+                        {
+                            rowHost.Dispatcher.BeginInvoke(new Action(() =>
+                            {
+                                if (rowHost.IsMouseOver) return;
+                                EndEditShowPreview();
+                                SelectLenDir(null);
+                            }), DispatcherPriority.Background);
                         };
 
                         box.KeyDown += (ss, ee) =>
@@ -3845,6 +3858,8 @@ namespace RevitProjectDataAddin
                         {
                             box.Visibility = System.Windows.Visibility.Collapsed;
                             if (activeLenBox == box) activeLenBox = null;
+                            if (activeLenRow == rowHost) activeLenRow = null;
+                            if (activeLenHide != null && activeLenBox == null) activeLenHide = null;
                         }
 
                         void BeginEdit()
@@ -3853,6 +3868,8 @@ namespace RevitProjectDataAddin
                                 CancelActiveLenEdit();
 
                             activeLenBox = box;
+                            activeLenRow = rowHost;
+                            activeLenHide = EndEdit;
 
                             if (TryGetSegKeyForDimKey(owner, key, out var segKey)
                                 && TryGetSegLength(owner, segKey, out var segLength))
@@ -3906,6 +3923,16 @@ namespace RevitProjectDataAddin
                             SelectLenDir(rowHost);
                         };
 
+                        rowHost.MouseLeave += (_, __) =>
+                        {
+                            rowHost.Dispatcher.BeginInvoke(new Action(() =>
+                            {
+                                if (rowHost.IsMouseOver) return;
+                                EndEdit();
+                                SelectLenDir(null);
+                            }), DispatcherPriority.Background);
+                        };
+
                         box.KeyDown += (ss, ee) =>
                         {
                             if (ee.Key == Key.Enter)
@@ -3929,6 +3956,14 @@ namespace RevitProjectDataAddin
 
                         return rowHost;
                     }
+
+                    root.MouseMove += (_, __) =>
+                    {
+                        if (activeLenRow == null) return;
+                        if (activeLenRow.IsMouseOver) return;
+                        activeLenHide?.Invoke();
+                        SelectLenDir(null);
+                    };
 
                     var rowPullLeft = MakeLenDirRow("左へ引く", pullLeft: true);
                     var rowPullRight = MakeLenDirRow("右へ引く", pullLeft: false);
