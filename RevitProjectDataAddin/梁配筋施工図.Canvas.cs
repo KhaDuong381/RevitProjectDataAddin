@@ -5888,7 +5888,17 @@ namespace RevitProjectDataAddin
                     if (!widthBox.IsReadOnly)
                         HideEditors();
                 };
+                widthBox.MouseLeave += (_, __) =>
+                {
+                    if (!widthBox.IsReadOnly)
+                        HideEditors();
+                };
                 heightBox.LostKeyboardFocus += (_, __) =>
+                {
+                    if (!heightBox.IsReadOnly)
+                        HideEditors();
+                };
+                heightBox.MouseLeave += (_, __) =>
                 {
                     if (!heightBox.IsReadOnly)
                         HideEditors();
