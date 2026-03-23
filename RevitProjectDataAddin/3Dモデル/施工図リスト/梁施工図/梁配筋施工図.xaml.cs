@@ -16,6 +16,7 @@ namespace RevitProjectDataAddin
         private readonly ProjectData _projectData;
         private 梁施工図 _currentSecoList;
         public TrackedObject<梁施工図> _trackedSecoList;
+        private TrackedObject<KihonData> _trackedKihonData;
         private KesanData _kesan;
         private Z梁の配置 _z梁の配置;
 
@@ -34,6 +35,7 @@ namespace RevitProjectDataAddin
             DataContext = _currentSecoList;
             Load();
             _trackedSecoList = new TrackedObject<梁施工図>(_currentSecoList);
+            _trackedKihonData = new TrackedObject<KihonData>(_projectData.Kihon);
 
             this.Closing += Close;
         }
@@ -145,7 +147,10 @@ namespace RevitProjectDataAddin
 
         private void Close(object sender, System.ComponentModel.CancelEventArgs e)
         {
-            if (_trackedSecoList.HasChanged())
+            bool hasSecoChanges = _trackedSecoList?.HasChanged() == true;
+            bool hasKihonChanges = _trackedKihonData?.HasChanged() == true;
+
+            if (hasSecoChanges || hasKihonChanges)
             {
                 var result = MessageBox.Show(
                     "データが変更されています。保存しますか？",
@@ -164,7 +169,8 @@ namespace RevitProjectDataAddin
                 }
                 else if (result == MessageBoxResult.No)
                 {
-                    _trackedSecoList.RestoreOriginal();
+                    _trackedSecoList?.RestoreOriginal();
+                    _trackedKihonData?.RestoreOriginal();
                 }
             }
         }
