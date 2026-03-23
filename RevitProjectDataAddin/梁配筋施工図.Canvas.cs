@@ -534,7 +534,7 @@ namespace RevitProjectDataAddin
             double fontScale = T.FontScale > 0 ? T.FontScale : 1.0;
             const double baseDimFont = 10.0;
             double labelFontPx = Math.Max(6.0, baseDimFont - 10 * Math.Max(0, previewAxisCount - 2));
-            double effectiveFontPx = 12 ;
+            double effectiveFontPx = 12;
 
             var p = T.P(cx, cy);
 
@@ -643,11 +643,11 @@ namespace RevitProjectDataAddin
                 {
                     Text = originalText,
                     FontSize = effectiveFontPx,
-                    Width =　60,
+                    Width = 60,
                     MinWidth = 60,
                     VerticalContentAlignment = VerticalAlignment.Center,
-                    Background = Brushes.White,
-                    Visibility = System.Windows.Visibility.Collapsed
+                    Background = Brushes.Transparent,
+                    Visibility = System.Windows.Visibility.Visible
                 };
                 DockPanel.SetDock(popupEditor, Dock.Right);
 
@@ -672,7 +672,7 @@ namespace RevitProjectDataAddin
                 rowButton.MouseEnter += (_, __) => rowButton.Background = selectedBg;
                 rowButton.MouseLeave += (_, __) =>
                 {
-                    if (popupEditor.Visibility != System.Windows.Visibility.Visible)
+                    if (!popupEditor.IsKeyboardFocusWithin)
                         rowButton.Background = normalBg;
                 };
 
@@ -699,18 +699,40 @@ namespace RevitProjectDataAddin
                     }), DispatcherPriority.Input);
                 }
 
-                void EndPopupEdit()
+                void SyncPopupEditorFromCurrent()
                 {
-                    popupEditor.Visibility = System.Windows.Visibility.Collapsed;
-                    rowButton.Background = normalBg;
+                    popupEditor.Text = tb.Text ?? originalText;
+                }
+
+                void SetDisplayMode()
+                {
+                    popupEditor.IsReadOnly = true;
+                    popupEditor.BorderThickness = new Thickness(0);
+                    popupEditor.BorderBrush = Brushes.Transparent;
+                    popupEditor.Background = Brushes.Transparent;
+                }
+
+                void SetEditMode()
+                {
+                    popupEditor.IsReadOnly = false;
+                    popupEditor.BorderThickness = new Thickness(1);
+                    popupEditor.BorderBrush = Brushes.Black;
+                    popupEditor.Background = Brushes.White;
                 }
 
                 void BeginPopupEdit()
                 {
-                    popupEditor.Text = tb.Text ?? originalText;
-                    popupEditor.Visibility = System.Windows.Visibility.Visible;
+                    SyncPopupEditorFromCurrent();
+                    SetEditMode();
                     rowButton.Background = selectedBg;
                     FocusPopupEditor();
+                }
+
+                void EndPopupEdit()
+                {
+                    SyncPopupEditorFromCurrent();
+                    SetDisplayMode();
+                    rowButton.Background = rowButton.IsMouseOver ? selectedBg : normalBg;
                 }
 
                 void CloseSpanPopup()
@@ -738,16 +760,28 @@ namespace RevitProjectDataAddin
                         }
                     }
 
-                    EndPopupEdit();
+                    BeginPopupEdit();
                 }
 
                 rowButton.Click += (_, clickArgs) =>
                 {
                     clickArgs.Handled = true;
-                    if (popupEditor.Visibility != System.Windows.Visibility.Visible)
+                    if (popupEditor.IsReadOnly)
                         BeginPopupEdit();
                     else
                         FocusPopupEditor();
+                };
+
+                popupEditor.GotKeyboardFocus += (_, __) =>
+                {
+                    rowButton.Background = selectedBg;
+                };
+
+                popupEditor.PreviewMouseLeftButtonDown += (_, clickArgs) =>
+                {
+                    if (!popupEditor.IsReadOnly) return;
+                    BeginPopupEdit();
+                    clickArgs.Handled = true;
                 };
 
                 popupEditor.KeyDown += (_, ke) =>
@@ -767,14 +801,19 @@ namespace RevitProjectDataAddin
 
                 popupEditor.LostKeyboardFocus += (_, __) =>
                 {
-                    if (popupEditor.Visibility == System.Windows.Visibility.Visible)
+                    if (!popupEditor.IsReadOnly)
                         EndPopupEdit();
                 };
 
                 tb.Dispatcher.BeginInvoke(new Action(() =>
                 {
                     if (spanPopup != null)
+                    {
+                        SyncPopupEditorFromCurrent();
+                        SetDisplayMode();
                         spanPopup.IsOpen = true;
+                        rowButton.Background = normalBg;
+                    }
                 }), DispatcherPriority.Input);
                 return;
 
@@ -3085,6 +3124,7 @@ namespace RevitProjectDataAddin
                 HwndSource _hwndSrc = null;
                 HwndSourceHook _hwndHook = null;
                 bool _isClosing = false;
+                int mainPopupOpenRequestId = 0;
 
                 const int WM_NCLBUTTONDOWN = 0x00A1;
                 const int WM_NCRBUTTONDOWN = 0x00A4;
@@ -3142,6 +3182,7 @@ namespace RevitProjectDataAddin
                 {
                     if (_isClosing) return;
                     _isClosing = true;
+                    InvalidatePendingMainPopupOpen();
 
                     try
                     {
@@ -3314,6 +3355,11 @@ namespace RevitProjectDataAddin
                     if (selectedMainBtn != null) selectedMainBtn.Background = normalBg;
                     selectedMainBtn = btn;
                     if (selectedMainBtn != null) selectedMainBtn.Background = selectedBg;
+                }
+
+                void InvalidatePendingMainPopupOpen()
+                {
+                    unchecked { mainPopupOpenRequestId++; }
                 }
 
                 void SelectAnka(Button btn)
@@ -3962,7 +4008,6 @@ namespace RevitProjectDataAddin
                             {
                                 if (rowHost.IsMouseOver) return;
                                 EndEditShowPreview();
-                                SelectLenDir(null);
                             }), DispatcherPriority.Background);
                         };
 
@@ -3989,7 +4034,7 @@ namespace RevitProjectDataAddin
                         return rowHost;
                     }
 
-                    // ✅ NEW: dòng “chiều dài tổng” (không preview, click mới hiện textbox)
+                    // ✅ NEW: dòng “chiều dài tổng” dùng cùng cơ chế preview/edit như 2 dòng còn lại
                     Border MakeTotalLenRow(string label)
                     {
                         var rowHost = new Border
@@ -4010,31 +4055,46 @@ namespace RevitProjectDataAddin
                         };
                         DockPanel.SetDock(lbl, Dock.Left);
 
+                        var preview = new TextBlock
+                        {
+                            MinWidth = 50,
+                            Margin = new Thickness(30, 0, 0, 0),
+                            VerticalAlignment = VerticalAlignment.Center,
+                            TextAlignment = TextAlignment.Left
+                        };
+                        DockPanel.SetDock(preview, Dock.Right);
+
                         var box = new TextBox
                         {
                             Width = 50,
                             MinWidth = 50,
                             VerticalContentAlignment = VerticalAlignment.Center,
                             TextAlignment = TextAlignment.Left,
-                            Margin = new Thickness(30, 0, 0, 0)
+                            Margin = new Thickness(30, 0, 0, 0),
+                            Visibility = System.Windows.Visibility.Collapsed
                         };
                         AttachDimIntegerValidation(box);
                         DockPanel.SetDock(box, Dock.Right);
+                        box.Tag = preview;
 
                         row.Children.Add(lbl);
                         row.Children.Add(box);
+                        row.Children.Add(preview);
                         rowHost.Child = row;
 
-                        void RefreshBoxFromCurrent()
+                        void RefreshDisplayFromCurrent()
                         {
                             if (TryGetSegKeyForDimKey(owner, key, out var segKey)
                                 && TryGetSegLength(owner, segKey, out var segLength))
                             {
-                                box.Text = segLength.ToString(CultureInfo.InvariantCulture);
+                                string text = segLength.ToString(CultureInfo.InvariantCulture);
+                                box.Text = text;
+                                preview.Text = text;
                             }
                             else
                             {
                                 box.Text = string.Empty;
+                                preview.Text = string.Empty;
                             }
                         }
 
@@ -4064,9 +4124,13 @@ namespace RevitProjectDataAddin
 
                         void CancelEditWithoutCommit()
                         {
-                            RefreshBoxFromCurrent();
+                            RefreshDisplayFromCurrent();
                             SetDisplayMode();
                             Keyboard.ClearFocus();
+                            if (box.Tag is FrameworkElement prev)
+                                prev.Visibility = System.Windows.Visibility.Visible;
+                            else
+                                preview.Visibility = System.Windows.Visibility.Visible;
                             box.Visibility = System.Windows.Visibility.Collapsed;
                             if (activeLenBox == box) activeLenBox = null;
                             if (activeLenRow == rowHost) activeLenRow = null;
@@ -4081,7 +4145,7 @@ namespace RevitProjectDataAddin
                         void BeginEdit()
                         {
                             CancelActiveLenEdit();
-                            RefreshBoxFromCurrent();
+                            RefreshDisplayFromCurrent();
                             SetEditMode();
                             if (activeLenBox != null && activeLenBox != box)
                                 CancelActiveLenEdit();
@@ -4089,17 +4153,7 @@ namespace RevitProjectDataAddin
                             activeLenBox = box;
                             activeLenRow = rowHost;
                             activeLenHide = EndEdit;
-
-                            if (TryGetSegKeyForDimKey(owner, key, out var segKey)
-                                && TryGetSegLength(owner, segKey, out var segLength))
-                            {
-                                box.Text = segLength.ToString(CultureInfo.InvariantCulture);
-                            }
-                            else
-                            {
-                                box.Text = string.Empty;
-                            }
-
+                            preview.Visibility = System.Windows.Visibility.Collapsed;
                             box.Visibility = System.Windows.Visibility.Visible;
                             FocusBox();
                         }
@@ -4127,13 +4181,12 @@ namespace RevitProjectDataAddin
                                 return true;
                             }
 
-                            RefreshBoxFromCurrent();
-                            SetDisplayMode();
+                            CancelEditWithoutCommit();
                             if (closeAllAfterValid) CloseAll();
                             return true;
                         }
 
-                        RefreshBoxFromCurrent();
+                        RefreshDisplayFromCurrent();
                         SetDisplayMode();
 
                         rowHost.MouseLeftButtonDown += (ss, ee) =>
@@ -4147,6 +4200,8 @@ namespace RevitProjectDataAddin
                         rowHost.MouseEnter += (_, __) =>
                         {
                             CancelActiveAnkaEdit();
+                            if (activeLenBox != box)
+                                CancelActiveLenEdit();
                             SelectLenDir(rowHost);
                         };
 
@@ -4166,7 +4221,6 @@ namespace RevitProjectDataAddin
                             {
                                 if (rowHost.IsMouseOver) return;
                                 EndEdit();
-                                SelectLenDir(null);
                             }), DispatcherPriority.Background);
                         };
 
@@ -4199,7 +4253,6 @@ namespace RevitProjectDataAddin
                         if (activeLenRow == null) return;
                         if (activeLenRow.IsMouseOver) return;
                         activeLenHide?.Invoke();
-                        SelectLenDir(null);
                     };
 
                     var rowPullLeft = MakeLenDirRow("左へ引く", pullLeft: true);
@@ -4223,6 +4276,7 @@ namespace RevitProjectDataAddin
 
                 void OpenLenPopup(Button placementBtn)
                 {
+                    int openRequestId = unchecked(++mainPopupOpenRequestId);
                     CloseSubMenus();
                     if (lenPop != null) lenPop.IsOpen = false;
 
@@ -4279,6 +4333,8 @@ namespace RevitProjectDataAddin
 
                     placementBtn.Dispatcher.BeginInvoke(new Action(() =>
                     {
+                        if (openRequestId != mainPopupOpenRequestId) return;
+                        if (!ReferenceEquals(selectedMainBtn, placementBtn)) return;
                         lenPop.IsOpen = true;
                         SelectLen(null);
                     }), DispatcherPriority.Input);
@@ -4709,6 +4765,7 @@ namespace RevitProjectDataAddin
 
                 void OpenCutModePopup(Button placementBtn)
                 {
+                    int openRequestId = unchecked(++mainPopupOpenRequestId);
                     CloseSubMenus();
                     if (cutModePop != null) cutModePop.IsOpen = false;
 
@@ -4754,6 +4811,8 @@ namespace RevitProjectDataAddin
 
                     placementBtn.Dispatcher.BeginInvoke(new Action(() =>
                     {
+                        if (openRequestId != mainPopupOpenRequestId) return;
+                        if (!ReferenceEquals(selectedMainBtn, placementBtn)) return;
                         cutModePop.IsOpen = true;
                         SelectCut(null);
                     }), DispatcherPriority.Input);
@@ -4761,6 +4820,7 @@ namespace RevitProjectDataAddin
 
                 void OpenAnkaPopup(Button placementBtn)
                 {
+                    int openRequestId = unchecked(++mainPopupOpenRequestId);
                     CloseSubMenus();
                     if (ankaPop != null) ankaPop.IsOpen = false;
 
@@ -4817,6 +4877,8 @@ namespace RevitProjectDataAddin
 
                     placementBtn.Dispatcher.BeginInvoke(new Action(() =>
                     {
+                        if (openRequestId != mainPopupOpenRequestId) return;
+                        if (!ReferenceEquals(selectedMainBtn, placementBtn)) return;
                         ankaPop.IsOpen = true;
                         SelectAnka(null);
                     }), DispatcherPriority.Input);
@@ -4840,6 +4902,7 @@ namespace RevitProjectDataAddin
 
                 void OpenDDiaPopup(Button placementBtn)
                 {
+                    int openRequestId = unchecked(++mainPopupOpenRequestId);
                     CloseSubMenus();
                     if (dDiaPop != null) dDiaPop.IsOpen = false;
 
@@ -4915,6 +4978,8 @@ namespace RevitProjectDataAddin
                     dDiaPop.Child = WrapBox(root);
                     placementBtn.Dispatcher.BeginInvoke(new Action(() =>
                     {
+                        if (openRequestId != mainPopupOpenRequestId) return;
+                        if (!ReferenceEquals(selectedMainBtn, placementBtn)) return;
                         dDiaPop.IsOpen = true;
                         SelectDRow(null);
                     }), DispatcherPriority.Input);
@@ -4966,12 +5031,14 @@ namespace RevitProjectDataAddin
                 btnDel.MouseEnter += (_, __) =>
                 {
                     CancelActiveAnkaEdit();
+                    InvalidatePendingMainPopupOpen();
                     CloseSubMenus();
                     SelectMain(btnDel);
                 };
                 btnDel.Click += (_, __) =>
                 {
                     CancelActiveAnkaEdit();
+                    InvalidatePendingMainPopupOpen();
                     CloseSubMenus();
                     SelectMain(btnDel);
                     CloseAll();
@@ -5558,9 +5625,12 @@ namespace RevitProjectDataAddin
                         MinWidth = 60,
                         VerticalContentAlignment = VerticalAlignment.Center,
                         Margin = new Thickness(2, 0, 2, 0),
-                        Background = Brushes.White,
+                        Background = Brushes.Transparent,
                         Foreground = Brushes.Black,
-                        Visibility = System.Windows.Visibility.Collapsed
+                        Visibility = System.Windows.Visibility.Visible,
+                        IsReadOnly = true,
+                        BorderThickness = new Thickness(0),
+                        BorderBrush = Brushes.Transparent
                     };
                 }
 
@@ -5669,8 +5739,8 @@ namespace RevitProjectDataAddin
                     rowButton.MouseEnter += (_, __) => rowButton.Background = selectedBg;
                     rowButton.MouseLeave += (_, __) =>
                     {
-                        editor.Visibility = System.Windows.Visibility.Collapsed;
-                        rowButton.Background = normalBg;
+                        if (!editor.IsKeyboardFocusWithin)
+                            rowButton.Background = normalBg;
                     };
 
                     return rowButton;
@@ -5679,12 +5749,28 @@ namespace RevitProjectDataAddin
                 Button rowWidth = null;
                 Button rowHeight = null;
 
+                void SetDisplayMode(TextBox editor)
+                {
+                    editor.IsReadOnly = true;
+                    editor.BorderThickness = new Thickness(0);
+                    editor.BorderBrush = Brushes.Transparent;
+                    editor.Background = Brushes.Transparent;
+                }
+
+                void SetEditMode(TextBox editor)
+                {
+                    editor.IsReadOnly = false;
+                    editor.BorderThickness = new Thickness(1);
+                    editor.BorderBrush = Brushes.Black;
+                    editor.Background = Brushes.White;
+                }
+
                 void HideEditors()
                 {
-                    widthBox.Visibility = System.Windows.Visibility.Collapsed;
-                    heightBox.Visibility = System.Windows.Visibility.Collapsed;
-                    if (rowWidth != null) rowWidth.Background = normalBg;
-                    if (rowHeight != null) rowHeight.Background = normalBg;
+                    SetDisplayMode(widthBox);
+                    SetDisplayMode(heightBox);
+                    if (rowWidth != null) rowWidth.Background = rowWidth.IsMouseOver ? selectedBg : normalBg;
+                    if (rowHeight != null) rowHeight.Background = rowHeight.IsMouseOver ? selectedBg : normalBg;
                 }
 
                 void FocusEditor(TextBox editor)
@@ -5699,7 +5785,7 @@ namespace RevitProjectDataAddin
                 void BeginPopupEdit(TextBox editor, Button rowButton)
                 {
                     HideEditors();
-                    editor.Visibility = System.Windows.Visibility.Visible;
+                    SetEditMode(editor);
                     rowButton.Background = selectedBg;
                     FocusEditor(editor);
                 }
@@ -5774,14 +5860,27 @@ namespace RevitProjectDataAddin
                 widthBox.KeyDown += HandleKeyDown;
                 heightBox.KeyDown += HandleKeyDown;
 
+                widthBox.PreviewMouseLeftButtonDown += (_, clickArgs) =>
+                {
+                    if (!widthBox.IsReadOnly) return;
+                    BeginPopupEdit(widthBox, rowWidth);
+                    clickArgs.Handled = true;
+                };
+                heightBox.PreviewMouseLeftButtonDown += (_, clickArgs) =>
+                {
+                    if (!heightBox.IsReadOnly) return;
+                    BeginPopupEdit(heightBox, rowHeight);
+                    clickArgs.Handled = true;
+                };
+
                 widthBox.LostKeyboardFocus += (_, __) =>
                 {
-                    if (widthBox.Visibility == System.Windows.Visibility.Visible)
+                    if (!widthBox.IsReadOnly)
                         HideEditors();
                 };
                 heightBox.LostKeyboardFocus += (_, __) =>
                 {
-                    if (heightBox.Visibility == System.Windows.Visibility.Visible)
+                    if (!heightBox.IsReadOnly)
                         HideEditors();
                 };
 
@@ -5803,7 +5902,10 @@ namespace RevitProjectDataAddin
                 tb.Dispatcher.BeginInvoke(new Action(() =>
                 {
                     if (beamSizePopup != null)
+                    {
+                        HideEditors();
                         beamSizePopup.IsOpen = true;
+                    }
                 }), DispatcherPriority.Input);
 
             };
@@ -13674,7 +13776,7 @@ namespace RevitProjectDataAddin
                                 Text = "全部",
                                 VerticalAlignment = VerticalAlignment.Center
                             };
-                            DockPanel.SetDock(lbl, Dock.Left);                                                     
+                            DockPanel.SetDock(lbl, Dock.Left);
 
                             var totalBox = new TextBox
                             {
@@ -13682,7 +13784,11 @@ namespace RevitProjectDataAddin
                                 Width = 50,
                                 MinWidth = 50,
                                 VerticalContentAlignment = VerticalAlignment.Center,
-                                Visibility = System.Windows.Visibility.Collapsed
+                                Background = Brushes.Transparent,
+                                Visibility = System.Windows.Visibility.Visible,
+                                IsReadOnly = true,
+                                BorderThickness = new Thickness(0),
+                                BorderBrush = Brushes.Transparent
                             };
                             DockPanel.SetDock(totalBox, Dock.Right);
 
@@ -13717,15 +13823,20 @@ namespace RevitProjectDataAddin
 
                             void EndTotalEdit()
                             {
-                                totalBox.Visibility = System.Windows.Visibility.Collapsed;
-                                //preview.Visibility = System.Windows.Visibility.Visible;
+                                totalBox.Text = GetCurrentTanbuTotalLength().ToString(CultureInfo.InvariantCulture);
+                                totalBox.IsReadOnly = true;
+                                totalBox.BorderThickness = new Thickness(0);
+                                totalBox.BorderBrush = Brushes.Transparent;
+                                totalBox.Background = Brushes.Transparent;
                             }
 
                             void BeginTotalEdit()
                             {
                                 totalBox.Text = GetCurrentTanbuTotalLength().ToString(CultureInfo.InvariantCulture);
-                                //preview.Visibility = System.Windows.Visibility.Collapsed;
-                                totalBox.Visibility = System.Windows.Visibility.Visible;
+                                totalBox.IsReadOnly = false;
+                                totalBox.BorderThickness = new Thickness(1);
+                                totalBox.BorderBrush = Brushes.Black;
+                                totalBox.Background = Brushes.White;
                                 FocusTotalBox();
                             }
 
@@ -13734,10 +13845,16 @@ namespace RevitProjectDataAddin
                             {
                                 ee.Handled = true;
                                 selectSub(totalButton);
-                                if (totalBox.Visibility != System.Windows.Visibility.Visible)
+                                if (totalBox.IsReadOnly)
                                     BeginTotalEdit();
                                 else
                                     FocusTotalBox();
+                            };
+                            totalBox.PreviewMouseLeftButtonDown += (_, ee) =>
+                            {
+                                if (!totalBox.IsReadOnly) return;
+                                BeginTotalEdit();
+                                ee.Handled = true;
                             };
                             totalBox.PreviewKeyDown += (_, ke) =>
                             {
@@ -13760,7 +13877,7 @@ namespace RevitProjectDataAddin
                             };
                             totalBox.LostKeyboardFocus += (_, __) =>
                             {
-                                if (totalBox.Visibility == System.Windows.Visibility.Visible)
+                                if (!totalBox.IsReadOnly)
                                     EndTotalEdit();
                             };
 
