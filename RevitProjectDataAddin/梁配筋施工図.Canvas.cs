@@ -5745,8 +5745,8 @@ namespace RevitProjectDataAddin
                     rowButton.MouseEnter += (_, __) => rowButton.Background = selectedBg;
                     rowButton.MouseLeave += (_, __) =>
                     {
-                        if (!editor.IsKeyboardFocusWithin)
-                            rowButton.Background = normalBg;
+                        SetDisplayMode(editor);
+                        rowButton.Background = normalBg;
                     };
 
                     return rowButton;
@@ -5775,8 +5775,12 @@ namespace RevitProjectDataAddin
                 {
                     SetDisplayMode(widthBox);
                     SetDisplayMode(heightBox);
-                    if (rowWidth != null) rowWidth.Background = rowWidth.IsMouseOver ? selectedBg : normalBg;
-                    if (rowHeight != null) rowHeight.Background = rowHeight.IsMouseOver ? selectedBg : normalBg;
+                    widthBox.Select(widthBox.Text?.Length ?? 0, 0);
+                    heightBox.Select(heightBox.Text?.Length ?? 0, 0);
+                    Keyboard.ClearFocus();
+                    canvas.Focus();
+                    if (rowWidth != null) rowWidth.Background = normalBg;
+                    if (rowHeight != null) rowHeight.Background = normalBg;
                 }
 
                 void FocusEditor(TextBox editor)
@@ -13675,6 +13679,12 @@ namespace RevitProjectDataAddin
                     }
 
                     btn.MouseEnter += (_, __) => selectSub(btn);
+                    btn.MouseLeave += (_, __) =>
+                    {
+                        EndEditShowPreview();
+                        if (ReferenceEquals(selectedSubBtn, btn))
+                            selectSub(null);
+                    };
                     btn.Click += (_, ee) =>
                     {
                         ee.Handled = true;
@@ -13834,6 +13844,9 @@ namespace RevitProjectDataAddin
                                 totalBox.BorderThickness = new Thickness(0);
                                 totalBox.BorderBrush = Brushes.Transparent;
                                 totalBox.Background = Brushes.Transparent;
+                                totalBox.Select(totalBox.Text?.Length ?? 0, 0);
+                                Keyboard.ClearFocus();
+                                canvas.Focus();
                             }
 
                             void BeginTotalEdit()
@@ -13847,6 +13860,13 @@ namespace RevitProjectDataAddin
                             }
 
                             totalButton.MouseEnter += (_, __) => selectSub(totalButton);
+                            totalButton.MouseLeave += (_, __) =>
+                            {
+                                EndTotalEdit();
+                                totalButton.Background = normalBg;
+                                if (ReferenceEquals(selectedSubBtn, totalButton))
+                                    selectSub(null);
+                            };
                             totalButton.Click += (_, ee) =>
                             {
                                 ee.Handled = true;
@@ -13885,6 +13905,13 @@ namespace RevitProjectDataAddin
                             {
                                 if (!totalBox.IsReadOnly)
                                     EndTotalEdit();
+                            };
+                            totalBox.MouseLeave += (_, __) =>
+                            {
+                                EndTotalEdit();
+                                totalButton.Background = normalBg;
+                                if (ReferenceEquals(selectedSubBtn, totalButton))
+                                    selectSub(null);
                             };
 
                             root.Children.Add(WithRowDivider(totalButton));
