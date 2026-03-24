@@ -580,7 +580,7 @@ namespace RevitProjectDataAddin
 
                 Brush normalBg = Brushes.Transparent;
                 Brush selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-                Brush dividerBrush = Brushes.LightGray;
+                Brush dividerBrush = Brushes.Black;
 
                 UIElement WithRowDivider(UIElement child)
                 {
@@ -627,7 +627,7 @@ namespace RevitProjectDataAddin
                     return new Border
                     {
                         Background = Brushes.White,
-                        BorderBrush = Brushes.DimGray,
+                        BorderBrush = Brushes.Black,
                         BorderThickness = new Thickness(1.5),
                         CornerRadius = new CornerRadius(2),
                         Child = host
@@ -3051,7 +3051,7 @@ namespace RevitProjectDataAddin
 
                 Brush normalBg = Brushes.Transparent;
                 Brush selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-                Brush dividerBrush = Brushes.LightGray;
+                Brush dividerBrush = Brushes.Black;
 
                 const double MENU1_MIN_WIDTH = 100;
                 const double MENU2_MIN_WIDTH = 80;
@@ -3334,7 +3334,7 @@ namespace RevitProjectDataAddin
                     var box = new Border
                     {
                         Background = Brushes.White,
-                        BorderBrush = Brushes.DimGray,
+                        BorderBrush = Brushes.Black,
                         BorderThickness = new Thickness(1.5),
                         CornerRadius = new CornerRadius(2),
                         Child = host
@@ -5729,7 +5729,7 @@ namespace RevitProjectDataAddin
 
                 Brush normalBg = Brushes.Transparent;
                 Brush selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-                Brush dividerBrush = Brushes.LightGray;
+                Brush dividerBrush = Brushes.Black;
 
                 UIElement WithRowDivider(UIElement child)
                 {
@@ -5776,7 +5776,7 @@ namespace RevitProjectDataAddin
                     return new Border
                     {
                         Background = Brushes.White,
-                        BorderBrush = Brushes.DimGray,
+                        BorderBrush = Brushes.Black,
                         BorderThickness = new Thickness(1.5),
                         CornerRadius = new CornerRadius(2),
                         Child = host
@@ -6362,8 +6362,8 @@ namespace RevitProjectDataAddin
             double yChainBot = 900;
             //double dimFont = 10;
             const double yChainLocalBase = 300.0;
-            double axisLineEndY = yChainLocalBase + 12900 + OffsetCentralStirrupFrame.Y;
-            Brush dimBrush = Brushes.DimGray;
+            double axisLineEndY = yChainLocalBase + 13500 + OffsetCentralStirrupFrame.Y;
+            Brush dimBrush = Brushes.Black;
 
             // ==== Cấu hình hiển thị kích thước cho đoạn cam ====
             const bool ShowOrangeDims = true;     // Cho phép tắt nhanh
@@ -6753,7 +6753,7 @@ namespace RevitProjectDataAddin
                     cvs, tr, owner,
                     topTxtDraw,
                     wxTop, wyTop,
-                    dimFont, Brushes.DimGray,
+                    dimFont, Brushes.Black,
                     HAnchor.Center,
                     textAboveLine ? VAnchor.Bottom : VAnchor.Top,
                     150, "DIM"
@@ -6810,7 +6810,7 @@ namespace RevitProjectDataAddin
                 double phi = (si >= 0 && si < phiMidArray.Length) ? Math.Max(0, phiMidArray[si]) : 0.0;
 
                 string txt = $"D{phi:0}-{len:0}";
-                DrawText_Rec(cvs, tr, owner, txt, cx, y + dy, dimFont, Brushes.DimGray,
+                DrawText_Rec(cvs, tr, owner, txt, cx, y + dy, dimFont, Brushes.Black,
                              HAnchor.Center, VAnchor.Bottom, 150, "DIM");
             }
 
@@ -11058,7 +11058,7 @@ namespace RevitProjectDataAddin
             {
                 Text = "Chưa preview",
                 VerticalAlignment = VerticalAlignment.Center,
-                Foreground = Brushes.DimGray,
+                Foreground = Brushes.Black,
                 Margin = new Thickness(0, 0, 10, 0),
                 TextWrapping = TextWrapping.Wrap
             };
@@ -11156,7 +11156,7 @@ namespace RevitProjectDataAddin
             //{
             //    Text = $"Khổ giấy xuất: {paper} | Số bản vẽ sẽ xuất: {selectedSources.Count}",
             //    FontSize = 14,
-            //    Foreground = Brushes.DimGray,
+            //    Foreground = Brushes.Black,
             //    Margin = new Thickness(0, 0, 0, 8)
             //};
             //Grid.SetRow(summary, 1);
@@ -11174,7 +11174,7 @@ namespace RevitProjectDataAddin
                     {
                         Text = "(Chưa chọn bản vẽ nào để xuất)",
                         FontSize = 14,
-                        Foreground = Brushes.DimGray
+                        Foreground = Brushes.Black
                     }
                 };
             }
@@ -11212,7 +11212,7 @@ namespace RevitProjectDataAddin
 
                 var a4Frame = new Border
                 {
-                    BorderBrush = Brushes.DimGray,
+                    BorderBrush = Brushes.Black,
                     BorderThickness = new Thickness(1.5),
                     Width = a4FrameWidth,
                     Height = a4FrameHeight,
@@ -13099,7 +13099,7 @@ namespace RevitProjectDataAddin
 
                 Brush normalBg = Brushes.Transparent;
                 Brush selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-                Brush dividerBrush = Brushes.LightGray;
+                Brush dividerBrush = Brushes.Black;
 
                 UIElement WithRowDivider(UIElement child)
                 {
@@ -13146,7 +13146,7 @@ namespace RevitProjectDataAddin
                     return new Border
                     {
                         Background = Brushes.White,
-                        BorderBrush = Brushes.DimGray,
+                        BorderBrush = Brushes.Black,
                         BorderThickness = new Thickness(1.5),
                         CornerRadius = new CornerRadius(2),
                         Child = host
@@ -14486,7 +14486,7 @@ namespace RevitProjectDataAddin
 
                 Brush normalBg = Brushes.Transparent;
                 Brush selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-                Brush dividerBrush = Brushes.LightGray;
+                Brush dividerBrush = Brushes.Black;
 
                 Func<UIElement, UIElement> withRowDivider = child =>
                     new Border
@@ -14522,7 +14522,7 @@ namespace RevitProjectDataAddin
                     new Border
                     {
                         Background = Brushes.White,
-                        BorderBrush = Brushes.DimGray,
+                        BorderBrush = Brushes.Black,
                         BorderThickness = new Thickness(1.5),
                         CornerRadius = new CornerRadius(2),
                         Child = new ContentControl
@@ -14646,7 +14646,7 @@ namespace RevitProjectDataAddin
                     {
                         Text = isChecked ? "✓" : "",
                         Width = 18,
-                        Foreground = Brushes.DimGray,
+                        Foreground = Brushes.Black,
                         VerticalAlignment = VerticalAlignment.Center
                     };
 
@@ -15239,7 +15239,7 @@ namespace RevitProjectDataAddin
 
                 Brush normalBg = Brushes.Transparent;
                 Brush selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-                Brush dividerBrush = Brushes.LightGray;
+                Brush dividerBrush = Brushes.Black;
 
                 Func<UIElement, UIElement> withRowDivider = child =>
                     new Border
@@ -15275,7 +15275,7 @@ namespace RevitProjectDataAddin
                     new Border
                     {
                         Background = Brushes.White,
-                        BorderBrush = Brushes.DimGray,
+                        BorderBrush = Brushes.Black,
                         BorderThickness = new Thickness(1.5),
                         CornerRadius = new CornerRadius(2),
                         Child = new ContentControl
@@ -15398,7 +15398,7 @@ namespace RevitProjectDataAddin
                     {
                         Text = isChecked ? "✓" : "",
                         Width = 18,
-                        Foreground = Brushes.DimGray,
+                        Foreground = Brushes.Black,
                         VerticalAlignment = VerticalAlignment.Center
                     };
 
@@ -15899,7 +15899,7 @@ namespace RevitProjectDataAddin
 
             var normalBg = Brushes.Transparent;
             var selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-            var dividerBrush = Brushes.LightGray;
+            var dividerBrush = Brushes.Black;
             var win = Window.GetWindow(canvas);
 
             UIElement WithRowDivider(UIElement child)
@@ -15947,7 +15947,7 @@ namespace RevitProjectDataAddin
                 return new Border
                 {
                     Background = Brushes.White,
-                    BorderBrush = Brushes.DimGray,
+                    BorderBrush = Brushes.Black,
                     BorderThickness = new Thickness(1.5),
                     CornerRadius = new CornerRadius(2),
                     Child = host
@@ -16301,7 +16301,7 @@ namespace RevitProjectDataAddin
 
             var normalBg = Brushes.Transparent;
             var selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-            var dividerBrush = Brushes.LightGray;
+            var dividerBrush = Brushes.Black;
             var win = Window.GetWindow(canvas);
 
             UIElement WithRowDivider(UIElement child)
@@ -16349,7 +16349,7 @@ namespace RevitProjectDataAddin
                 return new Border
                 {
                     Background = Brushes.White,
-                    BorderBrush = Brushes.DimGray,
+                    BorderBrush = Brushes.Black,
                     BorderThickness = new Thickness(1.5),
                     CornerRadius = new CornerRadius(2),
                     Child = host
@@ -16727,7 +16727,7 @@ namespace RevitProjectDataAddin
 
             var normalBg = Brushes.Transparent;
             var selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-            var dividerBrush = Brushes.LightGray;
+            var dividerBrush = Brushes.Black;
             var win = Window.GetWindow(canvas);
 
             UIElement WithRowDivider(UIElement child)
@@ -16775,7 +16775,7 @@ namespace RevitProjectDataAddin
                 return new Border
                 {
                     Background = Brushes.White,
-                    BorderBrush = Brushes.DimGray,
+                    BorderBrush = Brushes.Black,
                     BorderThickness = new Thickness(1.5),
                     CornerRadius = new CornerRadius(2),
                     Child = host
@@ -17186,7 +17186,7 @@ namespace RevitProjectDataAddin
 
             var normalBg = Brushes.Transparent;
             var selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-            var dividerBrush = Brushes.LightGray;
+            var dividerBrush = Brushes.Black;
 
             UIElement WithRowDivider(UIElement child)
             {
@@ -17233,7 +17233,7 @@ namespace RevitProjectDataAddin
                 return new Border
                 {
                     Background = Brushes.White,
-                    BorderBrush = Brushes.DimGray,
+                    BorderBrush = Brushes.Black,
                     BorderThickness = new Thickness(1.5),
                     CornerRadius = new CornerRadius(2),
                     Child = host
