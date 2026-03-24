@@ -5550,6 +5550,80 @@ namespace RevitProjectDataAddin
                 && height > 0;
         }
 
+        private static string MakeSpanSizeKey(int spanIndex)
+            => spanIndex.ToString(CultureInfo.InvariantCulture);
+
+        private (string width, string height) GetSpanBeamDimensions(
+            GridBotsecozu item,
+            int spanIndex,
+            string initialWidth,
+            string initialHeight)
+        {
+            if (item == null || spanIndex < 0)
+                return (initialWidth, initialHeight);
+
+            string key = MakeSpanSizeKey(spanIndex);
+            string width = initialWidth;
+            string height = initialHeight;
+
+            var widthDict = item.SpanWidthOverrides ?? new Dictionary<string, string>();
+            if (widthDict.TryGetValue(key, out var savedWidth) && !string.IsNullOrWhiteSpace(savedWidth))
+            {
+                width = savedWidth;
+            }
+            else if (!string.IsNullOrWhiteSpace(initialWidth))
+            {
+                item.SpanWidthOverrides = new Dictionary<string, string>(widthDict)
+                {
+                    [key] = initialWidth
+                };
+            }
+
+            var heightDict = item.SpanHeightOverrides ?? new Dictionary<string, string>();
+            if (heightDict.TryGetValue(key, out var savedHeight) && !string.IsNullOrWhiteSpace(savedHeight))
+            {
+                height = savedHeight;
+            }
+            else if (!string.IsNullOrWhiteSpace(initialHeight))
+            {
+                item.SpanHeightOverrides = new Dictionary<string, string>(heightDict)
+                {
+                    [key] = initialHeight
+                };
+            }
+
+            return (width, height);
+        }
+
+        private bool ApplySpanBeamDimensions(GridBotsecozu item, int spanIndex, double width, double height)
+        {
+            if (item == null || spanIndex < 0)
+                return false;
+
+            string key = MakeSpanSizeKey(spanIndex);
+            string widthStr = width.ToString(CultureInfo.InvariantCulture);
+            string heightStr = height.ToString(CultureInfo.InvariantCulture);
+            bool changed = false;
+
+            var widthDict = new Dictionary<string, string>(item.SpanWidthOverrides ?? new Dictionary<string, string>());
+            if (!widthDict.TryGetValue(key, out var existingWidth) || existingWidth != widthStr)
+            {
+                widthDict[key] = widthStr;
+                item.SpanWidthOverrides = widthDict;
+                changed = true;
+            }
+
+            var heightDict = new Dictionary<string, string>(item.SpanHeightOverrides ?? new Dictionary<string, string>());
+            if (!heightDict.TryGetValue(key, out var existingHeight) || existingHeight != heightStr)
+            {
+                heightDict[key] = heightStr;
+                item.SpanHeightOverrides = heightDict;
+                changed = true;
+            }
+
+            return changed;
+        }
+
         private bool ApplyBeamDimensions(string kai, string gSym, double width, double height)
         {
             var beam = FindBeamBySymbol(kai, gSym);
@@ -5580,7 +5654,8 @@ namespace RevitProjectDataAddin
         private void MakeBeamSizeEditable(TextBlock tb, Canvas canvas, WCTransform T,
                                            double wx, double wy,
                                            string kai, string gSym,
-                                           GridBotsecozu item)
+                                           GridBotsecozu item,
+                                           int spanIndex)
         {
             if (tb == null || canvas == null)
                 return;
@@ -5821,7 +5896,7 @@ namespace RevitProjectDataAddin
                     if (!okW || !okH)
                         return false;
 
-                    if (!ApplyBeamDimensions(kai, gSym, newW, newH))
+                    if (!ApplySpanBeamDimensions(item, spanIndex, newW, newH))
                         return false;
 
                     Redraw(canvas, item);
@@ -6998,6 +7073,7 @@ namespace RevitProjectDataAddin
                 var zcfg = GetRebarConfigForSpan(selF, string.IsNullOrWhiteSpace(G0) ? "G0" : G0);
                 var (中央幅, 中央成, 中央スタラップ径, ピッチ, スタラップ材質, 端部1幅止筋径, 端部1幅止筋ピッチ, 中央中子筋径,
                                    中央中子筋径ピッチ, 中央中子筋材質, 端部1腹筋径) = GetBeamSize(selF, G0);
+                (中央幅, 中央成) = GetSpanBeamDimensions(item, i, 中央幅, 中央成);
                 var (ankaUwa, ankaUwaChu, ankaShitaChu, ankaShita) = GetAnkaNagaValues();
                 double x0 = pos[i];
                 double x1 = pos[i + 1];
@@ -7284,7 +7360,7 @@ namespace RevitProjectDataAddin
                     var grossText = DrawText_Rec(canvas, T, item,
                                 grossLabel,
                                 mid - 25, yChainLocal + 3100, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    MakeBeamSizeEditable(grossText, canvas, T, mid, yChainLocal + 3000, selF, G0, item);
+                    MakeBeamSizeEditable(grossText, canvas, T, mid, yChainLocal + 3000, selF, G0, item, i);
 
                     //(500x744)
                     DrawText_Rec(canvas, T, item,

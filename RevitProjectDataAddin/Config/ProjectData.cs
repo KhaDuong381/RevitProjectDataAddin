@@ -424,6 +424,20 @@ public class OrangeSegOverridePersistData
 
 public class GridBotsecozu : INotifyPropertyChanged
 {
+    private Dictionary<string, string> _spanWidthOverrides = new Dictionary<string, string>();
+    public Dictionary<string, string> SpanWidthOverrides
+    {
+        get => _spanWidthOverrides;
+        set => SetProperty(ref _spanWidthOverrides, value ?? new Dictionary<string, string>());
+    }
+
+    private Dictionary<string, string> _spanHeightOverrides = new Dictionary<string, string>();
+    public Dictionary<string, string> SpanHeightOverrides
+    {
+        get => _spanHeightOverrides;
+        set => SetProperty(ref _spanHeightOverrides, value ?? new Dictionary<string, string>());
+    }
+
     private Dictionary<string, double> _tanbuHookOverrides = new Dictionary<string, double>();
     public Dictionary<string, double> TanbuHookOverrides
     {
