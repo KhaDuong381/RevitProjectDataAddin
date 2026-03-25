@@ -438,6 +438,62 @@ public class GridBotsecozu : INotifyPropertyChanged
         set => SetProperty(ref _spanHeightOverrides, value ?? new Dictionary<string, string>());
     }
 
+    private Dictionary<string, string> _spanCentralStirrupDiameterOverrides = new Dictionary<string, string>();
+    public Dictionary<string, string> SpanCentralStirrupDiameterOverrides
+    {
+        get => _spanCentralStirrupDiameterOverrides;
+        set => SetProperty(ref _spanCentralStirrupDiameterOverrides, value ?? new Dictionary<string, string>());
+    }
+
+    private Dictionary<string, string> _spanCentralStirrupPitchOverrides = new Dictionary<string, string>();
+    public Dictionary<string, string> SpanCentralStirrupPitchOverrides
+    {
+        get => _spanCentralStirrupPitchOverrides;
+        set => SetProperty(ref _spanCentralStirrupPitchOverrides, value ?? new Dictionary<string, string>());
+    }
+
+    private Dictionary<string, string> _spanCentralStirrupMaterialOverrides = new Dictionary<string, string>();
+    public Dictionary<string, string> SpanCentralStirrupMaterialOverrides
+    {
+        get => _spanCentralStirrupMaterialOverrides;
+        set => SetProperty(ref _spanCentralStirrupMaterialOverrides, value ?? new Dictionary<string, string>());
+    }
+
+    private Dictionary<string, string> _spanEndWidthStopDiameterOverrides = new Dictionary<string, string>();
+    public Dictionary<string, string> SpanEndWidthStopDiameterOverrides
+    {
+        get => _spanEndWidthStopDiameterOverrides;
+        set => SetProperty(ref _spanEndWidthStopDiameterOverrides, value ?? new Dictionary<string, string>());
+    }
+
+    private Dictionary<string, string> _spanEndWidthStopPitchOverrides = new Dictionary<string, string>();
+    public Dictionary<string, string> SpanEndWidthStopPitchOverrides
+    {
+        get => _spanEndWidthStopPitchOverrides;
+        set => SetProperty(ref _spanEndWidthStopPitchOverrides, value ?? new Dictionary<string, string>());
+    }
+
+    private Dictionary<string, string> _spanCentralIntermediateDiameterOverrides = new Dictionary<string, string>();
+    public Dictionary<string, string> SpanCentralIntermediateDiameterOverrides
+    {
+        get => _spanCentralIntermediateDiameterOverrides;
+        set => SetProperty(ref _spanCentralIntermediateDiameterOverrides, value ?? new Dictionary<string, string>());
+    }
+
+    private Dictionary<string, string> _spanCentralIntermediatePitchOverrides = new Dictionary<string, string>();
+    public Dictionary<string, string> SpanCentralIntermediatePitchOverrides
+    {
+        get => _spanCentralIntermediatePitchOverrides;
+        set => SetProperty(ref _spanCentralIntermediatePitchOverrides, value ?? new Dictionary<string, string>());
+    }
+
+    private Dictionary<string, string> _spanCentralIntermediateMaterialOverrides = new Dictionary<string, string>();
+    public Dictionary<string, string> SpanCentralIntermediateMaterialOverrides
+    {
+        get => _spanCentralIntermediateMaterialOverrides;
+        set => SetProperty(ref _spanCentralIntermediateMaterialOverrides, value ?? new Dictionary<string, string>());
+    }
+
     private Dictionary<string, double> _tanbuHookOverrides = new Dictionary<string, double>();
     public Dictionary<string, double> TanbuHookOverrides
     {

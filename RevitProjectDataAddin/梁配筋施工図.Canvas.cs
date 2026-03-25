@@ -5624,6 +5624,212 @@ namespace RevitProjectDataAddin
             return changed;
         }
 
+        private static string GetSpanStringOverride(
+            Dictionary<string, string> source,
+            string key,
+            string fallback)
+        {
+            if (source != null
+                && source.TryGetValue(key, out var saved)
+                && !string.IsNullOrWhiteSpace(saved))
+            {
+                return saved;
+            }
+
+            return fallback;
+        }
+
+        private static bool SetSpanStringOverride(
+            GridBotsecozu item,
+            Func<GridBotsecozu, Dictionary<string, string>> getter,
+            Action<GridBotsecozu, Dictionary<string, string>> setter,
+            string key,
+            string value)
+        {
+            if (item == null || string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(value))
+                return false;
+
+            string normalized = value.Trim();
+            var dict = new Dictionary<string, string>(getter(item) ?? new Dictionary<string, string>());
+            if (dict.TryGetValue(key, out var existing)
+                && string.Equals(existing, normalized, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            dict[key] = normalized;
+            setter(item, dict);
+            return true;
+        }
+
+        private (string diameter, string pitch, string material) GetSpanCentralStirrupValues(
+            GridBotsecozu item,
+            int spanIndex,
+            string initialDiameter,
+            string initialPitch,
+            string initialMaterial)
+        {
+            if (item == null || spanIndex < 0)
+                return (initialDiameter, initialPitch, initialMaterial);
+
+            string key = MakeSpanSizeKey(spanIndex);
+
+            string diameter = GetSpanStringOverride(item.SpanCentralStirrupDiameterOverrides, key, initialDiameter);
+            string pitch = GetSpanStringOverride(item.SpanCentralStirrupPitchOverrides, key, initialPitch);
+            string material = GetSpanStringOverride(item.SpanCentralStirrupMaterialOverrides, key, initialMaterial);
+
+            if (!string.IsNullOrWhiteSpace(initialDiameter)
+                && (item.SpanCentralStirrupDiameterOverrides == null || !item.SpanCentralStirrupDiameterOverrides.ContainsKey(key)))
+            {
+                SetSpanStringOverride(item, x => x.SpanCentralStirrupDiameterOverrides, (x, d) => x.SpanCentralStirrupDiameterOverrides = d, key, initialDiameter);
+            }
+
+            if (!string.IsNullOrWhiteSpace(initialPitch)
+                && (item.SpanCentralStirrupPitchOverrides == null || !item.SpanCentralStirrupPitchOverrides.ContainsKey(key)))
+            {
+                SetSpanStringOverride(item, x => x.SpanCentralStirrupPitchOverrides, (x, d) => x.SpanCentralStirrupPitchOverrides = d, key, initialPitch);
+            }
+
+            if (!string.IsNullOrWhiteSpace(initialMaterial)
+                && (item.SpanCentralStirrupMaterialOverrides == null || !item.SpanCentralStirrupMaterialOverrides.ContainsKey(key)))
+            {
+                SetSpanStringOverride(item, x => x.SpanCentralStirrupMaterialOverrides, (x, d) => x.SpanCentralStirrupMaterialOverrides = d, key, initialMaterial);
+            }
+
+            return (diameter, pitch, material);
+        }
+
+        private bool ApplySpanCentralStirrupValues(
+            GridBotsecozu item,
+            int spanIndex,
+            string diameter,
+            string pitch,
+            string material)
+        {
+            if (item == null || spanIndex < 0)
+                return false;
+
+            string key = MakeSpanSizeKey(spanIndex);
+            bool changed = false;
+
+            if (!string.IsNullOrWhiteSpace(diameter))
+                changed = SetSpanStringOverride(item, x => x.SpanCentralStirrupDiameterOverrides, (x, d) => x.SpanCentralStirrupDiameterOverrides = d, key, diameter) || changed;
+            if (!string.IsNullOrWhiteSpace(pitch))
+                changed = SetSpanStringOverride(item, x => x.SpanCentralStirrupPitchOverrides, (x, d) => x.SpanCentralStirrupPitchOverrides = d, key, pitch) || changed;
+            if (!string.IsNullOrWhiteSpace(material))
+                changed = SetSpanStringOverride(item, x => x.SpanCentralStirrupMaterialOverrides, (x, d) => x.SpanCentralStirrupMaterialOverrides = d, key, material) || changed;
+
+            return changed;
+        }
+
+        private (string diameter, string pitch) GetSpanEndWidthStopValues(
+            GridBotsecozu item,
+            int spanIndex,
+            string initialDiameter,
+            string initialPitch)
+        {
+            if (item == null || spanIndex < 0)
+                return (initialDiameter, initialPitch);
+
+            string key = MakeSpanSizeKey(spanIndex);
+            string diameter = GetSpanStringOverride(item.SpanEndWidthStopDiameterOverrides, key, initialDiameter);
+            string pitch = GetSpanStringOverride(item.SpanEndWidthStopPitchOverrides, key, initialPitch);
+
+            if (!string.IsNullOrWhiteSpace(initialDiameter)
+                && (item.SpanEndWidthStopDiameterOverrides == null || !item.SpanEndWidthStopDiameterOverrides.ContainsKey(key)))
+            {
+                SetSpanStringOverride(item, x => x.SpanEndWidthStopDiameterOverrides, (x, d) => x.SpanEndWidthStopDiameterOverrides = d, key, initialDiameter);
+            }
+
+            if (!string.IsNullOrWhiteSpace(initialPitch)
+                && (item.SpanEndWidthStopPitchOverrides == null || !item.SpanEndWidthStopPitchOverrides.ContainsKey(key)))
+            {
+                SetSpanStringOverride(item, x => x.SpanEndWidthStopPitchOverrides, (x, d) => x.SpanEndWidthStopPitchOverrides = d, key, initialPitch);
+            }
+
+            return (diameter, pitch);
+        }
+
+        private bool ApplySpanEndWidthStopValues(
+            GridBotsecozu item,
+            int spanIndex,
+            string diameter,
+            string pitch)
+        {
+            if (item == null || spanIndex < 0)
+                return false;
+
+            string key = MakeSpanSizeKey(spanIndex);
+            bool changed = false;
+
+            if (!string.IsNullOrWhiteSpace(diameter))
+                changed = SetSpanStringOverride(item, x => x.SpanEndWidthStopDiameterOverrides, (x, d) => x.SpanEndWidthStopDiameterOverrides = d, key, diameter) || changed;
+            if (!string.IsNullOrWhiteSpace(pitch))
+                changed = SetSpanStringOverride(item, x => x.SpanEndWidthStopPitchOverrides, (x, d) => x.SpanEndWidthStopPitchOverrides = d, key, pitch) || changed;
+
+            return changed;
+        }
+
+        private (string diameter, string pitch, string material) GetSpanCentralIntermediateValues(
+            GridBotsecozu item,
+            int spanIndex,
+            string initialDiameter,
+            string initialPitch,
+            string initialMaterial)
+        {
+            if (item == null || spanIndex < 0)
+                return (initialDiameter, initialPitch, initialMaterial);
+
+            string key = MakeSpanSizeKey(spanIndex);
+
+            string diameter = GetSpanStringOverride(item.SpanCentralIntermediateDiameterOverrides, key, initialDiameter);
+            string pitch = GetSpanStringOverride(item.SpanCentralIntermediatePitchOverrides, key, initialPitch);
+            string material = GetSpanStringOverride(item.SpanCentralIntermediateMaterialOverrides, key, initialMaterial);
+
+            if (!string.IsNullOrWhiteSpace(initialDiameter)
+                && (item.SpanCentralIntermediateDiameterOverrides == null || !item.SpanCentralIntermediateDiameterOverrides.ContainsKey(key)))
+            {
+                SetSpanStringOverride(item, x => x.SpanCentralIntermediateDiameterOverrides, (x, d) => x.SpanCentralIntermediateDiameterOverrides = d, key, initialDiameter);
+            }
+
+            if (!string.IsNullOrWhiteSpace(initialPitch)
+                && (item.SpanCentralIntermediatePitchOverrides == null || !item.SpanCentralIntermediatePitchOverrides.ContainsKey(key)))
+            {
+                SetSpanStringOverride(item, x => x.SpanCentralIntermediatePitchOverrides, (x, d) => x.SpanCentralIntermediatePitchOverrides = d, key, initialPitch);
+            }
+
+            if (!string.IsNullOrWhiteSpace(initialMaterial)
+                && (item.SpanCentralIntermediateMaterialOverrides == null || !item.SpanCentralIntermediateMaterialOverrides.ContainsKey(key)))
+            {
+                SetSpanStringOverride(item, x => x.SpanCentralIntermediateMaterialOverrides, (x, d) => x.SpanCentralIntermediateMaterialOverrides = d, key, initialMaterial);
+            }
+
+            return (diameter, pitch, material);
+        }
+
+        private bool ApplySpanCentralIntermediateValues(
+            GridBotsecozu item,
+            int spanIndex,
+            string diameter,
+            string pitch,
+            string material)
+        {
+            if (item == null || spanIndex < 0)
+                return false;
+
+            string key = MakeSpanSizeKey(spanIndex);
+            bool changed = false;
+
+            if (!string.IsNullOrWhiteSpace(diameter))
+                changed = SetSpanStringOverride(item, x => x.SpanCentralIntermediateDiameterOverrides, (x, d) => x.SpanCentralIntermediateDiameterOverrides = d, key, diameter) || changed;
+            if (!string.IsNullOrWhiteSpace(pitch))
+                changed = SetSpanStringOverride(item, x => x.SpanCentralIntermediatePitchOverrides, (x, d) => x.SpanCentralIntermediatePitchOverrides = d, key, pitch) || changed;
+            if (!string.IsNullOrWhiteSpace(material))
+                changed = SetSpanStringOverride(item, x => x.SpanCentralIntermediateMaterialOverrides, (x, d) => x.SpanCentralIntermediateMaterialOverrides = d, key, material) || changed;
+
+            return changed;
+        }
+
         private bool ApplyBeamDimensions(string kai, string gSym, double width, double height)
         {
             var beam = FindBeamBySymbol(kai, gSym);
@@ -7074,6 +7280,9 @@ namespace RevitProjectDataAddin
                 var (中央幅, 中央成, 中央スタラップ径, ピッチ, スタラップ材質, 端部1幅止筋径, 端部1幅止筋ピッチ, 中央中子筋径,
                                    中央中子筋径ピッチ, 中央中子筋材質, 端部1腹筋径) = GetBeamSize(selF, G0);
                 (中央幅, 中央成) = GetSpanBeamDimensions(item, i, 中央幅, 中央成);
+                (中央スタラップ径, ピッチ, スタラップ材質) = GetSpanCentralStirrupValues(item, i, 中央スタラップ径, ピッチ, スタラップ材質);
+                (端部1幅止筋径, 端部1幅止筋ピッチ) = GetSpanEndWidthStopValues(item, i, 端部1幅止筋径, 端部1幅止筋ピッチ);
+                (中央中子筋径, 中央中子筋径ピッチ, 中央中子筋材質) = GetSpanCentralIntermediateValues(item, i, 中央中子筋径, 中央中子筋径ピッチ, 中央中子筋材質);
                 var (ankaUwa, ankaUwaChu, ankaShitaChu, ankaShita) = GetAnkaNagaValues();
                 double x0 = pos[i];
                 double x1 = pos[i + 1];
@@ -7388,6 +7597,7 @@ namespace RevitProjectDataAddin
                          canvas, T,
                          mid + offset4.X, yChainLocal + 9920 + offset4.Y,
                          item, selF, G0,
+                         i,
                          中央スタラップ径, ピッチ, スタラップ材質,
                          showStirrupMaterial);
 
@@ -7420,6 +7630,7 @@ namespace RevitProjectDataAddin
                         canvas, T,
                         mid + offset4.X, yChainLocal + 10850 + offset4.Y,
                         item, selF, G0,
+                        i,
                         端部1幅止筋径, 端部1幅止筋ピッチ);
 
                     //(P7)
@@ -7449,6 +7660,7 @@ namespace RevitProjectDataAddin
                         canvas, T,
                         mid + offset4.X, yChainLocal + 13150 + offset4.Y,
                         item, selF, G0,
+                        i,
                         中央中子筋径, 中央中子筋径ピッチ, 中央中子筋材質,
                         showStirrupMaterial);
 
@@ -14181,6 +14393,7 @@ namespace RevitProjectDataAddin
             double wx, double wy,
             GridBotsecozu item,
             string kai, string gSym,
+            int spanIndex,
             string diameter, string pitch)
         {
             if (tbDia == null || tbPitch == null || tbRight == null || canvas == null)
@@ -14229,7 +14442,7 @@ namespace RevitProjectDataAddin
                 currentDiameter: diameter,
                 onSelectDiameter: newDia =>
                 {
-                    if (ApplyEndWidthStopValues(kai, gSym, newDia, pitch))
+                    if (ApplySpanEndWidthStopValues(item, spanIndex, newDia, pitch))
                         Redraw(canvas, item);
                 },
                 onEditPitch: () =>
@@ -14242,7 +14455,7 @@ namespace RevitProjectDataAddin
                             if (!double.TryParse(newText, NumberStyles.Float, CultureInfo.InvariantCulture, out var v))
                                 return;
 
-                            if (ApplyEndWidthStopValues(kai, gSym, diameter, v.ToString(CultureInfo.InvariantCulture)))
+                            if (ApplySpanEndWidthStopValues(item, spanIndex, diameter, v.ToString(CultureInfo.InvariantCulture)))
                                 Redraw(canvas, item);
                         });
                 });
@@ -14291,6 +14504,7 @@ namespace RevitProjectDataAddin
                     double wx, double wy,
                     GridBotsecozu item,
                     string kai, string gSym,
+                    int spanIndex,
                     string diameter, string pitch, string material,
                     bool showMaterial)
         {
@@ -14339,7 +14553,7 @@ namespace RevitProjectDataAddin
                     showMaterial: showMaterial,
                     onSelectDiameter: newDia =>
                     {
-                        if (ApplyCentralIntermediateValues(kai, gSym, newDia, pitch, material))
+                        if (ApplySpanCentralIntermediateValues(item, spanIndex, newDia, pitch, material))
                             Redraw(canvas, item);
                     },
                     onEditPitch: () =>
@@ -14353,13 +14567,13 @@ namespace RevitProjectDataAddin
                                 if (!double.TryParse(newText, NumberStyles.Float, CultureInfo.InvariantCulture, out v))
                                     return;
 
-                                if (ApplyCentralIntermediateValues(kai, gSym, diameter, v.ToString(CultureInfo.InvariantCulture), material))
+                                if (ApplySpanCentralIntermediateValues(item, spanIndex, diameter, v.ToString(CultureInfo.InvariantCulture), material))
                                     Redraw(canvas, item);
                             });
                     },
                     onSelectMaterial: newMat =>
                     {
-                        if (ApplyCentralIntermediateValues(kai, gSym, diameter, pitch, newMat))
+                        if (ApplySpanCentralIntermediateValues(item, spanIndex, diameter, pitch, newMat))
                             Redraw(canvas, item);
                     });
             };
@@ -15818,6 +16032,7 @@ namespace RevitProjectDataAddin
             double wx, double wy,
             GridBotsecozu item,
             string kai, string gSym,
+            int spanIndex,
             string diameter, string pitch, string material,
             bool showMaterial)
         {
@@ -15865,7 +16080,7 @@ namespace RevitProjectDataAddin
                     showMaterial: showMaterial,
                     onSelectDiameter: newDia =>
                     {
-                        if (ApplyCentralStirrupValues(kai, gSym, newDia, pitch, material))
+                        if (ApplySpanCentralStirrupValues(item, spanIndex, newDia, pitch, material))
                             Redraw(canvas, item);
                     },
                     onEditPitch: () =>
@@ -15879,13 +16094,13 @@ namespace RevitProjectDataAddin
                                 if (!double.TryParse(newText, NumberStyles.Float, CultureInfo.InvariantCulture, out v))
                                     return;
 
-                                if (ApplyCentralStirrupValues(kai, gSym, diameter, v.ToString(CultureInfo.InvariantCulture), material))
+                                if (ApplySpanCentralStirrupValues(item, spanIndex, diameter, v.ToString(CultureInfo.InvariantCulture), material))
                                     Redraw(canvas, item);
                             });
                     },
                     onSelectMaterial: newMat =>
                     {
-                        if (ApplyCentralStirrupValues(kai, gSym, diameter, pitch, newMat))
+                        if (ApplySpanCentralStirrupValues(item, spanIndex, diameter, pitch, newMat))
                             Redraw(canvas, item);
                     });
             };
