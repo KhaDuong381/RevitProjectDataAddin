@@ -580,7 +580,7 @@ namespace RevitProjectDataAddin
 
                 Brush normalBg = Brushes.Transparent;
                 Brush selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-                Brush dividerBrush = Brushes.Black;
+                Brush dividerBrush = Brushes.LightGray;
 
                 UIElement WithRowDivider(UIElement child)
                 {
@@ -627,7 +627,7 @@ namespace RevitProjectDataAddin
                     return new Border
                     {
                         Background = Brushes.White,
-                        BorderBrush = Brushes.Black,
+                        BorderBrush = Brushes.DimGray,
                         BorderThickness = new Thickness(1.5),
                         CornerRadius = new CornerRadius(2),
                         Child = host
@@ -3051,7 +3051,7 @@ namespace RevitProjectDataAddin
 
                 Brush normalBg = Brushes.Transparent;
                 Brush selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-                Brush dividerBrush = Brushes.Black;
+                Brush dividerBrush = Brushes.LightGray;
 
                 const double MENU1_MIN_WIDTH = 100;
                 const double MENU2_MIN_WIDTH = 80;
@@ -3334,7 +3334,7 @@ namespace RevitProjectDataAddin
                     var box = new Border
                     {
                         Background = Brushes.White,
-                        BorderBrush = Brushes.Black,
+                        BorderBrush = Brushes.DimGray,
                         BorderThickness = new Thickness(1.5),
                         CornerRadius = new CornerRadius(2),
                         Child = host
@@ -5729,7 +5729,7 @@ namespace RevitProjectDataAddin
 
                 Brush normalBg = Brushes.Transparent;
                 Brush selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-                Brush dividerBrush = Brushes.Black;
+                Brush dividerBrush = Brushes.LightGray;
 
                 UIElement WithRowDivider(UIElement child)
                 {
@@ -5776,7 +5776,7 @@ namespace RevitProjectDataAddin
                     return new Border
                     {
                         Background = Brushes.White,
-                        BorderBrush = Brushes.Black,
+                        BorderBrush = Brushes.DimGray,
                         BorderThickness = new Thickness(1.5),
                         CornerRadius = new CornerRadius(2),
                         Child = host
@@ -6362,8 +6362,8 @@ namespace RevitProjectDataAddin
             double yChainBot = 900;
             //double dimFont = 10;
             const double yChainLocalBase = 300.0;
-            double axisLineEndY = yChainLocalBase + 13500 + OffsetCentralStirrupFrame.Y;
-            Brush dimBrush = Brushes.Black;
+            double axisLineEndY = yChainLocalBase + 12900 + OffsetCentralStirrupFrame.Y;
+            Brush dimBrush = Brushes.DimGray;
 
             // ==== Cấu hình hiển thị kích thước cho đoạn cam ====
             const bool ShowOrangeDims = true;     // Cho phép tắt nhanh
@@ -6753,7 +6753,7 @@ namespace RevitProjectDataAddin
                     cvs, tr, owner,
                     topTxtDraw,
                     wxTop, wyTop,
-                    dimFont, Brushes.Black,
+                    dimFont, Brushes.DimGray,
                     HAnchor.Center,
                     textAboveLine ? VAnchor.Bottom : VAnchor.Top,
                     150, "DIM"
@@ -6810,7 +6810,7 @@ namespace RevitProjectDataAddin
                 double phi = (si >= 0 && si < phiMidArray.Length) ? Math.Max(0, phiMidArray[si]) : 0.0;
 
                 string txt = $"D{phi:0}-{len:0}";
-                DrawText_Rec(cvs, tr, owner, txt, cx, y + dy, dimFont, Brushes.Black,
+                DrawText_Rec(cvs, tr, owner, txt, cx, y + dy, dimFont, Brushes.DimGray,
                              HAnchor.Center, VAnchor.Bottom, 150, "DIM");
             }
 
@@ -10873,6 +10873,10 @@ namespace RevitProjectDataAddin
 
         private void ExportPdf_Click(object sender, RoutedEventArgs e)
         {
+            ExportPdfScene_Click(sender, e);
+            return;
+
+#if false
             if (_currentSecoList?.gridbotsecozu == null || _currentSecoList.gridbotsecozu.Count == 0)
             { MessageBox.Show("Không có gì để xuất."); return; }
 
@@ -10942,6 +10946,7 @@ namespace RevitProjectDataAddin
             {
                 MessageBox.Show($"Xuất PDF thất bại: {ex.Message}");
             }
+#endif
         }
 
         private sealed class PdfExportSource
@@ -11058,7 +11063,7 @@ namespace RevitProjectDataAddin
             {
                 Text = "Chưa preview",
                 VerticalAlignment = VerticalAlignment.Center,
-                Foreground = Brushes.Black,
+                Foreground = Brushes.DimGray,
                 Margin = new Thickness(0, 0, 10, 0),
                 TextWrapping = TextWrapping.Wrap
             };
@@ -11156,7 +11161,7 @@ namespace RevitProjectDataAddin
             //{
             //    Text = $"Khổ giấy xuất: {paper} | Số bản vẽ sẽ xuất: {selectedSources.Count}",
             //    FontSize = 14,
-            //    Foreground = Brushes.Black,
+            //    Foreground = Brushes.DimGray,
             //    Margin = new Thickness(0, 0, 0, 8)
             //};
             //Grid.SetRow(summary, 1);
@@ -11174,7 +11179,7 @@ namespace RevitProjectDataAddin
                     {
                         Text = "(Chưa chọn bản vẽ nào để xuất)",
                         FontSize = 14,
-                        Foreground = Brushes.Black
+                        Foreground = Brushes.DimGray
                     }
                 };
             }
@@ -11212,7 +11217,7 @@ namespace RevitProjectDataAddin
 
                 var a4Frame = new Border
                 {
-                    BorderBrush = Brushes.Black,
+                    BorderBrush = Brushes.DimGray,
                     BorderThickness = new Thickness(1.5),
                     Width = a4FrameWidth,
                     Height = a4FrameHeight,
@@ -12068,9 +12073,9 @@ namespace RevitProjectDataAddin
                         {
                             fontPx = 12.0;
                         }
-                        var fontFamily = new FontFamily(string.IsNullOrWhiteSpace(txt.FontFamily) ? _fallbackFont : txt.FontFamily);
-                        var typeface = new Typeface(fontFamily, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
-                        var geometryPx = BuildTextGeometryPixels(txt, typeface, fontPx);
+                        string fontFamilyName = string.IsNullOrWhiteSpace(txt.FontFamily) ? _fallbackFont : txt.FontFamily;
+                        var glyphTypeface = ResolveGlyphTypeface(fontFamilyName);
+                        var geometryPx = BuildTextGeometryPixels(txt.Value, glyphTypeface, fontPx, fontFamilyName);
                         if (geometryPx == null)
                             continue;
 
@@ -12127,50 +12132,66 @@ namespace RevitProjectDataAddin
                     }
                 }
 
-                private static Geometry BuildTextGeometryPixels(DxfText txt, Typeface typeface, double fontPx)
+                private static GlyphTypeface ResolveGlyphTypeface(string fontFamilyName)
                 {
-                    Geometry geometry = null;
-                    try
+                    if (string.IsNullOrWhiteSpace(fontFamilyName))
+                        throw new InvalidOperationException("PDF outline export requires a concrete font family name.");
+
+                    var requested = fontFamilyName.Trim();
+                    var typeface = new Typeface(new FontFamily(requested), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+                    if (typeface.TryGetGlyphTypeface(out var glyphTypeface) &&
+                        GlyphTypefaceMatchesFamily(glyphTypeface, requested))
                     {
-                        double pixelsPerDip = 1.0;
-                        var app = Application.Current;
-                        if (app != null)
+                        return glyphTypeface;
+                    }
+
+                    foreach (var family in Fonts.SystemFontFamilies)
+                    {
+                        if (!string.Equals(family.Source, requested, StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        var exactTypeface = new Typeface(family, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+                        if (exactTypeface.TryGetGlyphTypeface(out glyphTypeface) &&
+                            GlyphTypefaceMatchesFamily(glyphTypeface, requested))
                         {
-                            var window = app.MainWindow;
-                            if (window != null)
-                            {
-                                pixelsPerDip = VisualTreeHelper.GetDpi(window).PixelsPerDip;
-                            }
-                        }
-
-                        geometry = new System.Windows.Media.FormattedText(txt.Value, CultureInfo.CurrentCulture,
-                            FlowDirection.LeftToRight, typeface, fontPx, Brushes.Black, null,
-                            TextFormattingMode.Display, pixelsPerDip).BuildGeometry(new Point(0, 0));
-                    }
-                    catch
-                    {
-                        geometry = null;
-                    }
-
-                    if (geometry != null && !geometry.Bounds.IsEmpty && geometry.Bounds.Width > 0 && geometry.Bounds.Height > 0)
-                    {
-                        return geometry;
-                    }
-
-                    if (typeface != null && typeface.TryGetGlyphTypeface(out var glyphTypeface))
-                    {
-                        var glyphGeometry = BuildGlyphGeometryFromTypeface(txt.Value, glyphTypeface, fontPx);
-                        if (glyphGeometry != null && !glyphGeometry.Bounds.IsEmpty &&
-                            glyphGeometry.Bounds.Width > 0 && glyphGeometry.Bounds.Height > 0)
-                        {
-                            return glyphGeometry;
+                            return glyphTypeface;
                         }
                     }
 
-                    return geometry;
+                    throw new InvalidOperationException($"PDF outline export requires installed font '{requested}'.");
                 }
 
-                private static Geometry BuildGlyphGeometryFromTypeface(string text, GlyphTypeface glyphTypeface, double fontPx)
+                private static bool GlyphTypefaceMatchesFamily(GlyphTypeface glyphTypeface, string requestedFamily)
+                {
+                    if (glyphTypeface == null || string.IsNullOrWhiteSpace(requestedFamily))
+                        return false;
+
+                    var requested = requestedFamily.Trim();
+
+                    bool Match(IDictionary<CultureInfo, string> names)
+                    {
+                        if (names == null) return false;
+                        foreach (var entry in names.Values)
+                        {
+                            if (string.Equals(entry, requested, StringComparison.OrdinalIgnoreCase))
+                                return true;
+                        }
+                        return false;
+                    }
+
+                    return Match(glyphTypeface.FamilyNames) || Match(glyphTypeface.Win32FamilyNames);
+                }
+
+                private static Geometry BuildTextGeometryPixels(string text, GlyphTypeface glyphTypeface, double fontPx, string fontFamilyName)
+                {
+                    var geometry = BuildGlyphGeometryFromTypeface(text, glyphTypeface, fontPx, fontFamilyName);
+                    if (geometry != null && !geometry.Bounds.IsEmpty && geometry.Bounds.Width > 0 && geometry.Bounds.Height > 0)
+                        return geometry;
+
+                    return null;
+                }
+
+                private static Geometry BuildGlyphGeometryFromTypeface(string text, GlyphTypeface glyphTypeface, double fontPx, string fontFamilyName)
                 {
                     if (glyphTypeface == null || string.IsNullOrEmpty(text) || fontPx <= 0)
                         return null;
@@ -12198,8 +12219,8 @@ namespace RevitProjectDataAddin
                         {
                             if (!glyphTypeface.CharacterToGlyphMap.TryGetValue(ch, out var glyphIndex))
                             {
-                                if (!glyphTypeface.CharacterToGlyphMap.TryGetValue('?', out glyphIndex))
-                                    continue;
+                                throw new InvalidOperationException(
+                                    $"Font '{fontFamilyName}' does not contain glyph for '{ch}' (U+{((int)ch):X4}).");
                             }
 
                             glyphIndices.Add(glyphIndex);
@@ -13099,7 +13120,7 @@ namespace RevitProjectDataAddin
 
                 Brush normalBg = Brushes.Transparent;
                 Brush selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-                Brush dividerBrush = Brushes.Black;
+                Brush dividerBrush = Brushes.LightGray;
 
                 UIElement WithRowDivider(UIElement child)
                 {
@@ -13146,7 +13167,7 @@ namespace RevitProjectDataAddin
                     return new Border
                     {
                         Background = Brushes.White,
-                        BorderBrush = Brushes.Black,
+                        BorderBrush = Brushes.DimGray,
                         BorderThickness = new Thickness(1.5),
                         CornerRadius = new CornerRadius(2),
                         Child = host
@@ -14486,7 +14507,7 @@ namespace RevitProjectDataAddin
 
                 Brush normalBg = Brushes.Transparent;
                 Brush selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-                Brush dividerBrush = Brushes.Black;
+                Brush dividerBrush = Brushes.LightGray;
 
                 Func<UIElement, UIElement> withRowDivider = child =>
                     new Border
@@ -14522,7 +14543,7 @@ namespace RevitProjectDataAddin
                     new Border
                     {
                         Background = Brushes.White,
-                        BorderBrush = Brushes.Black,
+                        BorderBrush = Brushes.DimGray,
                         BorderThickness = new Thickness(1.5),
                         CornerRadius = new CornerRadius(2),
                         Child = new ContentControl
@@ -14646,7 +14667,7 @@ namespace RevitProjectDataAddin
                     {
                         Text = isChecked ? "✓" : "",
                         Width = 18,
-                        Foreground = Brushes.Black,
+                        Foreground = Brushes.DimGray,
                         VerticalAlignment = VerticalAlignment.Center
                     };
 
@@ -15239,7 +15260,7 @@ namespace RevitProjectDataAddin
 
                 Brush normalBg = Brushes.Transparent;
                 Brush selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-                Brush dividerBrush = Brushes.Black;
+                Brush dividerBrush = Brushes.LightGray;
 
                 Func<UIElement, UIElement> withRowDivider = child =>
                     new Border
@@ -15275,7 +15296,7 @@ namespace RevitProjectDataAddin
                     new Border
                     {
                         Background = Brushes.White,
-                        BorderBrush = Brushes.Black,
+                        BorderBrush = Brushes.DimGray,
                         BorderThickness = new Thickness(1.5),
                         CornerRadius = new CornerRadius(2),
                         Child = new ContentControl
@@ -15398,7 +15419,7 @@ namespace RevitProjectDataAddin
                     {
                         Text = isChecked ? "✓" : "",
                         Width = 18,
-                        Foreground = Brushes.Black,
+                        Foreground = Brushes.DimGray,
                         VerticalAlignment = VerticalAlignment.Center
                     };
 
@@ -15899,7 +15920,7 @@ namespace RevitProjectDataAddin
 
             var normalBg = Brushes.Transparent;
             var selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-            var dividerBrush = Brushes.Black;
+            var dividerBrush = Brushes.LightGray;
             var win = Window.GetWindow(canvas);
 
             UIElement WithRowDivider(UIElement child)
@@ -15947,7 +15968,7 @@ namespace RevitProjectDataAddin
                 return new Border
                 {
                     Background = Brushes.White,
-                    BorderBrush = Brushes.Black,
+                    BorderBrush = Brushes.DimGray,
                     BorderThickness = new Thickness(1.5),
                     CornerRadius = new CornerRadius(2),
                     Child = host
@@ -16301,7 +16322,7 @@ namespace RevitProjectDataAddin
 
             var normalBg = Brushes.Transparent;
             var selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-            var dividerBrush = Brushes.Black;
+            var dividerBrush = Brushes.LightGray;
             var win = Window.GetWindow(canvas);
 
             UIElement WithRowDivider(UIElement child)
@@ -16349,7 +16370,7 @@ namespace RevitProjectDataAddin
                 return new Border
                 {
                     Background = Brushes.White,
-                    BorderBrush = Brushes.Black,
+                    BorderBrush = Brushes.DimGray,
                     BorderThickness = new Thickness(1.5),
                     CornerRadius = new CornerRadius(2),
                     Child = host
@@ -16727,7 +16748,7 @@ namespace RevitProjectDataAddin
 
             var normalBg = Brushes.Transparent;
             var selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-            var dividerBrush = Brushes.Black;
+            var dividerBrush = Brushes.LightGray;
             var win = Window.GetWindow(canvas);
 
             UIElement WithRowDivider(UIElement child)
@@ -16775,7 +16796,7 @@ namespace RevitProjectDataAddin
                 return new Border
                 {
                     Background = Brushes.White,
-                    BorderBrush = Brushes.Black,
+                    BorderBrush = Brushes.DimGray,
                     BorderThickness = new Thickness(1.5),
                     CornerRadius = new CornerRadius(2),
                     Child = host
@@ -17186,7 +17207,7 @@ namespace RevitProjectDataAddin
 
             var normalBg = Brushes.Transparent;
             var selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-            var dividerBrush = Brushes.Black;
+            var dividerBrush = Brushes.LightGray;
 
             UIElement WithRowDivider(UIElement child)
             {
@@ -17233,7 +17254,7 @@ namespace RevitProjectDataAddin
                 return new Border
                 {
                     Background = Brushes.White,
-                    BorderBrush = Brushes.Black,
+                    BorderBrush = Brushes.DimGray,
                     BorderThickness = new Thickness(1.5),
                     CornerRadius = new CornerRadius(2),
                     Child = host

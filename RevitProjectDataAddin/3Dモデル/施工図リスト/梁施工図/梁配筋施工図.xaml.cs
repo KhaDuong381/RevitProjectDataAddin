@@ -7,11 +7,15 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using Autodesk.Revit.DB;
+using Microsoft.Win32;
 
 namespace RevitProjectDataAddin
 {
     public partial class 梁配筋施工図 : Window
     {
+        private const double PdfSceneCanvasWidth = 1400.0;
+        private const double PdfSceneCanvasHeight = 1000.0;
+
         private Document doc;
         private readonly ProjectData _projectData;
         private 梁施工図 _currentSecoList;
@@ -143,6 +147,194 @@ namespace RevitProjectDataAddin
             _currentSecoList.gridbotsecozu = grids;
             _currentKey = key;
             // Không cần gọi Redraw ở đây – các Canvas mới sẽ tự Loaded và vẽ.
+        }
+
+        private void ExportPdfScene_Click(object sender, RoutedEventArgs e)
+        {
+            if (_currentSecoList?.gridbotsecozu == null || _currentSecoList.gridbotsecozu.Count == 0)
+            {
+                MessageBox.Show("Không có gì để xuất.");
+                return;
+            }
+
+            var dlg = new SaveFileDialog
+            {
+                Filter = "PDF files (*.pdf)|*.pdf",
+                FileName = $"{_currentSecoList.階を選択}_{_currentSecoList.通を選択}.pdf"
+            };
+            if (dlg.ShowDialog() != true) return;
+
+            try
+            {
+                var scenePages = BuildPdfScenePages();
+                PdfExporter.Export(
+                    dlg.FileName,
+                    scenePages,
+                    FontFamily?.Source ?? "Yu Mincho",
+                    GetCurrentPdfPaperSize());
+
+                MessageBox.Show("PDF exported!");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Xuất PDF thất bại: {ex.Message}");
+            }
+        }
+
+        private List<PdfScenePageData> BuildPdfScenePages()
+        {
+            var pages = new List<PdfScenePageData>();
+
+            foreach (var item in _currentSecoList.gridbotsecozu)
+            {
+                if (item == null) continue;
+
+                string key = BuildDxfGeometry(item).fileKey;
+                pages.Add(new PdfScenePageData(key, CaptureSceneForPdfExport(item, key)));
+            }
+
+            return pages;
+        }
+
+        private IReadOnlyList<object> CaptureSceneForPdfExport(GridBotsecozu item, string key)
+        {
+            if (item == null)
+                throw new ArgumentNullException(nameof(item));
+
+            var scratchCanvas = new Canvas
+            {
+                Width = PdfSceneCanvasWidth,
+                Height = PdfSceneCanvasHeight,
+                Visibility = System.Windows.Visibility.Collapsed,
+                IsHitTestVisible = false
+            };
+            scratchCanvas.Measure(new Size(PdfSceneCanvasWidth, PdfSceneCanvasHeight));
+            scratchCanvas.Arrange(new Rect(0, 0, PdfSceneCanvasWidth, PdfSceneCanvasHeight));
+            scratchCanvas.UpdateLayout();
+
+            var viewState = VS(item);
+            double zoom = viewState.Zoom;
+            double panX = viewState.PanXmm;
+            double panY = viewState.PanYmm;
+
+            try
+            {
+                // Export always records from a normalized view state so PDF is not tied to UI pan/zoom.
+                viewState.Zoom = 1.0;
+                viewState.PanXmm = 0.0;
+                viewState.PanYmm = 0.0;
+                Redraw(scratchCanvas, item);
+            }
+            finally
+            {
+                viewState.Zoom = zoom;
+                viewState.PanXmm = panX;
+                viewState.PanYmm = panY;
+            }
+
+            if (_sceneByItem.TryGetValue(item, out var scene) && scene != null && scene.Count > 0)
+                return scene.ToList();
+
+            throw new InvalidOperationException($"Scene geometry chưa sẵn sàng cho: {key}");
+        }
+
+        private PdfPaperSize GetCurrentPdfPaperSize()
+            => _projectData?.Kesan?.Printsize2 == true ? PdfPaperSize.A3 : PdfPaperSize.A4;
+
+        private sealed class PdfScenePageData
+        {
+            public PdfScenePageData(string key, IReadOnlyList<object> scene)
+            {
+                Key = string.IsNullOrWhiteSpace(key) ? "page" : key;
+                Scene = scene ?? throw new ArgumentNullException(nameof(scene));
+            }
+
+            public string Key { get; }
+            public IReadOnlyList<object> Scene { get; }
+        }
+
+        private static class PdfExporter
+        {
+            public static void Export(
+                string path,
+                IReadOnlyList<PdfScenePageData> scenePages,
+                string fallbackFont,
+                PdfPaperSize paperSize)
+            {
+                if (scenePages == null || scenePages.Count == 0)
+                    throw new ArgumentException("No scene pages to export.", nameof(scenePages));
+
+                var vectorPages = new List<PdfVectorPage>();
+                foreach (var scenePage in scenePages)
+                {
+                    CollectSceneEntities(
+                        scenePage.Scene,
+                        out var lines,
+                        out var texts,
+                        out var circles,
+                        out var arcs,
+                        out var solids);
+
+                    var page = PdfVectorBuilder.Create(
+                        scenePage.Key,
+                        lines,
+                        texts,
+                        circles,
+                        arcs,
+                        solids,
+                        fallbackFont,
+                        paperSize);
+
+                    if (page != null)
+                        vectorPages.Add(page);
+                }
+
+                if (vectorPages.Count == 0)
+                    throw new InvalidOperationException("No vector pages were created from the recorded scene.");
+
+                PdfVectorWriter.WritePdf(path, vectorPages);
+            }
+
+            private static void CollectSceneEntities(
+                IReadOnlyList<object> scene,
+                out List<DxfLine> lines,
+                out List<DxfText> texts,
+                out List<DxfCircle> circles,
+                out List<DxfArc> arcs,
+                out List<DxfSolid> solids)
+            {
+                lines = new List<DxfLine>();
+                texts = new List<DxfText>();
+                circles = new List<DxfCircle>();
+                arcs = new List<DxfArc>();
+                solids = new List<DxfSolid>();
+
+                if (scene == null) return;
+
+                foreach (var entity in scene)
+                {
+                    if (entity is SceneLine ln)
+                    {
+                        lines.Add(new DxfLine(ln.X1, ln.Y1, ln.X2, ln.Y2, ln.Layer, ln.Thickness, ln.Dash, ln.StrokeColor));
+                    }
+                    else if (entity is DxfText text)
+                    {
+                        texts.Add(text);
+                    }
+                    else if (entity is DxfCircle circle)
+                    {
+                        circles.Add(circle);
+                    }
+                    else if (entity is DxfArc arc)
+                    {
+                        arcs.Add(arc);
+                    }
+                    else if (entity is DxfSolid solid)
+                    {
+                        solids.Add(solid);
+                    }
+                }
+            }
         }
 
         private void Close(object sender, System.ComponentModel.CancelEventArgs e)
