@@ -336,7 +336,7 @@ namespace RevitProjectDataAddin
             var textColor = ColorFromBrush(color ?? Brushes.Black, Colors.Black);
             string fontFamily = this.FontFamily?.Source ?? "Yu Mincho";
             //toàn bộ text dxf
-            SceneFor(owner).Add(new DxfText(text ?? "", wx, wy + 25, effectiveHeightMm, hAlign: h, vAlign: v, rotDeg: 0,
+            SceneFor(owner).Add(new DxfText(text ?? "", wx, wy - 15, effectiveHeightMm, hAlign: h, vAlign: v, rotDeg: 0,
                                              layer: layer, style: "STANDARD", fontPx: effectiveFontPx,
                                              fontFamily: fontFamily, color: textColor, hAnchor: ha, vAnchor: va));
             return DrawTextW(c, T, text, wx, wy, effectiveFontPx, color, ha, va);
@@ -6574,8 +6574,8 @@ namespace RevitProjectDataAddin
             // ==== Cấu hình hiển thị kích thước cho đoạn cam ====
             const bool ShowOrangeDims = true;     // Cho phép tắt nhanh
             const double MinDimLen = 200.0;       // Chỉ hiển thị nếu đoạn ≥ ngưỡng (mm)
-            const double OrangeDimPrimaryTextGapMm = 20.0;
-            const double OrangeDimSecondaryTextGapMm = 0.0;
+            const double OrangeDimPrimaryTextGapMm = 30.0;
+            const double OrangeDimSecondaryTextGapMm = 30.0;
 
             // NEW: Bật/tắt chấm đen "tiền xử lý" (cm/cE2...) — MẶC ĐỊNH TẮT
             const bool ShowPreRoundCutMarks = false;
@@ -7247,7 +7247,7 @@ namespace RevitProjectDataAddin
             var (nigeUwa, nigeUwaChu1, nigeUwaChu2, nigeShitaChu2, nigeShitaChu1, nigeShita) = GetNigeValues();
 
             // ===== Hằng số khoảng cách hiển thị giá trị dưới nhãn =====
-            const double LabelDy = 250.0;
+            const double LabelDy = 200.0;
             const double ValueDy = 800.0;
             // === 3b) Thu thập dữ liệu span ===
             int spanCount = Math.Max(0, names.Count - 1);
