@@ -61,7 +61,17 @@ namespace RevitProjectDataAddin
         private static (double X, double Y) OffsetLegendColumn { get; set; } = (0, 10000);         // Offset cho ///////////// 5 chổ //////////////
         private static readonly string[] _standardRebarDiameters = { "10", "13", "16", "19", "22", "25", "29", "32", "35", "38" };
         private static readonly string[] _standardRebarDiameters1 = { "10", "13", "16", "19", "22", "25", "29", "32", "35", "38" };
-        private const double UiMarkerDotRadiusMm = 20.0; // kích thước dấu chấm tròn
+        private const double UiMarkerDotRadiusMm = 20.0; // marker dot diameter in mm
+        private const double UiTopTextOffsetY = 0.0;
+        private const double UiBottomTextOffsetY = 0.0;
+        private const double DxfTopTextOffsetY = 0;
+        private const double DxfBottomTextOffsetY = 50;
+        private const double PdfTopTextOffsetY = 30;
+        private const double PdfBottomTextOffsetY = 30.0;
+        private static readonly Brush PopupMenuBorderBrush = CreateFrozenBrush(166, 174, 184);
+        private static readonly Brush PopupMenuDividerBrush = CreateFrozenBrush(218, 223, 229);
+        private static readonly Brush PopupMenuEditorBorderBrush = CreateFrozenBrush(180, 187, 196);
+        private static readonly Thickness PopupMenuBorderThickness = new Thickness(1.0);
 
         // DIM hover/base brushes (class scope to avoid missing-variable compile issues)
         private readonly Brush dimBaseFg = Brushes.Black;
@@ -71,6 +81,7 @@ namespace RevitProjectDataAddin
         // ===== Anchor enums cho text =====
         enum HAnchor { Left, Center, Right }
         enum VAnchor { Top, Middle, Bottom }
+        enum TextOutputTarget { Ui, Dxf, Pdf }
 
         // Change the accessibility of WCTransform from private to public
         public struct WCTransform
@@ -95,6 +106,13 @@ namespace RevitProjectDataAddin
                 return solid.Color;
             }
             return fallback;
+        }
+
+        private static Brush CreateFrozenBrush(byte r, byte g, byte b)
+        {
+            var brush = new SolidColorBrush(Color.FromRgb(r, g, b));
+            if (brush.CanFreeze) brush.Freeze();
+            return brush;
         }
 
         private static bool Near(double a, double b, double eps = 0.5)
@@ -293,7 +311,7 @@ namespace RevitProjectDataAddin
             tb.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
             var sz = tb.DesiredSize;
 
-            var p = t.P(wx, wy);
+            var p = t.P(wx, wy + GetTextOffsetY(va, TextOutputTarget.Ui));
             double left = p.X, top = p.Y;
 
             switch (ha)
@@ -335,8 +353,8 @@ namespace RevitProjectDataAddin
 
             var textColor = ColorFromBrush(color ?? Brushes.Black, Colors.Black);
             string fontFamily = this.FontFamily?.Source ?? "Yu Mincho";
-            //toàn bộ text dxf
-            SceneFor(owner).Add(new DxfText(text ?? "", wx, wy - 15, effectiveHeightMm, hAlign: h, vAlign: v, rotDeg: 0,
+            // Scene keeps the source coordinates; exporter-specific offsets are applied later.
+            SceneFor(owner).Add(new DxfText(text ?? "", wx, wy, effectiveHeightMm, hAlign: h, vAlign: v, rotDeg: 0,
                                              layer: layer, style: "STANDARD", fontPx: effectiveFontPx,
                                              fontFamily: fontFamily, color: textColor, hAnchor: ha, vAnchor: va));
             return DrawTextW(c, T, text, wx, wy, effectiveFontPx, color, ha, va);
@@ -580,7 +598,7 @@ namespace RevitProjectDataAddin
 
                 Brush normalBg = Brushes.Transparent;
                 Brush selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-                Brush dividerBrush = Brushes.Black;
+                Brush dividerBrush = PopupMenuDividerBrush;
 
                 UIElement WithRowDivider(UIElement child)
                 {
@@ -627,8 +645,8 @@ namespace RevitProjectDataAddin
                     return new Border
                     {
                         Background = Brushes.White,
-                        BorderBrush = Brushes.Black,
-                        BorderThickness = new Thickness(1.5),
+                        BorderBrush = PopupMenuBorderBrush,
+                        BorderThickness = PopupMenuBorderThickness,
                         CornerRadius = new CornerRadius(2),
                         Child = host
                     };
@@ -722,7 +740,7 @@ namespace RevitProjectDataAddin
                 {
                     popupEditor.IsReadOnly = false;
                     popupEditor.BorderThickness = new Thickness(1);
-                    popupEditor.BorderBrush = Brushes.Black;
+                    popupEditor.BorderBrush = PopupMenuEditorBorderBrush;
                     popupEditor.Background = Brushes.White;
                 }
 
@@ -2739,7 +2757,7 @@ namespace RevitProjectDataAddin
                     return;
 
                 if (box.ReadLocalValue(Control.BorderBrushProperty) == DependencyProperty.UnsetValue)
-                    box.BorderBrush = Brushes.Black;
+                    box.BorderBrush = PopupMenuEditorBorderBrush;
 
                 if (box.ReadLocalValue(Control.BorderThicknessProperty) == DependencyProperty.UnsetValue)
                     box.BorderThickness = new Thickness(1);
@@ -3051,7 +3069,7 @@ namespace RevitProjectDataAddin
 
                 Brush normalBg = Brushes.Transparent;
                 Brush selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-                Brush dividerBrush = Brushes.Black;
+                Brush dividerBrush = PopupMenuDividerBrush;
 
                 const double MENU1_MIN_WIDTH = 100;
                 const double MENU2_MIN_WIDTH = 80;
@@ -3334,8 +3352,8 @@ namespace RevitProjectDataAddin
                     var box = new Border
                     {
                         Background = Brushes.White,
-                        BorderBrush = Brushes.Black,
-                        BorderThickness = new Thickness(1.5),
+                        BorderBrush = PopupMenuBorderBrush,
+                        BorderThickness = PopupMenuBorderThickness,
                         CornerRadius = new CornerRadius(2),
                         Child = host
                     };
@@ -3574,7 +3592,7 @@ namespace RevitProjectDataAddin
                         {
                             box.IsReadOnly = false;
                             box.BorderThickness = new Thickness(1);
-                            box.BorderBrush = Brushes.Black;
+                            box.BorderBrush = PopupMenuEditorBorderBrush;
                             box.Background = Brushes.White;
                         }
 
@@ -4115,7 +4133,7 @@ namespace RevitProjectDataAddin
                         {
                             box.IsReadOnly = false;
                             box.BorderThickness = new Thickness(1);
-                            box.BorderBrush = Brushes.Black;
+                            box.BorderBrush = PopupMenuEditorBorderBrush;
                             box.Background = Brushes.White;
                         }
 
@@ -5935,7 +5953,7 @@ namespace RevitProjectDataAddin
 
                 Brush normalBg = Brushes.Transparent;
                 Brush selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-                Brush dividerBrush = Brushes.Black;
+                Brush dividerBrush = PopupMenuDividerBrush;
 
                 UIElement WithRowDivider(UIElement child)
                 {
@@ -5982,8 +6000,8 @@ namespace RevitProjectDataAddin
                     return new Border
                     {
                         Background = Brushes.White,
-                        BorderBrush = Brushes.Black,
-                        BorderThickness = new Thickness(1.5),
+                        BorderBrush = PopupMenuBorderBrush,
+                        BorderThickness = PopupMenuBorderThickness,
                         CornerRadius = new CornerRadius(2),
                         Child = host
                     };
@@ -6048,7 +6066,7 @@ namespace RevitProjectDataAddin
                 {
                     editor.IsReadOnly = false;
                     editor.BorderThickness = new Thickness(1);
-                    editor.BorderBrush = Brushes.Black;
+                    editor.BorderBrush = PopupMenuEditorBorderBrush;
                     editor.Background = Brushes.White;
                 }
 
@@ -6574,8 +6592,8 @@ namespace RevitProjectDataAddin
             // ==== Cấu hình hiển thị kích thước cho đoạn cam ====
             const bool ShowOrangeDims = true;     // Cho phép tắt nhanh
             const double MinDimLen = 200.0;       // Chỉ hiển thị nếu đoạn ≥ ngưỡng (mm)
-            const double OrangeDimPrimaryTextGapMm = 30.0;
-            const double OrangeDimSecondaryTextGapMm = 30.0;
+            const double OrangeDimPrimaryTextGapMm = 10;
+            const double OrangeDimSecondaryTextGapMm = -10;
 
             // NEW: Bật/tắt chấm đen "tiền xử lý" (cm/cE2...) — MẶC ĐỊNH TẮT
             const bool ShowPreRoundCutMarks = false;
@@ -7247,7 +7265,7 @@ namespace RevitProjectDataAddin
             var (nigeUwa, nigeUwaChu1, nigeUwaChu2, nigeShitaChu2, nigeShitaChu1, nigeShita) = GetNigeValues();
 
             // ===== Hằng số khoảng cách hiển thị giá trị dưới nhãn =====
-            const double LabelDy = 200.0;
+            const double LabelDy = 250.0;
             const double ValueDy = 800.0;
             // === 3b) Thu thập dữ liệu span ===
             int spanCount = Math.Max(0, names.Count - 1);
@@ -8911,17 +8929,17 @@ namespace RevitProjectDataAddin
                         rightEdge + 1500 + offset5.X, yChainBot + 6600 + offset5.Y,
                         Brushes.Aqua, 1.2, null, "CHAIN");
             DrawText_Rec(canvas, T, item, "腹筋",
-                         leftEdge - 1300 + offset5.X, yChainBot + 6850 + offset5.Y,
-                         dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                         leftEdge - 1400 + offset5.X, yChainBot + 6850 + offset5.Y,
+                         dimFont, Brushes.Red, HAnchor.Left, VAnchor.Bottom, 150, "TEXT");
             DrawText_Rec(canvas, T, item, "STP",
-                         leftEdge - 1300 + offset5.X, yChainBot + 7850 + offset5.Y,
-                         dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                         leftEdge - 1400 + offset5.X, yChainBot + 7850 + offset5.Y,
+                         dimFont, Brushes.Red, HAnchor.Left, VAnchor.Bottom, 150, "TEXT");
             DrawText_Rec(canvas, T, item, "腹筋幅止め",
-                         leftEdge - 1300 + offset5.X, yChainBot + 9850 + offset5.Y,
-                         dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                         leftEdge - 1400 + offset5.X, yChainBot + 9850 + offset5.Y,
+                         dimFont, Brushes.Red, HAnchor.Left, VAnchor.Bottom, 150, "TEXT");
             DrawText_Rec(canvas, T, item, "中子",
-                         leftEdge - 1300 + offset5.X, yChainBot + 10850 + offset5.Y,
-                         dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                         leftEdge - 1400 + offset5.X, yChainBot + 10850 + offset5.Y,
+                         dimFont, Brushes.Red, HAnchor.Left, VAnchor.Bottom, 150, "TEXT");
             /////////// hết 5 chổ ////////////
 
 
@@ -10660,6 +10678,48 @@ namespace RevitProjectDataAddin
         }
 
         // ===== [SCENE] Build DXF từ Scene (fallback qua dữ liệu nếu Scene trống) =====
+        private static double GetTextOffsetY(VAnchor anchor, TextOutputTarget target)
+        {
+            double magnitude;
+            switch (target)
+            {
+                case TextOutputTarget.Ui:
+                    magnitude = anchor == VAnchor.Bottom ? UiTopTextOffsetY
+                              : anchor == VAnchor.Top ? UiBottomTextOffsetY
+                              : 0.0;
+                    break;
+                case TextOutputTarget.Dxf:
+                    magnitude = anchor == VAnchor.Bottom ? DxfTopTextOffsetY
+                              : anchor == VAnchor.Top ? DxfBottomTextOffsetY
+                              : 0.0;
+                    break;
+                case TextOutputTarget.Pdf:
+                    magnitude = anchor == VAnchor.Bottom ? PdfTopTextOffsetY
+                              : anchor == VAnchor.Top ? PdfBottomTextOffsetY
+                              : 0.0;
+                    break;
+                default:
+                    magnitude = 0.0;
+                    break;
+            }
+
+            if (anchor == VAnchor.Bottom)
+                return -magnitude;
+            if (anchor == VAnchor.Top)
+                return magnitude;
+            return 0.0;
+        }
+
+        private static DxfText ApplyTextOffset(DxfText text, TextOutputTarget target)
+        {
+            double offsetY = GetTextOffsetY(text.VAnchor, target);
+            if (Math.Abs(offsetY) < 1e-9)
+                return text;
+
+            text.Y += offsetY;
+            return text;
+        }
+
         private (List<DxfLine> lines, List<DxfText> texts,
              List<DxfCircle> circles, List<DxfArc> arcs,
              List<DxfSolid> solids, string fileKey)
@@ -10943,19 +11003,20 @@ namespace RevitProjectDataAddin
                 // TEXT entities (unchanged)
                 foreach (var t in texts)
                 {
-                    var y = flipY ? -t.Y : t.Y;
+                    var exportText = ApplyTextOffset(t, TextOutputTarget.Dxf);
+                    var y = flipY ? -exportText.Y : exportText.Y;
                     sw.WriteLine("0"); sw.WriteLine("TEXT");
-                    sw.WriteLine("8"); sw.WriteLine(string.IsNullOrEmpty(t.Layer) ? "TEXT" : t.Layer);
+                    sw.WriteLine("8"); sw.WriteLine(string.IsNullOrEmpty(exportText.Layer) ? "TEXT" : exportText.Layer);
                     //sw.WriteLine("7"); sw.WriteLine(string.IsNullOrEmpty(t.Style) ? "STANDARD" : t.Style);
-                    sw.WriteLine("10"); sw.WriteLine(t.X.ToString(CultureInfo.InvariantCulture));
+                    sw.WriteLine("10"); sw.WriteLine(exportText.X.ToString(CultureInfo.InvariantCulture));
                     sw.WriteLine("20"); sw.WriteLine(y.ToString(CultureInfo.InvariantCulture));
                     sw.WriteLine("30"); sw.WriteLine("0");
-                    sw.WriteLine("40"); sw.WriteLine(t.Height.ToString(CultureInfo.InvariantCulture));
-                    sw.WriteLine("1"); sw.WriteLine(t.Value ?? "");
-                    sw.WriteLine("50"); sw.WriteLine(t.RotationDeg.ToString(CultureInfo.InvariantCulture));
-                    sw.WriteLine("72"); sw.WriteLine(t.HAlign.ToString());
-                    sw.WriteLine("73"); sw.WriteLine(t.VAlign.ToString());
-                    sw.WriteLine("11"); sw.WriteLine(t.X.ToString(CultureInfo.InvariantCulture));
+                    sw.WriteLine("40"); sw.WriteLine(exportText.Height.ToString(CultureInfo.InvariantCulture));
+                    sw.WriteLine("1"); sw.WriteLine(exportText.Value ?? "");
+                    sw.WriteLine("50"); sw.WriteLine(exportText.RotationDeg.ToString(CultureInfo.InvariantCulture));
+                    sw.WriteLine("72"); sw.WriteLine(exportText.HAlign.ToString());
+                    sw.WriteLine("73"); sw.WriteLine(exportText.VAlign.ToString());
+                    sw.WriteLine("11"); sw.WriteLine(exportText.X.ToString(CultureInfo.InvariantCulture));
                     sw.WriteLine("21"); sw.WriteLine(y.ToString(CultureInfo.InvariantCulture));
                     sw.WriteLine("31"); sw.WriteLine("0");
                 }
@@ -11175,13 +11236,237 @@ namespace RevitProjectDataAddin
             public string Key { get; }
         }
 
-        private sealed class PdfExportOptions
+        private sealed class PdfPlotSettings
         {
             public PdfPaperSize PaperSize { get; set; }
+            public PdfPaperOrientation Orientation { get; set; } = PdfPaperOrientation.Landscape;
+            public double? ScaleDenominator { get; set; }
+            public string TitleText { get; set; } = "梁配筋図";
+            public string DateText { get; set; } = DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
             public List<string> SelectedKeys { get; set; } = new List<string>();
+            public bool FitToPage => !ScaleDenominator.HasValue;
         }
 
-        private PdfExportOptions ShowPdfExportOptionsDialog(IReadOnlyList<PdfExportSource> sources)
+        private sealed class PdfPageLayoutPlan
+        {
+            public double PageWidthMm { get; set; }
+            public double PageHeightMm { get; set; }
+            public double PrintableWidthMm { get; set; }
+            public double PrintableHeightMm { get; set; }
+            public double ScaleMmPerMm { get; set; }
+            public double MarginLeftMm { get; set; }
+            public double MarginBottomMm { get; set; }
+            public double PaperMarginLeftMm { get; set; }
+            public double PaperMarginRightMm { get; set; }
+            public double PaperMarginTopMm { get; set; }
+            public double PaperMarginBottomMm { get; set; }
+            public double FrameLeftMm { get; set; }
+            public double FrameBottomMm { get; set; }
+            public double FrameWidthMm { get; set; }
+            public double FrameHeightMm { get; set; }
+            public double ContentLeftMm { get; set; }
+            public double ContentBottomMm { get; set; }
+            public double ContentWidthMm { get; set; }
+            public double ContentHeightMm { get; set; }
+            public double TitleBlockLeftMm { get; set; }
+            public double TitleBlockBottomMm { get; set; }
+            public double TitleBlockWidthMm { get; set; }
+            public double TitleBlockHeightMm { get; set; }
+            public double UsedWidthMm { get; set; }
+            public double UsedHeightMm { get; set; }
+            public bool FitsContent { get; set; }
+            public bool IsClipped => !FitsContent;
+            public bool IsPortrait { get; set; }
+            public string OrientationLabel => IsPortrait ? "Portrait" : "Landscape";
+        }
+
+        private static string GetPdfPaperDisplayText(PdfPaperSize paperSize)
+            => paperSize == PdfPaperSize.A3 ? "A3" : "A4";
+
+        private static string GetPdfOrientationDisplayText(PdfPaperOrientation orientation)
+            => orientation == PdfPaperOrientation.Portrait ? "Portrait" : "Landscape";
+
+        private static string GetPdfScaleDisplayText(double? scaleDenominator)
+            => scaleDenominator.HasValue ? $"1:{scaleDenominator.Value:0}" : "Fit to page";
+
+        private static string GetPdfScaleDisplayText(PdfPlotSettings settings, PdfPageLayoutPlan layout)
+        {
+            if (layout == null || layout.ScaleMmPerMm <= 0 || double.IsNaN(layout.ScaleMmPerMm) || double.IsInfinity(layout.ScaleMmPerMm))
+                return GetPdfScaleDisplayText(settings?.ScaleDenominator);
+
+            double effectiveDenominator = 1.0 / layout.ScaleMmPerMm;
+            if (settings?.FitToPage == true)
+                return $"Fit to page (≈ 1:{effectiveDenominator:0.##})";
+
+            return $"1:{effectiveDenominator:0.##}";
+        }
+
+        private static (double WidthMm, double HeightMm) GetPdfPaperBaseSizeMm(PdfPaperSize paperSize)
+            => paperSize == PdfPaperSize.A3 ? (420.0, 297.0) : (297.0, 210.0);
+
+        private static PdfPageLayoutPlan ResolvePdfPageLayout(
+            PdfPaperSize paperSize,
+            PdfPaperOrientation orientation,
+            double contentWidthMm,
+            double contentHeightMm,
+            double? scaleDenominator)
+        {
+            const double paperMarginLeftMm = 20.0;
+            const double paperMarginRightMm = 10.0;
+            const double paperMarginTopMm = 10.0;
+            const double paperMarginBottomMm = 10.0;
+            const double titleBlockHeightMm = 0.0;
+
+            contentWidthMm = Math.Max(1.0, contentWidthMm);
+            contentHeightMm = Math.Max(1.0, contentHeightMm);
+
+            PdfPageLayoutPlan Evaluate(double pageWidthMm, double pageHeightMm, bool isPortrait)
+            {
+                double frameLeft = paperMarginLeftMm;
+                double frameBottom = paperMarginBottomMm;
+                double frameWidth = Math.Max(1.0, pageWidthMm - paperMarginLeftMm - paperMarginRightMm);
+                double frameHeight = Math.Max(1.0, pageHeightMm - paperMarginTopMm - paperMarginBottomMm);
+
+                double contentLeft = frameLeft;
+                double contentBottom = frameBottom;
+                double printableWidth = frameWidth;
+                double printableHeight = frameHeight;
+
+                double scaleMmPerMm;
+                bool fitsContent;
+                if (scaleDenominator.HasValue && scaleDenominator.Value > 0)
+                {
+                    scaleMmPerMm = 1.0 / scaleDenominator.Value;
+                    fitsContent = contentWidthMm * scaleMmPerMm <= printableWidth + 1e-6
+                               && contentHeightMm * scaleMmPerMm <= printableHeight + 1e-6;
+                }
+                else
+                {
+                    scaleMmPerMm = Math.Min(printableWidth / contentWidthMm, printableHeight / contentHeightMm);
+                    fitsContent = true;
+                }
+
+                if (scaleMmPerMm <= 0 || double.IsNaN(scaleMmPerMm) || double.IsInfinity(scaleMmPerMm))
+                    scaleMmPerMm = 1.0;
+
+                double usedWidth = contentWidthMm * scaleMmPerMm;
+                double usedHeight = contentHeightMm * scaleMmPerMm;
+                double marginLeft = contentLeft + Math.Max(0.0, (printableWidth - usedWidth) / 2.0);
+                double marginBottom = contentBottom + Math.Max(0.0, (printableHeight - usedHeight) / 2.0);
+
+                return new PdfPageLayoutPlan
+                {
+                    PageWidthMm = pageWidthMm,
+                    PageHeightMm = pageHeightMm,
+                    PrintableWidthMm = printableWidth,
+                    PrintableHeightMm = printableHeight,
+                    ScaleMmPerMm = scaleMmPerMm,
+                    MarginLeftMm = marginLeft,
+                    MarginBottomMm = marginBottom,
+                    PaperMarginLeftMm = paperMarginLeftMm,
+                    PaperMarginRightMm = paperMarginRightMm,
+                    PaperMarginTopMm = paperMarginTopMm,
+                    PaperMarginBottomMm = paperMarginBottomMm,
+                    FrameLeftMm = frameLeft,
+                    FrameBottomMm = frameBottom,
+                    FrameWidthMm = frameWidth,
+                    FrameHeightMm = frameHeight,
+                    ContentLeftMm = contentLeft,
+                    ContentBottomMm = contentBottom,
+                    ContentWidthMm = printableWidth,
+                    ContentHeightMm = printableHeight,
+                    TitleBlockLeftMm = frameLeft,
+                    TitleBlockBottomMm = frameBottom,
+                    TitleBlockWidthMm = frameWidth,
+                    TitleBlockHeightMm = titleBlockHeightMm,
+                    UsedWidthMm = usedWidth,
+                    UsedHeightMm = usedHeight,
+                    FitsContent = fitsContent,
+                    IsPortrait = isPortrait
+                };
+            }
+
+            var baseSize = GetPdfPaperBaseSizeMm(paperSize);
+            bool usePortrait = orientation == PdfPaperOrientation.Portrait;
+            return usePortrait
+                ? Evaluate(baseSize.HeightMm, baseSize.WidthMm, isPortrait: true)
+                : Evaluate(baseSize.WidthMm, baseSize.HeightMm, isPortrait: false);
+        }
+
+        private static string BuildPdfPlotStatusText(PdfPlotSettings settings, PdfPageLayoutPlan layout)
+        {
+            if (settings == null || layout == null)
+                return string.Empty;
+
+            string summary = $"Khổ {GetPdfPaperDisplayText(settings.PaperSize)} {layout.OrientationLabel} | Scale {GetPdfScaleDisplayText(settings, layout)}";
+            if (!layout.IsClipped)
+                return $"{summary}\nNội dung nằm trong vùng in {layout.PrintableWidthMm:0.#} x {layout.PrintableHeightMm:0.#} mm.";
+
+            return $"{summary}\nCảnh báo: nội dung vượt khổ in và sẽ bị cắt, không tự fit lại.";
+        }
+
+        private static Rect PdfRectMmToPreviewPx(double leftMm, double bottomMm, double widthMm, double heightMm, double pageHeightMm, double mmToPx)
+        {
+            return new Rect(
+                leftMm * mmToPx,
+                (pageHeightMm - bottomMm - heightMm) * mmToPx,
+                widthMm * mmToPx,
+                heightMm * mmToPx);
+        }
+
+        private static void DrawPdfPlotPreviewFrame(DrawingContext dc, PdfPageLayoutPlan layout, PdfPlotSettings settings, string pageNumber, double mmToPx)
+        {
+            var outerRect = new Rect(0, 0, layout.PageWidthMm * mmToPx, layout.PageHeightMm * mmToPx);
+            var frameRect = PdfRectMmToPreviewPx(layout.FrameLeftMm, layout.FrameBottomMm, layout.FrameWidthMm, layout.FrameHeightMm, layout.PageHeightMm, mmToPx);
+            var titleRect = PdfRectMmToPreviewPx(layout.TitleBlockLeftMm, layout.TitleBlockBottomMm, layout.TitleBlockWidthMm, layout.TitleBlockHeightMm, layout.PageHeightMm, mmToPx);
+
+            dc.DrawRectangle(null, new Pen(Brushes.Black, 1.2), outerRect);
+            dc.DrawRectangle(null, new Pen(Brushes.Black, 1.0), frameRect);
+            dc.DrawRectangle(null, new Pen(Brushes.Black, 1.0), titleRect);
+
+            double noWidthMm = 28.0;
+            double dateWidthMm = 38.0;
+            double scaleWidthMm = 28.0;
+            double titleWidthMm = Math.Max(40.0, layout.TitleBlockWidthMm - noWidthMm - dateWidthMm - scaleWidthMm);
+
+            double x1 = titleRect.X + titleWidthMm * mmToPx;
+            double x2 = x1 + scaleWidthMm * mmToPx;
+            double x3 = x2 + dateWidthMm * mmToPx;
+            double yMid = titleRect.Y + Math.Min(titleRect.Height * 0.38, 12.0 * mmToPx);
+
+            var gridPen = new Pen(Brushes.Black, 0.8);
+            dc.DrawLine(gridPen, new Point(x1, titleRect.Y), new Point(x1, titleRect.Bottom));
+            dc.DrawLine(gridPen, new Point(x2, titleRect.Y), new Point(x2, titleRect.Bottom));
+            dc.DrawLine(gridPen, new Point(x3, titleRect.Y), new Point(x3, titleRect.Bottom));
+            dc.DrawLine(gridPen, new Point(titleRect.X, yMid), new Point(titleRect.Right, yMid));
+
+            DrawPdfPlotPreviewTitleCell(dc, new Rect(titleRect.X, titleRect.Y, x1 - titleRect.X, titleRect.Height), "TITLE", settings?.TitleText ?? "梁配筋図");
+            DrawPdfPlotPreviewTitleCell(dc, new Rect(x1, titleRect.Y, x2 - x1, titleRect.Height), "SCALE", GetPdfScaleDisplayText(settings, layout));
+            DrawPdfPlotPreviewTitleCell(dc, new Rect(x2, titleRect.Y, x3 - x2, titleRect.Height), "DATE", settings?.DateText ?? DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            DrawPdfPlotPreviewTitleCell(dc, new Rect(x3, titleRect.Y, titleRect.Right - x3, titleRect.Height), "NO.", pageNumber ?? "-");
+        }
+
+        private static void DrawPdfPlotPreviewTitleCell(DrawingContext dc, Rect rect, string label, string value)
+        {
+            if (rect.Width <= 2 || rect.Height <= 2)
+                return;
+
+            var labelText = new FormattedText(label ?? string.Empty, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+                new Typeface(new FontFamily("Yu Gothic UI"), FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal),
+                8.0, Brushes.Black, 1.0);
+            var valueText = new FormattedText(value ?? string.Empty, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+                new Typeface(new FontFamily("Yu Gothic UI"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal),
+                10.0, Brushes.Black, 1.0)
+            {
+                Trimming = TextTrimming.CharacterEllipsis,
+                MaxTextWidth = Math.Max(4.0, rect.Width - 6.0)
+            };
+
+            dc.DrawText(labelText, new Point(rect.X + 3.0, rect.Y + 1.5));
+            dc.DrawText(valueText, new Point(rect.X + 3.0, rect.Y + rect.Height * 0.42));
+        }
+
+        private PdfPlotSettings ShowPdfExportOptionsDialog(IReadOnlyList<PdfExportSource> sources)
         {
             var optionWindow = new Window
             {
@@ -11293,7 +11578,7 @@ namespace RevitProjectDataAddin
             Grid.SetColumn(cancelButton, 3);
             footer.Children.Add(cancelButton);
 
-            PdfExportOptions result = null;
+            PdfPlotSettings result = null;
 
             previewButton.Click += (s, e) =>
             {
@@ -11317,7 +11602,7 @@ namespace RevitProjectDataAddin
                     return;
                 }
 
-                result = new PdfExportOptions
+                result = new PdfPlotSettings
                 {
                     PaperSize = ((paperCombo.SelectedItem as string) == "A3") ? PdfPaperSize.A3 : PdfPaperSize.A4,
                     SelectedKeys = selected
@@ -11524,7 +11809,7 @@ namespace RevitProjectDataAddin
             int pixelWidth = Math.Max(1, (int)Math.Round(pageMmWidth * mmToPx));
             int pixelHeight = Math.Max(1, (int)Math.Round(pageMmHeight * mmToPx));
 
-            if (!TryGetSceneBounds(scene, out double minX, out double minY, out double maxX, out double maxY))
+            if (!TryGetSceneBounds(scene, TextOutputTarget.Pdf, out double minX, out double minY, out double maxX, out double maxY))
             {
                 return CreateCanvasPreviewImageSource(src.Canvas);
             }
@@ -11586,7 +11871,7 @@ namespace RevitProjectDataAddin
                     }
                     else if (entity is DxfText tx)
                     {
-                        DrawDxfTextToReview(dc, tx, maxX, minY, scale, offsetX, offsetY, mmToPx);
+                        DrawDxfTextToReview(dc, tx, maxX, minY, scale, offsetX, offsetY, mmToPx, TextOutputTarget.Pdf);
                     }
                 }
             }
@@ -11594,6 +11879,588 @@ namespace RevitProjectDataAddin
             var rtb = new RenderTargetBitmap(pixelWidth, pixelHeight, 96, 96, PixelFormats.Pbgra32);
             rtb.Render(visual);
             return rtb;
+        }
+
+        private PdfPlotSettings ShowPdfPlotDialog(IReadOnlyList<PdfExportSource> sources)
+        {
+            var optionWindow = new Window
+            {
+                Owner = this,
+                Title = "Print / Plot PDF",
+                Width = 1180,
+                Height = 1000,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                ResizeMode = ResizeMode.NoResize, // 👈 KHÓA
+                Background = Brushes.White
+            };
+
+            var root = new Grid { Margin = new Thickness(16) };
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            optionWindow.Content = root;
+
+            var title = new TextBlock
+            {
+                Text = "Print / Plot PDF",
+                FontSize = 22,
+                FontWeight = FontWeights.Bold,
+                Margin = new Thickness(0, 0, 0, 12)
+            };
+            root.Children.Add(title);
+
+            var controlPanel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 12) };
+            Grid.SetRow(controlPanel, 1);
+
+            controlPanel.Children.Add(new TextBlock
+            {
+                Text = "Khổ giấy:",
+                Width = 80,
+                VerticalAlignment = VerticalAlignment.Center,
+                FontSize = 14
+            });
+
+            var paperCombo = new ComboBox { Width = 120, FontSize = 14, Margin = new Thickness(0, 0, 20, 0) };
+            paperCombo.Items.Add("A4");
+            paperCombo.Items.Add("A3");
+            paperCombo.SelectedItem = _projectData?.Kesan?.Printsize2 == true ? "A3" : "A4";
+            controlPanel.Children.Add(paperCombo);
+            controlPanel.Children.Add(new TextBlock
+            {
+                Text = "Hướng:",
+                Width = 65,
+                VerticalAlignment = VerticalAlignment.Center,
+                FontSize = 14
+            });
+
+            var orientationCombo = new ComboBox { Width = 110, FontSize = 14, Margin = new Thickness(0, 0, 20, 0) };
+            orientationCombo.Items.Add("Ngang");
+            orientationCombo.Items.Add("Dọc");
+            orientationCombo.SelectedItem = "Ngang";
+            controlPanel.Children.Add(orientationCombo);
+
+            controlPanel.Children.Add(new TextBlock
+            {
+                Text = "Tỉ lệ:",
+                Width = 50,
+                VerticalAlignment = VerticalAlignment.Center,
+                FontSize = 14
+            });
+
+            var scaleCombo = new ComboBox { Width = 150, FontSize = 14 };
+            scaleCombo.Items.Add("Custom...");
+            scaleCombo.Items.Add("Fit to page");
+            scaleCombo.Items.Add("1:1");
+            scaleCombo.Items.Add("1:2");
+            scaleCombo.Items.Add("1:5");
+            scaleCombo.Items.Add("1:10");
+            scaleCombo.Items.Add("1:20");
+            scaleCombo.Items.Add("1:25");
+            scaleCombo.Items.Add("1:50");
+            scaleCombo.Items.Add("1:100");
+            scaleCombo.Items.Add("1:200");
+            scaleCombo.SelectedItem = "Fit to page";
+            controlPanel.Children.Add(scaleCombo);
+
+            var customScalePrefix = new TextBlock
+            {
+                Text = "1:",
+                Margin = new Thickness(8, 0, 4, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                FontSize = 14,
+                Visibility = System.Windows.Visibility.Collapsed
+            };
+            controlPanel.Children.Add(customScalePrefix);
+
+            var customScaleBox = new TextBox
+            {
+                Width = 90,
+                FontSize = 14,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                Visibility = System.Windows.Visibility.Collapsed,
+                ToolTip = "Nhập mẫu số tỉ lệ, ví dụ 75 cho 1:75"
+            };
+            controlPanel.Children.Add(customScaleBox);
+
+            root.Children.Add(controlPanel);
+
+            var bodyGrid = new Grid();
+            bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(280) });
+            bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            Grid.SetRow(bodyGrid, 2);
+            root.Children.Add(bodyGrid);
+
+            var positionPanel = new Grid();
+            positionPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            positionPanel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            bodyGrid.Children.Add(positionPanel);
+
+            positionPanel.Children.Add(new TextBlock
+            {
+                Text = "Phạm vi in (theo vị trí chọn):",
+                FontSize = 14,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 6)
+            });
+
+            var positionList = new ListBox
+            {
+                SelectionMode = SelectionMode.Extended,
+                BorderBrush = Brushes.Silver,
+                BorderThickness = new Thickness(1),
+                FontSize = 13
+            };
+            foreach (var src in sources)
+                positionList.Items.Add(src.Key);
+            positionList.SelectAll();
+            positionList.SelectedIndex = positionList.Items.Count > 0 ? 0 : -1;
+            Grid.SetRow(positionList, 1);
+            positionPanel.Children.Add(positionList);
+
+            var previewPanel = new Grid { Margin = new Thickness(16, 0, 0, 0) };
+            previewPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            previewPanel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            previewPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            Grid.SetColumn(previewPanel, 1);
+            bodyGrid.Children.Add(previewPanel);
+
+            var previewTitle = new TextBlock
+            {
+                Text = "Preview",
+                FontSize = 14,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 8)
+            };
+            previewPanel.Children.Add(previewTitle);
+
+            var previewHost = new Border
+            {
+                BorderBrush = Brushes.Silver,
+                BorderThickness = new Thickness(1),
+                Background = new SolidColorBrush(Color.FromRgb(245, 247, 249)),
+                Padding = new Thickness(16)
+            };
+            Grid.SetRow(previewHost, 1);
+            previewPanel.Children.Add(previewHost);
+
+            var previewCanvas = new Grid
+            {
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            previewHost.Child = previewCanvas;
+
+            var previewPageFrame = new Border
+            {
+                Background = Brushes.White,
+                BorderBrush = Brushes.Black,
+                BorderThickness = new Thickness(1),
+                SnapsToDevicePixels = true
+            };
+            var previewImage = new Image
+            {
+                Stretch = Stretch.Fill,
+                SnapsToDevicePixels = true
+            };
+            previewPageFrame.Child = previewImage;
+            previewCanvas.Children.Add(previewPageFrame);
+
+            var previewInfo = new TextBlock
+            {
+                Text = "Chưa có preview",
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 8, 0, 0)
+            };
+            Grid.SetRow(previewInfo, 2);
+            previewPanel.Children.Add(previewInfo);
+
+            var footer = new Grid { Margin = new Thickness(0, 12, 0, 0) };
+            footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetRow(footer, 3);
+            root.Children.Add(footer);
+
+            var summaryText = new TextBlock
+            {
+                VerticalAlignment = VerticalAlignment.Center,
+                Foreground = Brushes.Black,
+                Margin = new Thickness(0, 0, 10, 0),
+                TextWrapping = TextWrapping.Wrap
+            };
+            footer.Children.Add(summaryText);
+
+            var exportButton = new Button { Content = "Xuất", Width = 90, Height = 30, Margin = new Thickness(0, 0, 8, 0) };
+            Grid.SetColumn(exportButton, 1);
+            footer.Children.Add(exportButton);
+
+            var cancelButton = new Button { Content = "Hủy", Width = 90, Height = 30 };
+            Grid.SetColumn(cancelButton, 2);
+            footer.Children.Add(cancelButton);
+
+            PdfPlotSettings result = null;
+
+            bool IsCustomScaleSelected()
+                => string.Equals(scaleCombo.SelectedItem as string, "Custom...", StringComparison.OrdinalIgnoreCase);
+
+            bool TryGetSelectedScaleDenominator(out double? scaleDenominator)
+            {
+                scaleDenominator = null;
+                var selectedScale = (scaleCombo.SelectedItem as string) ?? "Fit to page";
+
+                if (string.Equals(selectedScale, "Fit to page", StringComparison.OrdinalIgnoreCase))
+                    return true;
+
+                if (string.Equals(selectedScale, "Custom...", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (double.TryParse((customScaleBox.Text ?? string.Empty).Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var customScale) &&
+                        customScale > 0)
+                    {
+                        scaleDenominator = customScale;
+                        return true;
+                    }
+
+                    return false;
+                }
+
+                if (selectedScale.StartsWith("1:", StringComparison.OrdinalIgnoreCase) &&
+                    double.TryParse(selectedScale.Substring(2), NumberStyles.Float, CultureInfo.InvariantCulture, out var scaleValue) &&
+                    scaleValue > 0)
+                {
+                    scaleDenominator = scaleValue;
+                    return true;
+                }
+
+                return false;
+            }
+
+            PdfPlotSettings BuildCurrentSettings()
+            {
+                TryGetSelectedScaleDenominator(out var scaleDenominator);
+                string floor = _currentSecoList?.階を選択 ?? string.Empty;
+                string axis = _currentSecoList?.通を選択 ?? string.Empty;
+                string titleText = string.Join(" ", new[] { floor, axis, "梁配筋図" }.Where(s => !string.IsNullOrWhiteSpace(s)));
+                return new PdfPlotSettings
+                {
+                    PaperSize = ((paperCombo.SelectedItem as string) == "A3") ? PdfPaperSize.A3 : PdfPaperSize.A4,
+                    Orientation = ((orientationCombo.SelectedItem as string) == "Dọc") ? PdfPaperOrientation.Portrait : PdfPaperOrientation.Landscape,
+                    ScaleDenominator = scaleDenominator,
+                    TitleText = string.IsNullOrWhiteSpace(titleText) ? "梁配筋図" : titleText,
+                    DateText = DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                    SelectedKeys = positionList.SelectedItems.Cast<string>().ToList()
+                };
+            }
+
+            void UpdatePreview()
+            {
+                if (_projectData?.Kesan != null)
+                {
+                    var selectedPaper = (paperCombo.SelectedItem as string) ?? "A4";
+                    _projectData.Kesan.Printsize1 = selectedPaper == "A4";
+                    _projectData.Kesan.Printsize2 = selectedPaper == "A3";
+                }
+
+                var customScaleVisibility = IsCustomScaleSelected() ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+                customScalePrefix.Visibility = customScaleVisibility;
+                customScaleBox.Visibility = customScaleVisibility;
+
+                var currentSettings = BuildCurrentSettings();
+                bool hasValidScale = TryGetSelectedScaleDenominator(out var validatedScale);
+                currentSettings.ScaleDenominator = validatedScale;
+                exportButton.IsEnabled = hasValidScale;
+                summaryText.Text = $"Khổ {GetPdfPaperDisplayText(currentSettings.PaperSize)} {GetPdfOrientationDisplayText(currentSettings.Orientation)} | Scale {GetPdfScaleDisplayText(currentSettings.ScaleDenominator)} | Chọn {currentSettings.SelectedKeys.Count}/{sources.Count} vị trí";
+
+                var currentKey = positionList.SelectedItem as string;
+                if (string.IsNullOrWhiteSpace(currentKey))
+                    currentKey = currentSettings.SelectedKeys.FirstOrDefault();
+
+                var currentSource = sources.FirstOrDefault(src => string.Equals(src.Key, currentKey, StringComparison.Ordinal));
+                if (currentSource == null)
+                {
+                    previewTitle.Text = "Preview";
+                    previewImage.Source = null;
+                    previewInfo.Text = "Chọn một vị trí để xem preview.";
+                    return;
+                }
+
+                if (!hasValidScale)
+                {
+                    previewTitle.Text = $"Preview: {currentSource.Key}";
+                    previewImage.Source = null;
+                    previewInfo.Text = "Scale custom chưa hợp lệ. Nhập mẫu số dương, ví dụ 75 cho 1:75.";
+                    return;
+                }
+
+                previewTitle.Text = $"Preview: {currentSource.Key}";
+                var previewSource = CreatePdfPlotPreviewImageSource(currentSource, currentSettings, out var layout);
+                previewImage.Source = previewSource;
+                summaryText.Text = $"Khổ {GetPdfPaperDisplayText(currentSettings.PaperSize)} {GetPdfOrientationDisplayText(currentSettings.Orientation)} | Scale {GetPdfScaleDisplayText(currentSettings, layout)} | Chọn {currentSettings.SelectedKeys.Count}/{sources.Count} vị trí";
+                previewInfo.Text = BuildPdfPlotStatusText(currentSettings, layout);
+
+                const double maxFrameWidth = 620.0;
+                const double maxFrameHeight = 700.0;
+                double previewScale = Math.Min(maxFrameWidth / Math.Max(1.0, layout.PageWidthMm),
+                                               maxFrameHeight / Math.Max(1.0, layout.PageHeightMm));
+                if (double.IsNaN(previewScale) || double.IsInfinity(previewScale) || previewScale <= 0)
+                    previewScale = 1.0;
+
+                previewPageFrame.Width = layout.PageWidthMm * previewScale;
+                previewPageFrame.Height = layout.PageHeightMm * previewScale;
+            }
+
+            exportButton.Click += (s, e) =>
+            {
+                var selected = positionList.SelectedItems.Cast<string>().ToList();
+                if (selected.Count == 0)
+                {
+                    MessageBox.Show(optionWindow, "Vui lòng chọn ít nhất 1 vị trí để in.");
+                    return;
+                }
+
+                result = BuildCurrentSettings();
+                if (!TryGetSelectedScaleDenominator(out var validatedScale))
+                {
+                    MessageBox.Show(optionWindow, "Scale custom chưa hợp lệ. Nhập mẫu số dương, ví dụ 75 cho 1:75.");
+                    return;
+                }
+                result.ScaleDenominator = validatedScale;
+
+                if (!result.FitToPage)
+                {
+                    var clippedKeys = new List<string>();
+                    foreach (var src in sources.Where(source => selected.Contains(source.Key)))
+                    {
+                        try
+                        {
+                            var scene = CaptureSceneForPdfExport(src.Item, src.Key);
+                            if (TryGetSceneBounds(scene, TextOutputTarget.Pdf, out double minX, out double minY, out double maxX, out double maxY))
+                            {
+                                var layout = ResolvePdfPageLayout(result.PaperSize, result.Orientation, maxX - minX, maxY - minY, result.ScaleDenominator);
+                                if (layout.IsClipped)
+                                    clippedKeys.Add(src.Key);
+                            }
+                        }
+                        catch
+                        {
+                            clippedKeys.Add(src.Key);
+                        }
+                    }
+
+                    if (clippedKeys.Count > 0)
+                    {
+                        var warning = "Một số bản vẽ không vừa khổ giấy ở scale đã chọn và sẽ bị cắt:\n- "
+                                      + string.Join("\n- ", clippedKeys.Take(5))
+                                      + (clippedKeys.Count > 5 ? $"\n... và {clippedKeys.Count - 5} bản vẽ khác" : "")
+                                      + "\n\nTiếp tục xuất PDF?";
+                        if (MessageBox.Show(optionWindow, warning, "Cảnh báo plot", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+                            return;
+                    }
+                }
+
+                optionWindow.DialogResult = true;
+                optionWindow.Close();
+            };
+
+            cancelButton.Click += (s, e) =>
+            {
+                optionWindow.DialogResult = false;
+                optionWindow.Close();
+            };
+
+            paperCombo.SelectionChanged += (_, __) => UpdatePreview();
+            orientationCombo.SelectionChanged += (_, __) => UpdatePreview();
+            scaleCombo.SelectionChanged += (_, __) => UpdatePreview();
+            customScaleBox.TextChanged += (_, __) => UpdatePreview();
+            positionList.SelectionChanged += (_, __) => UpdatePreview();
+
+            UpdatePreview();
+
+            var dialogResult = optionWindow.ShowDialog();
+            return dialogResult == true ? result : null;
+        }
+
+        private ImageSource CreatePdfPlotPreviewImageSource(PdfExportSource src, PdfPlotSettings settings, out PdfPageLayoutPlan layout)
+        {
+            var defaultPaperSize = GetPdfPaperBaseSizeMm(settings?.PaperSize ?? PdfPaperSize.A4);
+            bool defaultPortrait = settings?.Orientation == PdfPaperOrientation.Portrait;
+            layout = new PdfPageLayoutPlan
+            {
+                PageWidthMm = defaultPortrait ? defaultPaperSize.HeightMm : defaultPaperSize.WidthMm,
+                PageHeightMm = defaultPortrait ? defaultPaperSize.WidthMm : defaultPaperSize.HeightMm,
+                PrintableWidthMm = Math.Max(1.0, (defaultPortrait ? defaultPaperSize.HeightMm : defaultPaperSize.WidthMm) - 30.0),
+                PrintableHeightMm = Math.Max(1.0, (defaultPortrait ? defaultPaperSize.WidthMm : defaultPaperSize.HeightMm) - 20.0),
+                ScaleMmPerMm = 1.0,
+                MarginLeftMm = 20.0,
+                MarginBottomMm = 10.0,
+                PaperMarginLeftMm = 20.0,
+                PaperMarginRightMm = 10.0,
+                PaperMarginTopMm = 10.0,
+                PaperMarginBottomMm = 10.0,
+                FrameLeftMm = 20.0,
+                FrameBottomMm = 10.0,
+                FrameWidthMm = Math.Max(1.0, (defaultPortrait ? defaultPaperSize.HeightMm : defaultPaperSize.WidthMm) - 30.0),
+                FrameHeightMm = Math.Max(1.0, (defaultPortrait ? defaultPaperSize.WidthMm : defaultPaperSize.HeightMm) - 20.0),
+                ContentLeftMm = 20.0,
+                ContentBottomMm = 10.0,
+                ContentWidthMm = Math.Max(1.0, (defaultPortrait ? defaultPaperSize.HeightMm : defaultPaperSize.WidthMm) - 30.0),
+                ContentHeightMm = Math.Max(1.0, (defaultPortrait ? defaultPaperSize.WidthMm : defaultPaperSize.HeightMm) - 20.0),
+                TitleBlockLeftMm = 20.0,
+                TitleBlockBottomMm = 10.0,
+                TitleBlockWidthMm = Math.Max(1.0, (defaultPortrait ? defaultPaperSize.HeightMm : defaultPaperSize.WidthMm) - 30.0),
+                TitleBlockHeightMm = 0.0,
+                UsedWidthMm = 0.0,
+                UsedHeightMm = 0.0,
+                FitsContent = true,
+                IsPortrait = defaultPortrait
+            };
+
+            if (src == null || settings == null)
+                return null;
+
+            IReadOnlyList<object> scene;
+            try
+            {
+                scene = CaptureSceneForPdfExport(src.Item, src.Key);
+            }
+            catch
+            {
+                return CreateCanvasPreviewImageSource(src.Canvas);
+            }
+
+            if (scene == null || !TryGetSceneBounds(scene, TextOutputTarget.Pdf, out double minX, out double minY, out double maxX, out double maxY))
+                return CreateCanvasPreviewImageSource(src.Canvas);
+
+            layout = ResolvePdfPageLayout(settings.PaperSize, settings.Orientation, maxX - minX, maxY - minY, settings.ScaleDenominator);
+
+            const double mmToPx = 96.0 / 25.4;
+            int pixelWidth = Math.Max(1, (int)Math.Round(layout.PageWidthMm * mmToPx));
+            int pixelHeight = Math.Max(1, (int)Math.Round(layout.PageHeightMm * mmToPx));
+
+            var visual = new DrawingVisual();
+            using (var dc = visual.RenderOpen())
+            {
+                dc.DrawRectangle(Brushes.White, null, new Rect(0, 0, pixelWidth, pixelHeight));
+                var contentRect = PdfRectMmToPreviewPx(
+                    layout.ContentLeftMm,
+                    layout.ContentBottomMm,
+                    layout.ContentWidthMm,
+                    layout.ContentHeightMm,
+                    layout.PageHeightMm,
+                    mmToPx);
+                dc.DrawRectangle(null, new Pen(new SolidColorBrush(Color.FromRgb(176, 182, 190)), 1.2), contentRect);
+                dc.PushClip(new RectangleGeometry(contentRect));
+                foreach (var entity in scene)
+                {
+                    if (entity is SceneLine ln)
+                    {
+                        var pen = new Pen(new SolidColorBrush(ln.StrokeColor), Math.Max(1.0, ln.Thickness));
+                        dc.DrawLine(pen,
+                            WorldToPdfPlotPreviewPoint(ln.X1, ln.Y1, minX, maxY, layout.PageHeightMm, layout.ScaleMmPerMm, layout.MarginLeftMm, layout.MarginBottomMm, mmToPx),
+                            WorldToPdfPlotPreviewPoint(ln.X2, ln.Y2, minX, maxY, layout.PageHeightMm, layout.ScaleMmPerMm, layout.MarginLeftMm, layout.MarginBottomMm, mmToPx));
+                    }
+                    else if (entity is DxfCircle c)
+                    {
+                        var center = WorldToPdfPlotPreviewPoint(c.X, c.Y, minX, maxY, layout.PageHeightMm, layout.ScaleMmPerMm, layout.MarginLeftMm, layout.MarginBottomMm, mmToPx);
+                        double rPx = Math.Max(0.5, c.R * layout.ScaleMmPerMm * mmToPx);
+                        var strokePen = new Pen(new SolidColorBrush(c.StrokeColor), Math.Max(1.0, c.StrokeThicknessPx));
+                        var fillBrush = c.Filled ? new SolidColorBrush(c.FillColor) : null;
+                        dc.DrawEllipse(fillBrush, strokePen, center, rPx, rPx);
+                    }
+                    else if (entity is DxfArc arc)
+                    {
+                        DrawDxfArcToPdfPlotPreview(dc, arc, minX, maxY, layout.PageHeightMm, layout.ScaleMmPerMm, layout.MarginLeftMm, layout.MarginBottomMm, mmToPx);
+                    }
+                    else if (entity is DxfSolid solid)
+                    {
+                        var geo = new StreamGeometry();
+                        using (var gctx = geo.Open())
+                        {
+                            gctx.BeginFigure(WorldToPdfPlotPreviewPoint(solid.X1, solid.Y1, minX, maxY, layout.PageHeightMm, layout.ScaleMmPerMm, layout.MarginLeftMm, layout.MarginBottomMm, mmToPx), true, true);
+                            gctx.LineTo(WorldToPdfPlotPreviewPoint(solid.X2, solid.Y2, minX, maxY, layout.PageHeightMm, layout.ScaleMmPerMm, layout.MarginLeftMm, layout.MarginBottomMm, mmToPx), true, false);
+                            gctx.LineTo(WorldToPdfPlotPreviewPoint(solid.X3, solid.Y3, minX, maxY, layout.PageHeightMm, layout.ScaleMmPerMm, layout.MarginLeftMm, layout.MarginBottomMm, mmToPx), true, false);
+                            gctx.LineTo(WorldToPdfPlotPreviewPoint(solid.X4, solid.Y4, minX, maxY, layout.PageHeightMm, layout.ScaleMmPerMm, layout.MarginLeftMm, layout.MarginBottomMm, mmToPx), true, false);
+                        }
+                        geo.Freeze();
+                        dc.DrawGeometry(new SolidColorBrush(solid.FillColor), null, geo);
+                    }
+                    else if (entity is DxfText tx)
+                    {
+                        DrawDxfTextToPdfPlotPreview(dc, tx, minX, maxY, layout.PageHeightMm, layout.ScaleMmPerMm, layout.MarginLeftMm, layout.MarginBottomMm, mmToPx);
+                    }
+                }
+                dc.Pop();
+            }
+
+            var rtb = new RenderTargetBitmap(pixelWidth, pixelHeight, 96, 96, PixelFormats.Pbgra32);
+            rtb.Render(visual);
+            return rtb;
+        }
+
+        private static Point WorldToPdfPlotPreviewPoint(double x, double y, double minX, double maxY, double pageHeightMm,
+                                                        double scaleMmToMm, double marginLeftMm, double marginBottomMm, double mmToPx)
+        {
+            double pageMmX = marginLeftMm + (x - minX) * scaleMmToMm;
+            double pageMmY = marginBottomMm + (maxY - y) * scaleMmToMm;
+            return new Point(pageMmX * mmToPx, (pageHeightMm - pageMmY) * mmToPx);
+        }
+
+        private static void DrawDxfArcToPdfPlotPreview(DrawingContext dc, DxfArc arc,
+                                                       double minX, double maxY, double pageHeightMm, double scale, double marginLeftMm, double marginBottomMm, double mmToPx)
+        {
+            double startRad = arc.StartDeg * Math.PI / 180.0;
+            double endRad = arc.EndDeg * Math.PI / 180.0;
+
+            Point p0 = WorldToPdfPlotPreviewPoint(arc.X + arc.R * Math.Cos(startRad), arc.Y + arc.R * Math.Sin(startRad), minX, maxY, pageHeightMm, scale, marginLeftMm, marginBottomMm, mmToPx);
+            Point p1 = WorldToPdfPlotPreviewPoint(arc.X + arc.R * Math.Cos(endRad), arc.Y + arc.R * Math.Sin(endRad), minX, maxY, pageHeightMm, scale, marginLeftMm, marginBottomMm, mmToPx);
+
+            double delta = NormalizeDeltaCCW(arc.StartDeg, arc.EndDeg);
+            bool isLarge = delta > 180.0;
+            double rPx = Math.Max(0.5, arc.R * scale * mmToPx);
+
+            var figure = new PathFigure { StartPoint = p0, IsClosed = false, IsFilled = false };
+            figure.Segments.Add(new ArcSegment
+            {
+                Point = p1,
+                Size = new Size(rPx, rPx),
+                SweepDirection = SweepDirection.Counterclockwise,
+                IsLargeArc = isLarge
+            });
+
+            var geometry = new PathGeometry();
+            geometry.Figures.Add(figure);
+            dc.DrawGeometry(null, new Pen(new SolidColorBrush(arc.StrokeColor), Math.Max(1.0, arc.ThicknessPx)), geometry);
+        }
+
+        private static void DrawDxfTextToPdfPlotPreview(DrawingContext dc, DxfText tx,
+                                                        double minX, double maxY, double pageHeightMm, double scale, double marginLeftMm, double marginBottomMm, double mmToPx)
+        {
+            if (string.IsNullOrEmpty(tx.Value)) return;
+
+            tx = ApplyTextOffset(tx, TextOutputTarget.Pdf);
+
+            double fontPx = Math.Max(6.0, tx.Height * scale * mmToPx);
+            var typeface = new Typeface(new FontFamily(tx.FontFamily ?? "Yu Mincho"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+            var ft = new FormattedText(tx.Value,
+                                       CultureInfo.CurrentCulture,
+                                       FlowDirection.LeftToRight,
+                                       typeface,
+                                       fontPx,
+                                       new SolidColorBrush(tx.Color),
+                                       1.0);
+
+            var anchor = WorldToPdfPlotPreviewPoint(tx.X, tx.Y, minX, maxY, pageHeightMm, scale, marginLeftMm, marginBottomMm, mmToPx);
+            double drawX = anchor.X;
+            double drawY = anchor.Y;
+
+            if (tx.HAnchor == HAnchor.Center) drawX -= ft.Width / 2.0;
+            else if (tx.HAnchor == HAnchor.Right) drawX -= ft.Width;
+
+            if (tx.VAnchor == VAnchor.Middle) drawY -= ft.Height / 2.0;
+            else if (tx.VAnchor == VAnchor.Bottom) drawY -= ft.Height;
+
+            dc.DrawText(ft, new Point(drawX, drawY));
         }
 
         private static Point WorldToReviewPoint(double x, double y, double maxX, double minY,
@@ -11606,7 +12473,7 @@ namespace RevitProjectDataAddin
             return new Point(px, py);
         }
 
-        private static bool TryGetSceneBounds(IEnumerable<object> scene, out double minX, out double minY, out double maxX, out double maxY)
+        private static bool TryGetSceneBounds(IEnumerable<object> scene, TextOutputTarget textTarget, out double minX, out double minY, out double maxX, out double maxY)
         {
             minX = double.PositiveInfinity;
             minY = double.PositiveInfinity;
@@ -11631,10 +12498,11 @@ namespace RevitProjectDataAddin
                 }
                 else if (entity is DxfText tx)
                 {
-                    if (tx.X < minX) minX = tx.X;
-                    if (tx.Y < minY) minY = tx.Y;
-                    if (tx.X > maxX) maxX = tx.X;
-                    if (tx.Y > maxY) maxY = tx.Y;
+                    var exportText = ApplyTextOffset(tx, textTarget);
+                    if (exportText.X < minX) minX = exportText.X;
+                    if (exportText.Y < minY) minY = exportText.Y;
+                    if (exportText.X > maxX) maxX = exportText.X;
+                    if (exportText.Y > maxY) maxY = exportText.Y;
                 }
                 else if (entity is DxfCircle c)
                 {
@@ -11726,9 +12594,12 @@ namespace RevitProjectDataAddin
         }
 
         private static void DrawDxfTextToReview(DrawingContext dc, DxfText tx,
-                                                double maxX, double minY, double scale, double offsetX, double offsetY, double mmToPx)
+                                                double maxX, double minY, double scale, double offsetX, double offsetY, double mmToPx,
+                                                TextOutputTarget textTarget)
         {
             if (string.IsNullOrEmpty(tx.Value)) return;
+
+            tx = ApplyTextOffset(tx, textTarget);
 
             double fontPx = Math.Max(6.0, tx.Height * scale * mmToPx);
             var typeface = new Typeface(new FontFamily(tx.FontFamily ?? "Yu Mincho"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
@@ -12106,6 +12977,12 @@ namespace RevitProjectDataAddin
             A3
         }
 
+        private enum PdfPaperOrientation
+        {
+            Landscape,
+            Portrait
+        }
+
         private static class PdfVectorBuilder
         {
             private const double MmToPt = 72.0 / 25.4;
@@ -12118,8 +12995,6 @@ namespace RevitProjectDataAddin
             private const double A3HeightMm = 297.0;
             private const double LineWidthScale = 1.15;
             private const double MinLineWidthMm = 0.18;
-            private const double TextFlattenTolerance = 0.02;
-
             public static PdfVectorPage Create(string key,
                                                IEnumerable<DxfLine> lines,
                                                IEnumerable<DxfText> texts,
@@ -12127,9 +13002,9 @@ namespace RevitProjectDataAddin
                                                IEnumerable<DxfArc> arcs,
                                                IEnumerable<DxfSolid> solids,
                                                string fallbackFont,
-                                               PdfPaperSize paperSize)
+                                               PdfPlotSettings plotSettings)
             {
-                var builder = new PdfVectorContentBuilder(fallbackFont, paperSize);
+                var builder = new PdfVectorContentBuilder(fallbackFont, plotSettings);
                 builder.AddLines(lines);
                 builder.AddCircles(circles);
                 builder.AddArcs(arcs);
@@ -12142,16 +13017,16 @@ namespace RevitProjectDataAddin
             {
                 private readonly List<Action<StringBuilder, PdfDrawState>> _actions = new List<Action<StringBuilder, PdfDrawState>>();
                 private readonly string _fallbackFont;
-                private readonly PdfPaperSize _paperSize;
+                private readonly PdfPlotSettings _plotSettings;
                 private double _minX = double.PositiveInfinity;
                 private double _minY = double.PositiveInfinity;
                 private double _maxX = double.NegativeInfinity;
                 private double _maxY = double.NegativeInfinity;
 
-                public PdfVectorContentBuilder(string fallbackFont, PdfPaperSize paperSize)
+                public PdfVectorContentBuilder(string fallbackFont, PdfPlotSettings plotSettings)
                 {
                     _fallbackFont = string.IsNullOrWhiteSpace(fallbackFont) ? "Yu Mincho" : fallbackFont;
-                    _paperSize = paperSize;
+                    _plotSettings = plotSettings ?? throw new ArgumentNullException(nameof(plotSettings));
                 }
 
                 public void AddLines(IEnumerable<DxfLine> lines)
@@ -12272,22 +13147,24 @@ namespace RevitProjectDataAddin
                         if (string.IsNullOrWhiteSpace(txt.Value))
                             continue;
 
+                        var exportText = ApplyTextOffset(txt, TextOutputTarget.Pdf);
+
                         double fontPx;
-                        if (txt.FontPx > 0)
+                        if (exportText.FontPx > 0)
                         {
-                            fontPx = txt.FontPx;
+                            fontPx = exportText.FontPx;
                         }
-                        else if (txt.Height > 0)
+                        else if (exportText.Height > 0)
                         {
-                            fontPx = txt.Height * MmToPx;
+                            fontPx = exportText.Height * MmToPx;
                         }
                         else
                         {
                             fontPx = 12.0;
                         }
-                        string fontFamilyName = string.IsNullOrWhiteSpace(txt.FontFamily) ? _fallbackFont : txt.FontFamily;
+                        string fontFamilyName = string.IsNullOrWhiteSpace(exportText.FontFamily) ? _fallbackFont : exportText.FontFamily;
                         var glyphTypeface = ResolveGlyphTypeface(fontFamilyName);
-                        var geometryPx = BuildTextGeometryPixels(txt.Value, glyphTypeface, fontPx, fontFamilyName);
+                        var geometryPx = BuildTextGeometryPixels(exportText.Value, glyphTypeface, fontPx, fontFamilyName);
                         if (geometryPx == null)
                             continue;
 
@@ -12296,45 +13173,48 @@ namespace RevitProjectDataAddin
                         if (boundsPx.IsEmpty || boundsPx.Width <= 0 || boundsPx.Height <= 0)
                             continue;
 
-                        double widthMm = boundsPx.Width * PxToMm;
-                        double heightMm = boundsPx.Height * PxToMm;
-                        double heightScale = 1.0;
-                        if (txt.Height > 0 && heightMm > 0)
+                        int lineCount = CountTextLines(exportText.Value);
+                        double metricHeightPx = Math.Max(glyphTypeface.Height * fontPx * lineCount, 1.0);
+                        double scaleMmPerPx = PxToMm;
+                        if (exportText.Height > 0)
                         {
-                            heightScale = txt.Height / heightMm;
-                            widthMm *= heightScale;
-                            heightMm = txt.Height;
+                            // Keep PDF text scale tied to the font metrics instead of per-string glyph bounds
+                            // so strings like "(xxxx)" do not render smaller than regular labels.
+                            scaleMmPerPx = exportText.Height / metricHeightPx;
                         }
 
+                        double widthMm = boundsPx.Width * scaleMmPerPx;
+                        double heightMm = boundsPx.Height * scaleMmPerPx;
+
                         double anchorDx = 0;
-                        if (txt.HAnchor == HAnchor.Center) anchorDx = -widthMm / 2.0;
-                        else if (txt.HAnchor == HAnchor.Right) anchorDx = -widthMm;
+                        if (exportText.HAnchor == HAnchor.Center) anchorDx = -widthMm / 2.0;
+                        else if (exportText.HAnchor == HAnchor.Right) anchorDx = -widthMm;
 
                         double anchorDy = 0;
-                        if (txt.VAnchor == VAnchor.Middle) anchorDy = -heightMm / 2.0;
-                        else if (txt.VAnchor == VAnchor.Bottom) anchorDy = -heightMm;
+                        if (exportText.VAnchor == VAnchor.Middle) anchorDy = -heightMm / 2.0;
+                        else if (exportText.VAnchor == VAnchor.Bottom) anchorDy = -heightMm;
 
                         var transform = new TransformGroup();
                         transform.Children.Add(new TranslateTransform(-boundsPx.X, -boundsPx.Y));
-                        transform.Children.Add(new ScaleTransform(PxToMm * heightScale, PxToMm * heightScale));
+                        transform.Children.Add(new ScaleTransform(scaleMmPerPx, scaleMmPerPx));
                         transform.Children.Add(new TranslateTransform(anchorDx, anchorDy));
-                        if (Math.Abs(txt.RotationDeg) > 0.001)
+                        if (Math.Abs(exportText.RotationDeg) > 0.001)
                         {
-                            transform.Children.Add(new RotateTransform(-txt.RotationDeg));
+                            transform.Children.Add(new RotateTransform(-exportText.RotationDeg));
                         }
-                        transform.Children.Add(new TranslateTransform(txt.X, txt.Y));
+                        transform.Children.Add(new TranslateTransform(exportText.X, exportText.Y));
 
                         geometryPx.Transform = transform;
-                        var flattened = geometryPx.GetFlattenedPathGeometry(TextFlattenTolerance, ToleranceType.Relative);
-                        var finalBounds = flattened.Bounds;
+                        var pathGeometry = PathGeometry.CreateFromGeometry(geometryPx);
+                        var finalBounds = pathGeometry.Bounds;
                         if (!finalBounds.IsEmpty)
                             Extend(finalBounds);
 
-                        var path = BuildGeometryPath(flattened);
+                        var path = BuildGeometryPath(pathGeometry);
                         if (string.IsNullOrEmpty(path))
                             continue;
 
-                        var fillColor = txt.Color;
+                        var fillColor = exportText.Color;
                         _actions.Add((sb, state) =>
                         {
                             SetFillColor(sb, state, fillColor);
@@ -12401,6 +13281,14 @@ namespace RevitProjectDataAddin
                         return geometry;
 
                     return null;
+                }
+
+                private static int CountTextLines(string text)
+                {
+                    if (string.IsNullOrEmpty(text))
+                        return 1;
+
+                    return text.Replace("\r\n", "\n").Split('\n').Length;
                 }
 
                 private static Geometry BuildGlyphGeometryFromTypeface(string text, GlyphTypeface glyphTypeface, double fontPx, string fontFamilyName)
@@ -12494,6 +13382,90 @@ namespace RevitProjectDataAddin
                     return hasGeometry ? group : null;
                 }
 
+                private void DrawPageLayout(StringBuilder sb, PdfDrawState state, PdfPageLayoutPlan page, string key)
+                {
+                    var black = MediaColor.FromRgb(0, 0, 0);
+                    SetStrokeColor(sb, state, black);
+                    SetLineWidth(sb, state, 0.2);
+                    sb.AppendFormat(CultureInfo.InvariantCulture, "0 0 {0} {1} re\nS\n", FormatDouble(page.PageWidthMm), FormatDouble(page.PageHeightMm));
+                    sb.AppendFormat(CultureInfo.InvariantCulture, "{0} {1} {2} {3} re\nS\n",
+                        FormatDouble(page.FrameLeftMm),
+                        FormatDouble(page.PaperMarginTopMm),
+                        FormatDouble(page.FrameWidthMm),
+                        FormatDouble(page.FrameHeightMm));
+                    sb.AppendFormat(CultureInfo.InvariantCulture, "{0} {1} {2} {3} re\nS\n",
+                        FormatDouble(page.TitleBlockLeftMm),
+                        FormatDouble(page.PageHeightMm - (page.TitleBlockBottomMm + page.TitleBlockHeightMm)),
+                        FormatDouble(page.TitleBlockWidthMm),
+                        FormatDouble(page.TitleBlockHeightMm));
+
+                    double noWidthMm = 28.0;
+                    double dateWidthMm = 38.0;
+                    double scaleWidthMm = 28.0;
+                    double titleWidthMm = Math.Max(40.0, page.TitleBlockWidthMm - noWidthMm - dateWidthMm - scaleWidthMm);
+                    double titleTopMm = page.PageHeightMm - (page.TitleBlockBottomMm + page.TitleBlockHeightMm);
+                    double x1 = page.TitleBlockLeftMm + titleWidthMm;
+                    double x2 = x1 + scaleWidthMm;
+                    double x3 = x2 + dateWidthMm;
+                    double yMid = titleTopMm + Math.Min(page.TitleBlockHeightMm * 0.38, 12.0);
+
+                    sb.AppendFormat(CultureInfo.InvariantCulture, "{0} {1} m {0} {2} l S\n", FormatDouble(x1), FormatDouble(titleTopMm), FormatDouble(titleTopMm + page.TitleBlockHeightMm));
+                    sb.AppendFormat(CultureInfo.InvariantCulture, "{0} {1} m {0} {2} l S\n", FormatDouble(x2), FormatDouble(titleTopMm), FormatDouble(titleTopMm + page.TitleBlockHeightMm));
+                    sb.AppendFormat(CultureInfo.InvariantCulture, "{0} {1} m {0} {2} l S\n", FormatDouble(x3), FormatDouble(titleTopMm), FormatDouble(titleTopMm + page.TitleBlockHeightMm));
+                    sb.AppendFormat(CultureInfo.InvariantCulture, "{0} {1} m {2} {1} l S\n", FormatDouble(page.TitleBlockLeftMm), FormatDouble(yMid), FormatDouble(page.TitleBlockLeftMm + page.TitleBlockWidthMm));
+
+                    AppendPageTitleCell(sb, state, new Rect(page.TitleBlockLeftMm, titleTopMm, titleWidthMm, page.TitleBlockHeightMm), "TITLE", _plotSettings.TitleText ?? "梁配筋図");
+                    AppendPageTitleCell(sb, state, new Rect(x1, titleTopMm, scaleWidthMm, page.TitleBlockHeightMm), "SCALE", GetPdfScaleDisplayText(_plotSettings, page));
+                    AppendPageTitleCell(sb, state, new Rect(x2, titleTopMm, dateWidthMm, page.TitleBlockHeightMm), "DATE", _plotSettings.DateText ?? DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+                    AppendPageTitleCell(sb, state, new Rect(x3, titleTopMm, Math.Max(1.0, page.TitleBlockLeftMm + page.TitleBlockWidthMm - x3), page.TitleBlockHeightMm), "NO.", key ?? "-");
+                }
+
+                private void AppendPageTitleCell(StringBuilder sb, PdfDrawState state, Rect rectMm, string label, string value)
+                {
+                    AppendPageTextOutline(sb, state, label, 2.8, rectMm.X + 2.0, rectMm.Y + 1.2, rectMm.Width - 4.0);
+                    AppendPageTextOutline(sb, state, value, 3.8, rectMm.X + 2.0, rectMm.Y + rectMm.Height * 0.42, rectMm.Width - 4.0);
+                }
+
+                private void AppendPageTextOutline(StringBuilder sb, PdfDrawState state, string text, double targetHeightMm, double leftMm, double topMm, double maxWidthMm)
+                {
+                    if (string.IsNullOrWhiteSpace(text) || targetHeightMm <= 0)
+                        return;
+
+                    string fontFamilyName = string.IsNullOrWhiteSpace(_fallbackFont) ? "Yu Mincho" : _fallbackFont;
+                    var glyphTypeface = ResolveGlyphTypeface(fontFamilyName);
+                    const double fontPx = 100.0;
+                    var geometryPx = BuildTextGeometryPixels(text, glyphTypeface, fontPx, fontFamilyName);
+                    if (geometryPx == null)
+                        return;
+
+                    geometryPx = geometryPx.CloneCurrentValue();
+                    var boundsPx = geometryPx.Bounds;
+                    if (boundsPx.IsEmpty || boundsPx.Width <= 0 || boundsPx.Height <= 0)
+                        return;
+
+                    double metricHeightPx = Math.Max(glyphTypeface.Height * fontPx, 1.0);
+                    double scaleMmPerPx = targetHeightMm / metricHeightPx;
+                    double widthMm = boundsPx.Width * scaleMmPerPx;
+                    if (maxWidthMm > 0 && widthMm > maxWidthMm)
+                    {
+                        scaleMmPerPx *= maxWidthMm / widthMm;
+                    }
+
+                    var transform = new TransformGroup();
+                    transform.Children.Add(new TranslateTransform(-boundsPx.X, -boundsPx.Y));
+                    transform.Children.Add(new ScaleTransform(scaleMmPerPx, scaleMmPerPx));
+                    transform.Children.Add(new TranslateTransform(leftMm, topMm));
+                    geometryPx.Transform = transform;
+
+                    var path = BuildGeometryPath(PathGeometry.CreateFromGeometry(geometryPx));
+                    if (string.IsNullOrEmpty(path))
+                        return;
+
+                    SetFillColor(sb, state, MediaColor.FromRgb(0, 0, 0));
+                    sb.Append(path);
+                    sb.AppendLine("f*");
+                }
+
                 public PdfVectorPage Build(string key)
                 {
                     if (_actions.Count == 0 || double.IsInfinity(_minX) || double.IsInfinity(_minY) ||
@@ -12513,62 +13485,33 @@ namespace RevitProjectDataAddin
                     double contentWidth = maxX - minX;
                     double contentHeight = maxY - minY;
 
-                    (bool valid, double pageWidthMm, double pageHeightMm, double scale,
-                        double marginLeftMm, double marginBottomMm) SelectBestPage()
-                    {
-                        (bool valid, double pageWidthMm, double pageHeightMm, double scale,
-                            double marginLeftMm, double marginBottomMm) Evaluate(double pageWidthMm, double pageHeightMm)
-                        {
-                            double availableWidth = pageWidthMm - PageMarginMm * 2.0;
-                            double availableHeight = pageHeightMm - PageMarginMm * 2.0;
-                            if (availableWidth <= 0 || availableHeight <= 0)
-                                return (false, 0, 0, 0, 0, 0);
+                    var page = ResolvePdfPageLayout(_plotSettings.PaperSize, _plotSettings.Orientation, contentWidth, contentHeight, _plotSettings.ScaleDenominator);
 
-                            double scaleCandidate = Math.Min(availableWidth / contentWidth, availableHeight / contentHeight);
-                            if (scaleCandidate <= 0)
-                                return (false, 0, 0, 0, 0, 0);
-
-                            double usedWidth = contentWidth * scaleCandidate;
-                            double usedHeight = contentHeight * scaleCandidate;
-                            double marginLeft = (pageWidthMm - usedWidth) / 2.0;
-                            double marginBottom = (pageHeightMm - usedHeight) / 2.0;
-                            return (true, pageWidthMm, pageHeightMm, scaleCandidate, marginLeft, marginBottom);
-                        }
-
-                        double baseWidth = _paperSize == PdfPaperSize.A3 ? A3WidthMm : A4WidthMm;
-                        double baseHeight = _paperSize == PdfPaperSize.A3 ? A3HeightMm : A4HeightMm;
-
-                        var landscape = Evaluate(baseWidth, baseHeight);
-                        var portrait = Evaluate(baseHeight, baseWidth);
-
-                        var best = landscape;
-                        if (!best.valid || (portrait.valid && portrait.scale > best.scale))
-                        {
-                            best = portrait;
-                        }
-
-                        if (!best.valid)
-                        {
-                            double fallbackWidthMm = contentWidth + PageMarginMm * 2.0;
-                            double fallbackHeightMm = contentHeight + PageMarginMm * 2.0;
-                            return (true, fallbackWidthMm, fallbackHeightMm, 1.0,
-                                    PageMarginMm, PageMarginMm);
-                        }
-
-                        return best;
-                    }
-
-                    var page = SelectBestPage();
-
-                    double pageWidthPoints = page.pageWidthMm * MmToPt;
-                    double pageHeightPoints = page.pageHeightMm * MmToPt;
-
-                    double scalePt = page.scale * MmToPt;
-                    double translateXPt = (page.marginLeftMm - minX * page.scale) * MmToPt;
-                    double translateYPt = (page.marginBottomMm + maxY * page.scale) * MmToPt;
+                    double pageWidthPoints = page.PageWidthMm * MmToPt;
+                    double pageHeightPoints = page.PageHeightMm * MmToPt;
+                    double contentLeftPoints = page.ContentLeftMm * MmToPt;
+                    double contentBottomPoints = page.ContentBottomMm * MmToPt;
+                    double contentWidthPoints = page.ContentWidthMm * MmToPt;
+                    double contentHeightPoints = page.ContentHeightMm * MmToPt;
+                    double scalePt = page.ScaleMmPerMm * MmToPt;
+                    double translateXPt = (page.MarginLeftMm - minX * page.ScaleMmPerMm) * MmToPt;
+                    double translateYPt = (page.MarginBottomMm + maxY * page.ScaleMmPerMm) * MmToPt;
 
                     var sb = new StringBuilder();
                     sb.AppendLine("q");
+                    var state = new PdfDrawState { LineWidth = double.NaN };
+                    SetStrokeColor(sb, state, MediaColor.FromRgb(120, 120, 120));
+                    SetLineWidth(sb, state, 0.18 * MmToPt);
+                    sb.AppendFormat(CultureInfo.InvariantCulture, "{0} {1} {2} {3} re\nS\n",
+                                    FormatDouble(contentLeftPoints),
+                                    FormatDouble(contentBottomPoints),
+                                    FormatDouble(contentWidthPoints),
+                                    FormatDouble(contentHeightPoints));
+                    sb.AppendFormat(CultureInfo.InvariantCulture, "{0} {1} {2} {3} re W n\n",
+                                    FormatDouble(contentLeftPoints),
+                                    FormatDouble(contentBottomPoints),
+                                    FormatDouble(contentWidthPoints),
+                                    FormatDouble(contentHeightPoints));
                     sb.AppendFormat(CultureInfo.InvariantCulture, "{0} 0 0 {1} {2} {3} cm\n",
                                     FormatDouble(scalePt),
                                     FormatDouble(-scalePt),
@@ -12577,13 +13520,10 @@ namespace RevitProjectDataAddin
                     sb.AppendLine("1 J");
                     sb.AppendLine("1 j");
                     sb.AppendLine("[] 0 d");
-
-                    var state = new PdfDrawState { LineWidth = double.NaN };
                     foreach (var action in _actions)
                     {
                         action(sb, state);
                     }
-
                     sb.AppendLine("Q");
 
                     var content = Encoding.ASCII.GetBytes(sb.ToString());
@@ -12708,7 +13648,8 @@ namespace RevitProjectDataAddin
                     var sb = new StringBuilder();
                     foreach (var fig in geometry.Figures)
                     {
-                        if (fig.Segments.Count == 0) continue;
+                        if (fig == null || fig.Segments.Count == 0) continue;
+                        Point currentPoint = fig.StartPoint;
                         sb.AppendFormat(CultureInfo.InvariantCulture, "{0} {1} m\n", FormatDouble(fig.StartPoint.X), FormatDouble(fig.StartPoint.Y));
                         foreach (var seg in fig.Segments)
                         {
@@ -12717,11 +13658,13 @@ namespace RevitProjectDataAddin
                                 foreach (var pt in poly.Points)
                                 {
                                     sb.AppendFormat(CultureInfo.InvariantCulture, "{0} {1} l\n", FormatDouble(pt.X), FormatDouble(pt.Y));
+                                    currentPoint = pt;
                                 }
                             }
                             else if (seg is System.Windows.Media.LineSegment line)
                             {
                                 sb.AppendFormat(CultureInfo.InvariantCulture, "{0} {1} l\n", FormatDouble(line.Point.X), FormatDouble(line.Point.Y));
+                                currentPoint = line.Point;
                             }
                             else if (seg is BezierSegment bezier)
                             {
@@ -12729,11 +13672,56 @@ namespace RevitProjectDataAddin
                                     FormatDouble(bezier.Point1.X), FormatDouble(bezier.Point1.Y),
                                     FormatDouble(bezier.Point2.X), FormatDouble(bezier.Point2.Y),
                                     FormatDouble(bezier.Point3.X), FormatDouble(bezier.Point3.Y));
+                                currentPoint = bezier.Point3;
+                            }
+                            else if (seg is PolyBezierSegment polyBezier)
+                            {
+                                for (int i = 0; i + 2 < polyBezier.Points.Count; i += 3)
+                                {
+                                    var p1 = polyBezier.Points[i];
+                                    var p2 = polyBezier.Points[i + 1];
+                                    var p3 = polyBezier.Points[i + 2];
+                                    sb.AppendFormat(CultureInfo.InvariantCulture, "{0} {1} {2} {3} {4} {5} c\n",
+                                        FormatDouble(p1.X), FormatDouble(p1.Y),
+                                        FormatDouble(p2.X), FormatDouble(p2.Y),
+                                        FormatDouble(p3.X), FormatDouble(p3.Y));
+                                    currentPoint = p3;
+                                }
+                            }
+                            else if (seg is QuadraticBezierSegment quadratic)
+                            {
+                                AppendQuadraticAsCubic(sb, currentPoint, quadratic.Point1, quadratic.Point2);
+                                currentPoint = quadratic.Point2;
+                            }
+                            else if (seg is PolyQuadraticBezierSegment polyQuadratic)
+                            {
+                                for (int i = 0; i + 1 < polyQuadratic.Points.Count; i += 2)
+                                {
+                                    var control = polyQuadratic.Points[i];
+                                    var end = polyQuadratic.Points[i + 1];
+                                    AppendQuadraticAsCubic(sb, currentPoint, control, end);
+                                    currentPoint = end;
+                                }
                             }
                         }
                         sb.AppendLine("h");
                     }
                     return sb.ToString();
+                }
+
+                private static void AppendQuadraticAsCubic(StringBuilder sb, Point start, Point control, Point end)
+                {
+                    var cubic1 = new Point(
+                        start.X + ((control.X - start.X) * 2.0 / 3.0),
+                        start.Y + ((control.Y - start.Y) * 2.0 / 3.0));
+                    var cubic2 = new Point(
+                        end.X + ((control.X - end.X) * 2.0 / 3.0),
+                        end.Y + ((control.Y - end.Y) * 2.0 / 3.0));
+
+                    sb.AppendFormat(CultureInfo.InvariantCulture, "{0} {1} {2} {3} {4} {5} c\n",
+                        FormatDouble(cubic1.X), FormatDouble(cubic1.Y),
+                        FormatDouble(cubic2.X), FormatDouble(cubic2.Y),
+                        FormatDouble(end.X), FormatDouble(end.Y));
                 }
 
                 private static List<Point> SampleArc(DxfArc arc)
@@ -13332,7 +14320,7 @@ namespace RevitProjectDataAddin
 
                 Brush normalBg = Brushes.Transparent;
                 Brush selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-                Brush dividerBrush = Brushes.Black;
+                Brush dividerBrush = PopupMenuDividerBrush;
 
                 UIElement WithRowDivider(UIElement child)
                 {
@@ -13379,8 +14367,8 @@ namespace RevitProjectDataAddin
                     return new Border
                     {
                         Background = Brushes.White,
-                        BorderBrush = Brushes.Black,
-                        BorderThickness = new Thickness(1.5),
+                        BorderBrush = PopupMenuBorderBrush,
+                        BorderThickness = PopupMenuBorderThickness,
                         CornerRadius = new CornerRadius(2),
                         Child = host
                     };
@@ -13807,7 +14795,7 @@ namespace RevitProjectDataAddin
                     };
 
                     if (tbx.ReadLocalValue(Control.BorderBrushProperty) == DependencyProperty.UnsetValue)
-                        tbx.BorderBrush = Brushes.Black;
+                        tbx.BorderBrush = PopupMenuEditorBorderBrush;
 
                     if (tbx.ReadLocalValue(Control.BorderThicknessProperty) == DependencyProperty.UnsetValue)
                         tbx.BorderThickness = new Thickness(1);
@@ -14173,7 +15161,7 @@ namespace RevitProjectDataAddin
                                 totalBox.Text = GetCurrentTanbuTotalLength().ToString(CultureInfo.InvariantCulture);
                                 totalBox.IsReadOnly = false;
                                 totalBox.BorderThickness = new Thickness(1);
-                                totalBox.BorderBrush = Brushes.Black;
+                                totalBox.BorderBrush = PopupMenuEditorBorderBrush;
                                 totalBox.Background = Brushes.White;
                                 FocusTotalBox();
                             }
@@ -14721,7 +15709,7 @@ namespace RevitProjectDataAddin
 
                 Brush normalBg = Brushes.Transparent;
                 Brush selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-                Brush dividerBrush = Brushes.Black;
+                Brush dividerBrush = PopupMenuDividerBrush;
 
                 Func<UIElement, UIElement> withRowDivider = child =>
                     new Border
@@ -14757,8 +15745,8 @@ namespace RevitProjectDataAddin
                     new Border
                     {
                         Background = Brushes.White,
-                        BorderBrush = Brushes.Black,
-                        BorderThickness = new Thickness(1.5),
+                        BorderBrush = PopupMenuBorderBrush,
+                        BorderThickness = PopupMenuBorderThickness,
                         CornerRadius = new CornerRadius(2),
                         Child = new ContentControl
                         {
@@ -15084,7 +16072,7 @@ namespace RevitProjectDataAddin
                 Width = w,
                 Height = h,
                 Background = Brushes.White,
-                BorderBrush = Brushes.Black,
+                BorderBrush = PopupMenuBorderBrush,
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(0),
                 Padding = new Thickness(6)
@@ -15474,7 +16462,7 @@ namespace RevitProjectDataAddin
 
                 Brush normalBg = Brushes.Transparent;
                 Brush selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-                Brush dividerBrush = Brushes.Black;
+                Brush dividerBrush = PopupMenuDividerBrush;
 
                 Func<UIElement, UIElement> withRowDivider = child =>
                     new Border
@@ -15510,8 +16498,8 @@ namespace RevitProjectDataAddin
                     new Border
                     {
                         Background = Brushes.White,
-                        BorderBrush = Brushes.Black,
-                        BorderThickness = new Thickness(1.5),
+                        BorderBrush = PopupMenuBorderBrush,
+                        BorderThickness = PopupMenuBorderThickness,
                         CornerRadius = new CornerRadius(2),
                         Child = new ContentControl
                         {
@@ -15747,7 +16735,7 @@ namespace RevitProjectDataAddin
                 Width = w,
                 Height = h,
                 Background = Brushes.White,
-                BorderBrush = Brushes.Black,
+                BorderBrush = PopupMenuBorderBrush,
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(0),
                 Padding = new Thickness(6)
@@ -16135,7 +17123,7 @@ namespace RevitProjectDataAddin
 
             var normalBg = Brushes.Transparent;
             var selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-            var dividerBrush = Brushes.Black;
+            var dividerBrush = PopupMenuDividerBrush;
             var win = Window.GetWindow(canvas);
 
             UIElement WithRowDivider(UIElement child)
@@ -16183,8 +17171,8 @@ namespace RevitProjectDataAddin
                 return new Border
                 {
                     Background = Brushes.White,
-                    BorderBrush = Brushes.Black,
-                    BorderThickness = new Thickness(1.5),
+                    BorderBrush = PopupMenuBorderBrush,
+                    BorderThickness = PopupMenuBorderThickness,
                     CornerRadius = new CornerRadius(2),
                     Child = host
                 };
@@ -16537,7 +17525,7 @@ namespace RevitProjectDataAddin
 
             var normalBg = Brushes.Transparent;
             var selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-            var dividerBrush = Brushes.Black;
+            var dividerBrush = PopupMenuDividerBrush;
             var win = Window.GetWindow(canvas);
 
             UIElement WithRowDivider(UIElement child)
@@ -16585,8 +17573,8 @@ namespace RevitProjectDataAddin
                 return new Border
                 {
                     Background = Brushes.White,
-                    BorderBrush = Brushes.Black,
-                    BorderThickness = new Thickness(1.5),
+                    BorderBrush = PopupMenuBorderBrush,
+                    BorderThickness = PopupMenuBorderThickness,
                     CornerRadius = new CornerRadius(2),
                     Child = host
                 };
@@ -16963,7 +17951,7 @@ namespace RevitProjectDataAddin
 
             var normalBg = Brushes.Transparent;
             var selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-            var dividerBrush = Brushes.Black;
+            var dividerBrush = PopupMenuDividerBrush;
             var win = Window.GetWindow(canvas);
 
             UIElement WithRowDivider(UIElement child)
@@ -17011,8 +17999,8 @@ namespace RevitProjectDataAddin
                 return new Border
                 {
                     Background = Brushes.White,
-                    BorderBrush = Brushes.Black,
-                    BorderThickness = new Thickness(1.5),
+                    BorderBrush = PopupMenuBorderBrush,
+                    BorderThickness = PopupMenuBorderThickness,
                     CornerRadius = new CornerRadius(2),
                     Child = host
                 };
@@ -17422,7 +18410,7 @@ namespace RevitProjectDataAddin
 
             var normalBg = Brushes.Transparent;
             var selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-            var dividerBrush = Brushes.Black;
+            var dividerBrush = PopupMenuDividerBrush;
 
             UIElement WithRowDivider(UIElement child)
             {
@@ -17469,8 +18457,8 @@ namespace RevitProjectDataAddin
                 return new Border
                 {
                     Background = Brushes.White,
-                    BorderBrush = Brushes.Black,
-                    BorderThickness = new Thickness(1.5),
+                    BorderBrush = PopupMenuBorderBrush,
+                    BorderThickness = PopupMenuBorderThickness,
                     CornerRadius = new CornerRadius(2),
                     Child = host
                 };
