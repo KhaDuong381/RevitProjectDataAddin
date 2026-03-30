@@ -2986,7 +2986,7 @@ public class KesanData : INotifyPropertyChanged
         Teiuwachu = true;
         Teishitachu = true;
         Teishita = true;
-        
+
 
         // Thiết lập giá trị mặc định cho ComboBox "中央部", "端部"
         Tsuuwa = "中央部";
