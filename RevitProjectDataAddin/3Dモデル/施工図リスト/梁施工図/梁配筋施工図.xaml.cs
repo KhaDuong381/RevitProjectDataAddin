@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -157,23 +157,6 @@ namespace RevitProjectDataAddin
                 return;
             }
 
-            GridList?.UpdateLayout();
-            var sources = EnumerateCanvasVisuals()
-                .Select(canvas => new { canvas, item = canvas?.DataContext as GridBotsecozu })
-                .Where(x => x.canvas != null && x.item != null)
-                .Select(x => new PdfExportSource(x.item, x.canvas, BuildDxfGeometry(x.item).fileKey))
-                .ToList();
-
-            if (sources.Count == 0)
-            {
-                MessageBox.Show("Không tìm thấy canvas để plot.");
-                return;
-            }
-
-            var plotSettings = ShowPdfPlotDialog(sources);
-            if (plotSettings == null)
-                return;
-
             var dlg = new SaveFileDialog
             {
                 Filter = "PDF files (*.pdf)|*.pdf",
@@ -183,12 +166,12 @@ namespace RevitProjectDataAddin
 
             try
             {
-                var scenePages = BuildPdfScenePages(sources, plotSettings.SelectedKeys);
+                var scenePages = BuildPdfScenePages();
                 PdfExporter.Export(
                     dlg.FileName,
                     scenePages,
                     FontFamily?.Source ?? "Yu Mincho",
-                    plotSettings);
+                    GetCurrentPdfPaperSize());
 
                 MessageBox.Show("PDF exported!");
             }
@@ -198,17 +181,16 @@ namespace RevitProjectDataAddin
             }
         }
 
-        private List<PdfScenePageData> BuildPdfScenePages(IReadOnlyList<PdfExportSource> sources, IReadOnlyCollection<string> selectedKeys)
+        private List<PdfScenePageData> BuildPdfScenePages()
         {
             var pages = new List<PdfScenePageData>();
-            var selectedSet = new HashSet<string>(selectedKeys ?? Array.Empty<string>(), StringComparer.Ordinal);
 
-            foreach (var src in sources)
+            foreach (var item in _currentSecoList.gridbotsecozu)
             {
-                if (src?.Item == null) continue;
-                if (selectedSet.Count > 0 && !selectedSet.Contains(src.Key)) continue;
+                if (item == null) continue;
 
-                pages.Add(new PdfScenePageData(src.Key, CaptureSceneForPdfExport(src.Item, src.Key)));
+                string key = BuildDxfGeometry(item).fileKey;
+                pages.Add(new PdfScenePageData(key, CaptureSceneForPdfExport(item, key)));
             }
 
             return pages;
@@ -277,12 +259,10 @@ namespace RevitProjectDataAddin
                 string path,
                 IReadOnlyList<PdfScenePageData> scenePages,
                 string fallbackFont,
-                PdfPlotSettings plotSettings)
+                PdfPaperSize paperSize)
             {
                 if (scenePages == null || scenePages.Count == 0)
                     throw new ArgumentException("No scene pages to export.", nameof(scenePages));
-                if (plotSettings == null)
-                    throw new ArgumentNullException(nameof(plotSettings));
 
                 var vectorPages = new List<PdfVectorPage>();
                 foreach (var scenePage in scenePages)
@@ -303,7 +283,7 @@ namespace RevitProjectDataAddin
                         arcs,
                         solids,
                         fallbackFont,
-                        plotSettings);
+                        paperSize);
 
                     if (page != null)
                         vectorPages.Add(page);
