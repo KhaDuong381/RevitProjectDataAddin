@@ -183,7 +183,7 @@ namespace RevitProjectDataAddin
 
             try
             {
-                var scenePages = BuildPdfScenePages(sources, plotSettings.SelectedKeys);
+                var scenePages = BuildPdfScenePages(sources, plotSettings);
                 PdfExporter.Export(
                     dlg.FileName,
                     scenePages,
@@ -198,17 +198,37 @@ namespace RevitProjectDataAddin
             }
         }
 
-        private List<PdfScenePageData> BuildPdfScenePages(IReadOnlyList<PdfExportSource> sources, IReadOnlyCollection<string> selectedKeys)
+        private List<PdfScenePageData> BuildPdfScenePages(IReadOnlyList<PdfExportSource> sources, PdfPlotSettings plotSettings)
         {
             var pages = new List<PdfScenePageData>();
-            var selectedSet = new HashSet<string>(selectedKeys ?? Array.Empty<string>(), StringComparer.Ordinal);
+            var selectedKeys = plotSettings?.SelectedKeys ?? new List<string>();
+            var selectedSet = new HashSet<string>(selectedKeys, StringComparer.Ordinal);
+            var paperSize = plotSettings?.PaperSize ?? PdfPaperSize.A4;
 
             foreach (var src in sources)
             {
                 if (src?.Item == null) continue;
                 if (selectedSet.Count > 0 && !selectedSet.Contains(src.Key)) continue;
 
-                pages.Add(new PdfScenePageData(src.Key, CaptureSceneForPdfExport(src.Item, src.Key)));
+                var scene = CaptureSceneForPdfExport(src.Item, src.Key);
+                var viewportWindows = BuildPdfViewportWindows(paperSize, scene);
+                if (viewportWindows == null || viewportWindows.Count == 0)
+                {
+                    viewportWindows = new List<PdfViewportWindow>
+                    {
+                        new PdfViewportWindow
+                        {
+                            PageIndex = 0,
+                            PageCount = 1
+                        }
+                    };
+                }
+
+                foreach (var viewportWindow in viewportWindows)
+                {
+                    string pageKey = viewportWindow.PageCount > 1 ? $"{src.Key}_{viewportWindow.PageIndex + 1}" : src.Key;
+                    pages.Add(new PdfScenePageData(pageKey, scene, viewportWindow));
+                }
             }
 
             return pages;
@@ -261,14 +281,16 @@ namespace RevitProjectDataAddin
 
         private sealed class PdfScenePageData
         {
-            public PdfScenePageData(string key, IReadOnlyList<object> scene)
+            public PdfScenePageData(string key, IReadOnlyList<object> scene, PdfViewportWindow viewportWindow)
             {
                 Key = string.IsNullOrWhiteSpace(key) ? "page" : key;
                 Scene = scene ?? throw new ArgumentNullException(nameof(scene));
+                ViewportWindow = viewportWindow;
             }
 
             public string Key { get; }
             public IReadOnlyList<object> Scene { get; }
+            public PdfViewportWindow ViewportWindow { get; }
         }
 
         private static class PdfExporter
@@ -295,6 +317,17 @@ namespace RevitProjectDataAddin
                         out var arcs,
                         out var solids);
 
+                    var pageSettings = new PdfPlotSettings
+                    {
+                        PaperSize = plotSettings.PaperSize,
+                        Orientation = plotSettings.Orientation,
+                        ScaleDenominator = plotSettings.ScaleDenominator,
+                        TitleText = plotSettings.TitleText,
+                        DateText = plotSettings.DateText,
+                        SelectedKeys = plotSettings.SelectedKeys != null ? new List<string>(plotSettings.SelectedKeys) : new List<string>(),
+                        ViewportWindow = scenePage.ViewportWindow
+                    };
+
                     var page = PdfVectorBuilder.Create(
                         scenePage.Key,
                         lines,
@@ -303,7 +336,7 @@ namespace RevitProjectDataAddin
                         arcs,
                         solids,
                         fallbackFont,
-                        plotSettings);
+                        pageSettings);
 
                     if (page != null)
                         vectorPages.Add(page);

@@ -11538,7 +11538,7 @@ namespace RevitProjectDataAddin
             public double[] Dash;
             public MediaColor StrokeColor;
             public DxfLine(double x1, double y1, double x2, double y2,
-                           string layer = "0", double thicknessPx = 1.0,
+                           string layer = "0", double thicknessPx = 2.5,
                            double[] dash = null, MediaColor? strokeColor = null)
             {
                 X1 = x1; Y1 = y1; X2 = x2; Y2 = y2;
@@ -11979,12 +11979,36 @@ namespace RevitProjectDataAddin
                 }
 
                 var (lines, texts, circles, arcs, solids, key) = BuildDxfGeometry(src.Item);
-                var page = PdfVectorBuilder.Create(key, lines, texts, circles, arcs, solids,
-                                                   this.FontFamily?.Source ?? "Yu Mincho",
-                                                   exportOptions.PaperSize);
-                if (page != null)
+                var scene = CaptureSceneForPdfExport(src.Item, src.Key);
+                var viewportWindows = BuildPdfViewportWindows(exportOptions.PaperSize, scene);
+                if (viewportWindows.Count == 0)
                 {
-                    vectorPages.Add(page);
+                    viewportWindows.Add(new PdfViewportWindow
+                    {
+                        PageIndex = 0,
+                        PageCount = 1
+                    });
+                }
+
+                foreach (var viewportWindow in viewportWindows)
+                {
+                    var pageSettings = new PdfPlotSettings
+                    {
+                        PaperSize = exportOptions.PaperSize,
+                        Orientation = exportOptions.Orientation,
+                        ScaleDenominator = exportOptions.ScaleDenominator,
+                        TitleText = exportOptions.TitleText,
+                        DateText = exportOptions.DateText,
+                        SelectedKeys = exportOptions.SelectedKeys != null ? new List<string>(exportOptions.SelectedKeys) : new List<string>(),
+                        ViewportWindow = viewportWindow
+                    };
+
+                    string pageKey = viewportWindow.PageCount > 1 ? $"{key}_{viewportWindow.PageIndex + 1}" : key;
+                    var page = PdfVectorBuilder.Create(pageKey, lines, texts, circles, arcs, solids,
+                                                       this.FontFamily?.Source ?? "Yu Mincho",
+                                                       pageSettings);
+                    if (page != null)
+                        vectorPages.Add(page);
                 }
             }
 
@@ -12027,6 +12051,20 @@ namespace RevitProjectDataAddin
             public List<string> SelectedKeys { get; set; } = new List<string>();
             public bool FitToPage => !ScaleDenominator.HasValue;
             public bool IsPortrait => Orientation == PdfPaperOrientation.Portrait;
+            public PdfViewportWindow ViewportWindow { get; set; }
+        }
+
+        private sealed class PdfViewportWindow
+        {
+            public int PageIndex { get; set; }
+            public int PageCount { get; set; }
+            public int StartSpanIndex { get; set; }
+            public int EndSpanIndex { get; set; }
+            public double MinX { get; set; }
+            public double MaxX { get; set; }
+            public double MinY { get; set; }
+            public double MaxY { get; set; }
+            public string Label => PageCount > 1 ? $"Trang {PageIndex + 1}/{PageCount}" : "Trang 1/1";
         }
 
         private sealed class PdfPaperMargins
@@ -12105,9 +12143,15 @@ namespace RevitProjectDataAddin
         private static PdfPaperMargins GetPdfPaperMargins(PdfPaperSize paperSize, bool isPortrait)
         {
             if (paperSize == PdfPaperSize.A3)
-                return new PdfPaperMargins(leftMm: 10.0, rightMm: 10.0, topMm: 15.0, bottomMm: 15.0);
+            {
+                return isPortrait
+                    ? new PdfPaperMargins(leftMm: 10.0, rightMm: 10.0, topMm: 15.0, bottomMm: 15.0)
+                    : new PdfPaperMargins(leftMm: 15.0, rightMm: 15.0, topMm: 10.0, bottomMm: 10.0);
+            }
 
-            return new PdfPaperMargins(leftMm: 5.0, rightMm: 5.0, topMm: 10.0, bottomMm: 10.0);
+            return isPortrait
+                ? new PdfPaperMargins(leftMm: 5.0, rightMm: 5.0, topMm: 10.0, bottomMm: 10.0)
+                : new PdfPaperMargins(leftMm: 10.0, rightMm: 10.0, topMm: 5.0, bottomMm: 5.0);
         }
 
         private static PdfPageLayoutPlan CreateDefaultPdfPageLayout(PdfPaperSize paperSize, PdfPaperOrientation orientation)
@@ -12246,10 +12290,98 @@ namespace RevitProjectDataAddin
                 return string.Empty;
 
             string summary = $"Khổ {GetPdfPaperDisplayText(settings.PaperSize)} {layout.OrientationLabel} | Scale {GetPdfScaleDisplayText(settings, layout)}";
+            if (settings.ViewportWindow != null && settings.ViewportWindow.PageCount > 1)
+                summary = $"{summary} | {settings.ViewportWindow.Label}";
             if (!layout.IsClipped)
                 return $"{summary}\nNội dung nằm trong vùng in {layout.PrintableWidthMm:0.#} x {layout.PrintableHeightMm:0.#} mm.";
 
             return $"{summary}\nCảnh báo: nội dung vượt khổ in và sẽ bị cắt, không tự fit lại.";
+        }
+
+        private List<PdfViewportWindow> BuildPdfViewportWindows(PdfPaperSize paperSize, IReadOnlyList<object> scene)
+        {
+            if (scene == null || scene.Count == 0)
+                return new List<PdfViewportWindow>();
+
+            if (!TryGetSceneBounds(scene, TextOutputTarget.Pdf, out double sceneMinX, out double sceneMinY, out double sceneMaxX, out double sceneMaxY))
+                return new List<PdfViewportWindow>();
+
+            var windows = new List<PdfViewportWindow>();
+            if (paperSize != PdfPaperSize.A4 || _projectData?.Kihon == null || _currentSecoList == null)
+            {
+                windows.Add(new PdfViewportWindow
+                {
+                    PageIndex = 0,
+                    PageCount = 1,
+                    StartSpanIndex = 0,
+                    EndSpanIndex = 0,
+                    MinX = sceneMinX,
+                    MaxX = sceneMaxX,
+                    MinY = sceneMinY,
+                    MaxY = sceneMaxY
+                });
+                return windows;
+            }
+
+            var k = _projectData.Kihon;
+            bool tsuIsX = k.NameX.Any(n => n.Name == _currentSecoList.通を選択);
+            bool tsuIsY = k.NameY.Any(n => n.Name == _currentSecoList.通を選択);
+            var spans = tsuIsY ? k.ListSpanX.Select(s => ParseMm(s.Span)).ToList()
+                               : tsuIsX ? k.ListSpanY.Select(s => ParseMm(s.Span)).ToList()
+                                        : new List<double>();
+
+            spans = spans.Where(s => s > 0).ToList();
+            if (spans.Count <= 3)
+            {
+                windows.Add(new PdfViewportWindow
+                {
+                    PageIndex = 0,
+                    PageCount = 1,
+                    StartSpanIndex = 0,
+                    EndSpanIndex = Math.Max(0, spans.Count - 1),
+                    MinX = sceneMinX,
+                    MaxX = sceneMaxX,
+                    MinY = sceneMinY,
+                    MaxY = sceneMaxY
+                });
+                return windows;
+            }
+
+            double totalWidth = spans.Sum();
+            var positions = new List<double> { -totalWidth / 2.0 };
+            for (int i = 0; i < spans.Count; i++)
+                positions.Add(positions[i] + spans[i]);
+
+            double fullSpanMinX = positions.First();
+            double fullSpanMaxX = positions.Last();
+            double outerLeftInset = Math.Max(0.0, fullSpanMinX - sceneMinX);
+            double outerRightInset = Math.Max(0.0, sceneMaxX - fullSpanMaxX);
+            const double innerPageBleedMm = 12.0;
+
+            int pageCount = (int)Math.Ceiling(spans.Count / 3.0);
+            for (int pageIndex = 0; pageIndex < pageCount; pageIndex++)
+            {
+                int startSpanIndex = pageIndex * 3;
+                int endSpanIndex = Math.Min(spans.Count - 1, startSpanIndex + 2);
+                double groupMinX = positions[startSpanIndex];
+                double groupMaxX = positions[endSpanIndex + 1];
+                double leftInset = startSpanIndex == 0 ? outerLeftInset : innerPageBleedMm;
+                double rightInset = endSpanIndex == spans.Count - 1 ? outerRightInset : innerPageBleedMm;
+
+                windows.Add(new PdfViewportWindow
+                {
+                    PageIndex = pageIndex,
+                    PageCount = pageCount,
+                    StartSpanIndex = startSpanIndex,
+                    EndSpanIndex = endSpanIndex,
+                    MinX = groupMinX - leftInset,
+                    MaxX = groupMaxX + rightInset,
+                    MinY = sceneMinY,
+                    MaxY = sceneMaxY
+                });
+            }
+
+            return windows;
         }
 
         private static Rect PdfRectMmToPreviewPx(double leftMm, double bottomMm, double widthMm, double heightMm, double pageHeightMm, double mmToPx)
@@ -12861,7 +12993,8 @@ namespace RevitProjectDataAddin
 
             var previewPanel = new Grid { Margin = new Thickness(16, 0, 0, 0) };
             previewPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            previewPanel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            previewPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            previewPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             previewPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             Grid.SetColumn(previewPanel, 1);
             bodyGrid.Children.Add(previewPanel);
@@ -12875,12 +13008,19 @@ namespace RevitProjectDataAddin
             };
             previewPanel.Children.Add(previewTitle);
 
+            const double previewHostWidth = 810.0;
+            const double previewHostHeight = 740.0;
+            const double previewHostPadding = 16.0;
+
             var previewHost = new Border
             {
                 BorderBrush = Brushes.Silver,
                 BorderThickness = new Thickness(1),
                 Background = new SolidColorBrush(Color.FromRgb(245, 247, 249)),
-                Padding = new Thickness(16)
+                Width = previewHostWidth,
+                Height = previewHostHeight,
+                Padding = new Thickness(previewHostPadding),
+                HorizontalAlignment = HorizontalAlignment.Left
             };
             Grid.SetRow(previewHost, 1);
             previewPanel.Children.Add(previewHost);
@@ -12897,6 +13037,9 @@ namespace RevitProjectDataAddin
                 Background = Brushes.White,
                 BorderBrush = Brushes.Black,
                 BorderThickness = new Thickness(1),
+                Padding = new Thickness(1),
+                Margin = new Thickness(2),
+                UseLayoutRounding = true,
                 SnapsToDevicePixels = true
             };
             var previewImage = new Image
@@ -12906,6 +13049,47 @@ namespace RevitProjectDataAddin
             };
             previewPageFrame.Child = previewImage;
             previewCanvas.Children.Add(previewPageFrame);
+            var previewNavPanel = new Grid
+            {
+                Margin = new Thickness(0, 8, 0, 0),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Visibility = System.Windows.Visibility.Collapsed
+            };
+            previewNavPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            previewNavPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            previewNavPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetRow(previewNavPanel, 2);
+            previewPanel.Children.Add(previewNavPanel);
+
+            var prevPageButton = new Button
+            {
+                Content = "<",
+                Width = 34,
+                Height = 28,
+                Margin = new Thickness(0, 0, 8, 0),
+                IsEnabled = false
+            };
+            previewNavPanel.Children.Add(prevPageButton);
+
+            var previewPageText = new TextBlock
+            {
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0),
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold
+            };
+            Grid.SetColumn(previewPageText, 1);
+            previewNavPanel.Children.Add(previewPageText);
+
+            var nextPageButton = new Button
+            {
+                Content = ">",
+                Width = 34,
+                Height = 28,
+                IsEnabled = false
+            };
+            Grid.SetColumn(nextPageButton, 2);
+            previewNavPanel.Children.Add(nextPageButton);
 
             var previewInfo = new TextBlock
             {
@@ -12914,7 +13098,7 @@ namespace RevitProjectDataAddin
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 8, 0, 0)
             };
-            Grid.SetRow(previewInfo, 2);
+            Grid.SetRow(previewInfo, 3);
             previewPanel.Children.Add(previewInfo);
 
             var footer = new Grid { Margin = new Thickness(0, 12, 0, 0) };
@@ -12942,6 +13126,7 @@ namespace RevitProjectDataAddin
             footer.Children.Add(cancelButton);
 
             PdfPlotSettings result = null;
+            int currentPreviewPageIndex = 0;
 
             bool IsCustomScaleSelected()
                 => string.Equals(scaleCombo.SelectedItem as string, "Custom...", StringComparison.OrdinalIgnoreCase);
@@ -13022,6 +13207,10 @@ namespace RevitProjectDataAddin
                 {
                     previewTitle.Text = "Preview";
                     previewImage.Source = null;
+                    previewNavPanel.Visibility = System.Windows.Visibility.Collapsed;
+                    previewPageText.Text = string.Empty;
+                    prevPageButton.IsEnabled = false;
+                    nextPageButton.IsEnabled = false;
                     previewInfo.Text = "Chọn một vị trí để xem preview.";
                     return;
                 }
@@ -13030,18 +13219,50 @@ namespace RevitProjectDataAddin
                 {
                     previewTitle.Text = $"Preview: {currentSource.Key}";
                     previewImage.Source = null;
+                    previewNavPanel.Visibility = System.Windows.Visibility.Collapsed;
+                    previewPageText.Text = string.Empty;
+                    prevPageButton.IsEnabled = false;
+                    nextPageButton.IsEnabled = false;
                     previewInfo.Text = "Scale custom chưa hợp lệ. Nhập mẫu số dương, ví dụ 75 cho 1:75.";
                     return;
                 }
 
+                IReadOnlyList<object> currentScene = null;
+                try
+                {
+                    currentScene = CaptureSceneForPdfExport(currentSource.Item, currentSource.Key);
+                }
+                catch { }
+
+                var viewportWindows = BuildPdfViewportWindows(currentSettings.PaperSize, currentScene).ToList();
+                if (viewportWindows.Count == 0)
+                {
+                    viewportWindows.Add(new PdfViewportWindow
+                    {
+                        PageIndex = 0,
+                        PageCount = 1
+                    });
+                }
+
+                if (currentPreviewPageIndex >= viewportWindows.Count)
+                    currentPreviewPageIndex = viewportWindows.Count - 1;
+                if (currentPreviewPageIndex < 0)
+                    currentPreviewPageIndex = 0;
+
+                currentSettings.ViewportWindow = viewportWindows[currentPreviewPageIndex];
                 previewTitle.Text = $"Preview: {currentSource.Key}";
                 var previewSource = CreatePdfPlotPreviewImageSource(currentSource, currentSettings, out var layout);
                 previewImage.Source = previewSource;
+                previewNavPanel.Visibility = viewportWindows.Count > 1 ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+                previewPageText.Text = currentSettings.ViewportWindow?.Label ?? "Trang 1/1";
+                prevPageButton.IsEnabled = currentPreviewPageIndex > 0;
+                nextPageButton.IsEnabled = currentPreviewPageIndex < viewportWindows.Count - 1;
                 summaryText.Text = $"Khổ {GetPdfPaperDisplayText(currentSettings.PaperSize)} {GetPdfOrientationDisplayText(currentSettings.Orientation)} | Scale {GetPdfScaleDisplayText(currentSettings, layout)} | Chọn {currentSettings.SelectedKeys.Count}/{sources.Count} vị trí";
                 previewInfo.Text = BuildPdfPlotStatusText(currentSettings, layout);
 
-                const double maxFrameWidth = 620.0;
-                const double maxFrameHeight = 700.0;
+                const double previewFrameSafetyInset = 6.0;
+                double maxFrameWidth = previewHostWidth - (previewHostPadding * 2.0) - previewFrameSafetyInset;
+                double maxFrameHeight = previewHostHeight - (previewHostPadding * 2.0) - previewFrameSafetyInset;
                 double previewScale = Math.Min(maxFrameWidth / Math.Max(1.0, layout.PageWidthMm),
                                                maxFrameHeight / Math.Max(1.0, layout.PageHeightMm));
                 if (double.IsNaN(previewScale) || double.IsInfinity(previewScale) || previewScale <= 0)
@@ -13110,11 +13331,38 @@ namespace RevitProjectDataAddin
                 optionWindow.Close();
             };
 
-            paperCombo.SelectionChanged += (_, __) => UpdatePreview();
-            orientationCombo.SelectionChanged += (_, __) => UpdatePreview();
+            prevPageButton.Click += (_, __) =>
+            {
+                if (currentPreviewPageIndex <= 0)
+                    return;
+
+                currentPreviewPageIndex--;
+                UpdatePreview();
+            };
+
+            nextPageButton.Click += (_, __) =>
+            {
+                currentPreviewPageIndex++;
+                UpdatePreview();
+            };
+
+            paperCombo.SelectionChanged += (_, __) =>
+            {
+                currentPreviewPageIndex = 0;
+                UpdatePreview();
+            };
+            orientationCombo.SelectionChanged += (_, __) =>
+            {
+                currentPreviewPageIndex = 0;
+                UpdatePreview();
+            };
             scaleCombo.SelectionChanged += (_, __) => UpdatePreview();
             customScaleBox.TextChanged += (_, __) => UpdatePreview();
-            positionList.SelectionChanged += (_, __) => UpdatePreview();
+            positionList.SelectionChanged += (_, __) =>
+            {
+                currentPreviewPageIndex = 0;
+                UpdatePreview();
+            };
 
             UpdatePreview();
 
@@ -13143,6 +13391,15 @@ namespace RevitProjectDataAddin
 
             if (scene == null || !TryGetSceneBounds(scene, TextOutputTarget.Pdf, out double minX, out double minY, out double maxX, out double maxY))
                 return CreateCanvasPreviewImageSource(src.Canvas);
+
+            var viewportWindow = settings.ViewportWindow;
+            if (viewportWindow != null && viewportWindow.MaxX > viewportWindow.MinX && viewportWindow.MaxY > viewportWindow.MinY)
+            {
+                minX = viewportWindow.MinX;
+                maxX = viewportWindow.MaxX;
+                minY = viewportWindow.MinY;
+                maxY = viewportWindow.MaxY;
+            }
 
             layout = ResolvePdfPageLayout(settings.PaperSize, settings.Orientation, maxX - minX, maxY - minY, settings.ScaleDenominator);
 
@@ -13805,8 +14062,8 @@ namespace RevitProjectDataAddin
             private const double A4HeightMm = 210.0;
             private const double A3WidthMm = 420.0;
             private const double A3HeightMm = 297.0;
-            private const double LineWidthScale = 1.15;
-            private const double MinLineWidthMm = 0.18;
+            private const double LineWidthScale = 2.4;
+            private const double MinLineWidthMm = 0.35;
             public static PdfVectorPage Create(string key,
                                                IEnumerable<DxfLine> lines,
                                                IEnumerable<DxfText> texts,
@@ -14291,6 +14548,17 @@ namespace RevitProjectDataAddin
                     double maxX = _maxX;
                     double maxY = _maxY;
 
+                    var viewportWindow = _plotSettings.ViewportWindow;
+                    if (viewportWindow != null
+                        && viewportWindow.MaxX > viewportWindow.MinX
+                        && viewportWindow.MaxY > viewportWindow.MinY)
+                    {
+                        minX = viewportWindow.MinX;
+                        maxX = viewportWindow.MaxX;
+                        minY = viewportWindow.MinY;
+                        maxY = viewportWindow.MaxY;
+                    }
+
                     if (maxX <= minX) maxX = minX + 1;
                     if (maxY <= minY) maxY = minY + 1;
 
@@ -14379,8 +14647,22 @@ namespace RevitProjectDataAddin
                     return value.ToString("0.######", CultureInfo.InvariantCulture);
                 }
 
+                private static MediaColor NormalizePdfPrintColor(MediaColor color)
+                {
+                    double luminance = (0.299 * color.R) + (0.587 * color.G) + (0.114 * color.B);
+                    if (luminance <= 0.0)
+                        return color;
+
+                    double factor = 100.0 / luminance;
+                    byte r = (byte)Math.Max(0, Math.Min(255, Math.Round(color.R * factor)));
+                    byte g = (byte)Math.Max(0, Math.Min(255, Math.Round(color.G * factor)));
+                    byte b = (byte)Math.Max(0, Math.Min(255, Math.Round(color.B * factor)));
+                    return MediaColor.FromRgb(r, g, b);
+                }
+
                 private static void SetStrokeColor(StringBuilder sb, PdfDrawState state, MediaColor color)
                 {
+                    color = NormalizePdfPrintColor(color);
                     if (!state.StrokeColor.HasValue || state.StrokeColor.Value != color)
                     {
                         sb.AppendFormat(CultureInfo.InvariantCulture, "{0} {1} {2} RG\n",
@@ -14393,6 +14675,7 @@ namespace RevitProjectDataAddin
 
                 private static void SetFillColor(StringBuilder sb, PdfDrawState state, MediaColor color)
                 {
+                    color = NormalizePdfPrintColor(color);
                     if (!state.FillColor.HasValue || state.FillColor.Value != color)
                     {
                         sb.AppendFormat(CultureInfo.InvariantCulture, "{0} {1} {2} rg\n",
