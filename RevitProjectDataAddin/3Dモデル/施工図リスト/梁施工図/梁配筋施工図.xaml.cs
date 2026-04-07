@@ -211,7 +211,7 @@ namespace RevitProjectDataAddin
                 if (selectedSet.Count > 0 && !selectedSet.Contains(src.Key)) continue;
 
                 var scene = CaptureSceneForPdfExport(src.Item, src.Key);
-                var viewportWindows = BuildPdfViewportWindows(paperSize, scene);
+                var viewportWindows = BuildPdfViewportWindows(paperSize, scene, plotSettings?.FitToPage == true);
                 if (viewportWindows == null || viewportWindows.Count == 0)
                 {
                     viewportWindows = new List<PdfViewportWindow>

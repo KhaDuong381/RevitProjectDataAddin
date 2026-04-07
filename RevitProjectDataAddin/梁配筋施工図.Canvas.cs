@@ -360,7 +360,7 @@ namespace RevitProjectDataAddin
                                        string text, double wx, double wy,
                                        double fontPx = 12, Brush color = null,
                                        HAnchor ha = HAnchor.Center, VAnchor va = VAnchor.Bottom,
-                                       double heightMm = 150, string layer = "TEXT",
+                                       double heightMm = 200, string layer = "TEXT",
                                        bool forceCanvasVisual = false)
         {
             var (h, v) = ToDxfAlign(ha, va);
@@ -592,7 +592,7 @@ namespace RevitProjectDataAddin
 
             var tb = DrawText_Rec(canvas, T, item, initialText,
                                  cx, cy, labelFontPx, Brushes.Black,
-                                 HAnchor.Center, VAnchor.Bottom, 150, "TEXT",
+                                 HAnchor.Center, VAnchor.Bottom, 200, "TEXT",
                                  forceCanvasVisual: true);
             tb.Background = Brushes.Transparent;
             //tb.Padding = new Thickness(6, 2, 6, 2);
@@ -716,7 +716,7 @@ namespace RevitProjectDataAddin
                     Background = normalBg,
                     BorderBrush = Brushes.Transparent,
                     BorderThickness = new Thickness(0),
-                    MinWidth = 150,
+                    MinWidth = 180,
                     OverridesDefaultStyle = true,
                     Template = GetFlatBtnTemplate(),
                     Focusable = false,
@@ -7725,7 +7725,7 @@ namespace RevitProjectDataAddin
                     dimFont, Brushes.Black,
                     HAnchor.Center,
                     textAboveLine ? VAnchor.Bottom : VAnchor.Top,
-                    150, "DIM",
+                    200, "DIM",
                     forceCanvasVisual: true
                 );
                 MakeOrangeDimTextEditable(topTb, cvs, tr, wxTop, wyTop, owner, topKey);
@@ -7747,7 +7747,7 @@ namespace RevitProjectDataAddin
                         dimFont, Brushes.Red,
                         HAnchor.Center,
                         textAboveLine ? VAnchor.Top : VAnchor.Bottom,
-                        150, "DIM"
+                        200, "DIM"
                     );
                     MakeOrangeDimTextEditable(botTb, cvs, tr, wxBot, wyBot, owner, botKey);
                 }
@@ -7781,7 +7781,7 @@ namespace RevitProjectDataAddin
 
                 string txt = $"D{phi:0}-{len:0}";
                 DrawText_Rec(cvs, tr, owner, txt, cx, y + dy, dimFont, Brushes.Black,
-                             HAnchor.Center, VAnchor.Bottom, 150, "DIM");
+                             HAnchor.Center, VAnchor.Bottom, 200, "DIM");
             }
 
             // === 1) Trục & offset ===
@@ -7791,7 +7791,7 @@ namespace RevitProjectDataAddin
 
                 // Tên trục X và Y
                 DrawText_Rec(canvas, T, item, i < names.Count ? names[i] : "", pos[i], y0, dimFont, Brushes.Black,
-                                HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                                HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
 
                 if (tsuIsY)
                 {
@@ -7810,7 +7810,7 @@ namespace RevitProjectDataAddin
                         DrawDotMm_Rec(canvas, T, item, xLeft, yChainMid, rMm: 30, layer: "DIM", fill: dimBrush);
                         DrawDotMm_Rec(canvas, T, item, pos[i], yChainMid, rMm: 30, layer: "DIM", fill: dimBrush);
                         double cxL = (xLeft + pos[i]) / 2.0;
-                        DrawText_Rec(canvas, T, item, $"{up[i]:0}", cxL, yChainMid, dimFont, dimBrush, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                        DrawText_Rec(canvas, T, item, $"{up[i]:0}", cxL, yChainMid, dimFont, dimBrush, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
                     }
                     if (xRight > pos[i])
                     {
@@ -7818,7 +7818,7 @@ namespace RevitProjectDataAddin
                         DrawDotMm_Rec(canvas, T, item, pos[i], yChainMid, rMm: 30, layer: "DIM", fill: dimBrush);
                         DrawDotMm_Rec(canvas, T, item, xRight, yChainMid, rMm: 30, layer: "DIM", fill: dimBrush);
                         double cxR = (pos[i] + xRight) / 2.0;
-                        DrawText_Rec(canvas, T, item, $"{down[i]:0}", cxR, yChainMid, dimFont, dimBrush, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                        DrawText_Rec(canvas, T, item, $"{down[i]:0}", cxR, yChainMid, dimFont, dimBrush, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
                     }
                 }
                 else if (tsuIsX)
@@ -7837,7 +7837,7 @@ namespace RevitProjectDataAddin
                         DrawDotMm_Rec(canvas, T, item, xLeft, yChainMid, rMm: 30, layer: "DIM", fill: dimBrush);
                         DrawDotMm_Rec(canvas, T, item, pos[i], yChainMid, rMm: 30, layer: "DIM", fill: dimBrush);
                         double cxL = (xLeft + pos[i]) / 2.0;
-                        DrawText_Rec(canvas, T, item, $"{left[i]:0}", cxL, yChainMid, dimFont, dimBrush, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                        DrawText_Rec(canvas, T, item, $"{left[i]:0}", cxL, yChainMid, dimFont, dimBrush, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
                     }
                     if (xRight > pos[i])
                     {
@@ -7845,7 +7845,7 @@ namespace RevitProjectDataAddin
                         DrawDotMm_Rec(canvas, T, item, pos[i], yChainMid, rMm: 30, layer: "DIM", fill: dimBrush);
                         DrawDotMm_Rec(canvas, T, item, xRight, yChainMid, rMm: 30, layer: "DIM", fill: dimBrush);
                         double cxR = (pos[i] + xRight) / 2.0;
-                        DrawText_Rec(canvas, T, item, $"{right[i]:0}", cxR, yChainMid, dimFont, dimBrush, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                        DrawText_Rec(canvas, T, item, $"{right[i]:0}", cxR, yChainMid, dimFont, dimBrush, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
                     }
                 }
             }
@@ -7863,7 +7863,7 @@ namespace RevitProjectDataAddin
                     double cx = (xA + xB) / 2.0;
 
                     DrawLine_Rec(canvas, T, item, xA, yChainMid, xB, yChainMid, Brushes.Black, 1.2, null, "CHAIN");
-                    DrawText_Rec(canvas, T, item, $"{eff:0}", cx, yChainMid, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                    DrawText_Rec(canvas, T, item, $"{eff:0}", cx, yChainMid, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
 
                     ////////////////1 chổ////////
                     ////腹筋
@@ -7912,9 +7912,9 @@ namespace RevitProjectDataAddin
                     DrawLine_Rec(canvas, T, item, xQ3, yChainBot, xB, yChainBot, Brushes.Black, 1.2, null, "CHAIN");
 
                     double v14 = eff * 0.25, v12 = eff * 0.50;
-                    DrawText_Rec(canvas, T, item, $"{v14:0}", (xA + xQ1) / 2.0, yChainBot, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 160, "TEXT");
-                    DrawText_Rec(canvas, T, item, $"{v12:0}", (xQ1 + xQ3) / 2.0, yChainBot, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 160, "TEXT");
-                    DrawText_Rec(canvas, T, item, $"{v14:0}", (xQ3 + xB) / 2.0, yChainBot, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 160, "TEXT");
+                    DrawText_Rec(canvas, T, item, $"{v14:0}", (xA + xQ1) / 2.0, yChainBot, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, $"{v12:0}", (xQ1 + xQ3) / 2.0, yChainBot, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, $"{v14:0}", (xQ3 + xB) / 2.0, yChainBot, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
 
                     DrawDotMm_Rec(canvas, T, item, xQ1, yChainBot, rMm: 25, layer: "MARK", fill: Brushes.Black);
                     DrawDotMm_Rec(canvas, T, item, xQ3, yChainBot, rMm: 25, layer: "MARK");
@@ -7932,7 +7932,7 @@ namespace RevitProjectDataAddin
                     double cx = (xA + xB) / 2.0;
 
                     DrawLine_Rec(canvas, T, item, xA, yChainMid, xB, yChainMid, Brushes.Black, 1.2, null, "CHAIN");
-                    DrawText_Rec(canvas, T, item, $"{eff:0}", cx, yChainMid, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                    DrawText_Rec(canvas, T, item, $"{eff:0}", cx, yChainMid, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
 
                     ///////////////// 2 chổ /////////////////
                     ////腹筋
@@ -7982,9 +7982,9 @@ namespace RevitProjectDataAddin
                     DrawLine_Rec(canvas, T, item, xQ3, yChainBot, xB, yChainBot, Brushes.Black, 1.2, null, "CHAIN");
 
                     double v14 = eff * 0.25, v12 = eff * 0.50;
-                    DrawText_Rec(canvas, T, item, $"{v14:0}", (xA + xQ1) / 2.0, yChainBot, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 160, "TEXT");
-                    DrawText_Rec(canvas, T, item, $"{v12:0}", (xQ1 + xQ3) / 2.0, yChainBot, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 160, "TEXT");
-                    DrawText_Rec(canvas, T, item, $"{v14:0}", (xQ3 + xB) / 2.0, yChainBot, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 160, "TEXT");
+                    DrawText_Rec(canvas, T, item, $"{v14:0}", (xA + xQ1) / 2.0, yChainBot, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, $"{v12:0}", (xQ1 + xQ3) / 2.0, yChainBot, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, $"{v14:0}", (xQ3 + xB) / 2.0, yChainBot, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
 
                     DrawDotMm_Rec(canvas, T, item, xQ1, yChainBot, rMm: 25, layer: "MARK", fill: Brushes.Black);
                     DrawDotMm_Rec(canvas, T, item, xQ3, yChainBot, rMm: 25, layer: "MARK");
@@ -8121,12 +8121,12 @@ namespace RevitProjectDataAddin
 
                         var leftText = DrawText_Rec(canvas, T, item, leftDisplayText,
                             hookCenter - 700 + offset3.X, tanbuTextY + offset3.Y,
-                            dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 160, "TEXT",
+                            dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT",
                             forceCanvasVisual: true);
 
                         var rightText = DrawText_Rec(canvas, T, item, rightDisplayText,
                             hookCenter + 1800 + offset3.X, tanbuTextY + offset3.Y,
-                            dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 160, "TEXT",
+                            dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT",
                             forceCanvasVisual: true);
 
                         MakeTanbuFukkinEditable(
@@ -8203,30 +8203,30 @@ namespace RevitProjectDataAddin
                 DrawLine_Rec(canvas, T, item, qR1 + 500, yChainLocal + 1300, qR1 + 500, yChainLocal + 2800, Brushes.Blue, 1.2, null, "MARK");
 
                 // Text giữa span
-                DrawText_Rec(canvas, T, item, $"{G0}", mid, yChainLocal + 900, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                DrawText_Rec(canvas, T, item, $"({梁の段差1})", mid, yChainLocal + 1200, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                DrawText_Rec(canvas, T, item, $"{G0}", mid, yChainLocal + 900, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                DrawText_Rec(canvas, T, item, $"({梁の段差1})", mid, yChainLocal + 1200, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
                 if (zcfg != null)
                 {
-                    DrawText_Rec(canvas, T, item, zcfg.中央上筋本数, mid, yChainLocal + 1550, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    DrawText_Rec(canvas, T, item, zcfg.中央上宙1, mid, yChainLocal + 1750, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    DrawText_Rec(canvas, T, item, zcfg.中央上宙2, mid, yChainLocal + 1950, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    DrawText_Rec(canvas, T, item, zcfg.中央下宙2, mid, yChainLocal + 2350, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    DrawText_Rec(canvas, T, item, zcfg.中央下宙1, mid, yChainLocal + 2550, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    DrawText_Rec(canvas, T, item, zcfg.中央下筋本数, mid, yChainLocal + 2750, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.中央上筋本数, mid, yChainLocal + 1550, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.中央上宙1, mid, yChainLocal + 1750, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.中央上宙2, mid, yChainLocal + 1950, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.中央下宙2, mid, yChainLocal + 2350, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.中央下宙1, mid, yChainLocal + 2550, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.中央下筋本数, mid, yChainLocal + 2750, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
 
-                    DrawText_Rec(canvas, T, item, zcfg.端部1上筋本数, qL1, yChainLocal + 1550, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    DrawText_Rec(canvas, T, item, zcfg.端部1上宙1, qL1, yChainLocal + 1750, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    DrawText_Rec(canvas, T, item, zcfg.端部1上宙2, qL1, 12 + yChainLocal + 1950, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    DrawText_Rec(canvas, T, item, zcfg.端部1下宙2, qL1, yChainLocal + 2350, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    DrawText_Rec(canvas, T, item, zcfg.端部1下宙1, qL1, yChainLocal + 2550, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    DrawText_Rec(canvas, T, item, zcfg.端部1下筋本数, qL1, yChainLocal + 2750, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.端部1上筋本数, qL1, yChainLocal + 1550, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.端部1上宙1, qL1, yChainLocal + 1750, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.端部1上宙2, qL1, 12 + yChainLocal + 1950, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.端部1下宙2, qL1, yChainLocal + 2350, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.端部1下宙1, qL1, yChainLocal + 2550, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.端部1下筋本数, qL1, yChainLocal + 2750, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
 
-                    DrawText_Rec(canvas, T, item, zcfg.端部2上筋本数, qR1, yChainLocal + 1550, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    DrawText_Rec(canvas, T, item, zcfg.端部2上宙1, qR1, yChainLocal + 1750, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    DrawText_Rec(canvas, T, item, zcfg.端部2上宙2, qR1, yChainLocal + 1950, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    DrawText_Rec(canvas, T, item, zcfg.端部2下宙2, qR1, yChainLocal + 2350, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    DrawText_Rec(canvas, T, item, zcfg.端部2下宙1, qR1, yChainLocal + 2550, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    DrawText_Rec(canvas, T, item, zcfg.端部2下筋本数, qR1, yChainLocal + 2750, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.端部2上筋本数, qR1, yChainLocal + 1550, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.端部2上宙1, qR1, yChainLocal + 1750, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.端部2上宙2, qR1, yChainLocal + 1950, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.端部2下宙2, qR1, yChainLocal + 2350, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.端部2下宙1, qR1, yChainLocal + 2550, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.端部2下筋本数, qR1, yChainLocal + 2750, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
                 }
 
                 // Khung xanh giữa
@@ -8334,14 +8334,14 @@ namespace RevitProjectDataAddin
                     string grossLabel = string.Format(CultureInfo.InvariantCulture, "({0}x{1})", grossWidth, grossHeight);
                     var grossText = DrawText_Rec(canvas, T, item,
                                 grossLabel,
-                                mid, yChainLocal + 3100, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT",
+                                mid, yChainLocal + 3100, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT",
                                 forceCanvasVisual: true);
                     MakeBeamSizeEditable(grossText, canvas, T, mid, yChainLocal + 3000, selF, G0, item, i);
 
                     //(500x744)
                     DrawText_Rec(canvas, T, item,
                                 $"({netWidth}x{adjustedNetHeight})",
-                                mid + offset4.X, yChainLocal + 9600 + offset4.Y, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                                mid + offset4.X, yChainLocal + 9600 + offset4.Y, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
                     //D13@120(SD390)
 
                     string centralStirrupMaterial = showStirrupMaterial ? $"({(スタラップ材質)})" : string.Empty;
@@ -8373,11 +8373,11 @@ namespace RevitProjectDataAddin
                     //(P56)
                     DrawText_Rec(canvas, T, item,
                                 $"(P56)",
-                                mid + offset4.X, yChainLocal + 10150 + offset4.Y, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                                mid + offset4.X, yChainLocal + 10180 + offset4.Y, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
                     // 500
                     DrawText_Rec(canvas, T, item,
                                 $"{netWidth}",
-                                mid + offset4.X, yChainLocal + 10550 + offset4.Y, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                                mid + offset4.X, yChainLocal + 10550 + offset4.Y, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
 
                     //[D10@200]
                     string endDiaPart = $"[ D{端部1幅止筋径}";
@@ -8403,11 +8403,11 @@ namespace RevitProjectDataAddin
                     //(P7)
                     DrawText_Rec(canvas, T, item,
                                 $"(P7)",
-                                mid + offset4.X, yChainLocal + 11100 + offset4.Y, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                                mid + offset4.X, yChainLocal + 11100 + offset4.Y, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
                     // 744
                     DrawText_Rec(canvas, T, item,
                                 $"{adjustedNetHeight}",
-                                mid + offset4.X, yChainLocal + 12850 + offset4.Y, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                                mid + offset4.X, yChainLocal + 12850 + offset4.Y, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
                     //D13@180(SD390)
                     //string centralIntermediateMaterial = showStirrupMaterial ? $"({(中央中子筋材質)})" : string.Empty;
                     string diaPart2 = $"D{(中央中子筋径)}";
@@ -8434,7 +8434,7 @@ namespace RevitProjectDataAddin
                     // (P56)
                     DrawText_Rec(canvas, T, item,
                                 $"(P56)",
-                                mid + offset4.X, yChainLocal + 13400 + offset4.Y, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                                mid + offset4.X, yChainLocal + 13400 + offset4.Y, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
 
                     int centralStirrupShape = 1;
                     if (!int.TryParse(zcfg?.中央スタラップ形, out centralStirrupShape))
@@ -9368,12 +9368,12 @@ namespace RevitProjectDataAddin
 
                 var labelTb = DrawText_Rec(canvas, T, item, label,
                     leftEdge - 1300, yBase + LabelDy, dimFont, Brushes.Red,
-                    HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                    HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
 
                 if (nige1 == true)
                 {
-                    DrawText_Rec(canvas, T, item, $"ニゲ {nigeValue:0}", leftEdge - 1100, yBase + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    DrawText_Rec(canvas, T, item, $"ニゲ {nigeValue:0}", rightEdge + 1100, yBase + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                    DrawText_Rec(canvas, T, item, $"ニゲ {nigeValue:0}", leftEdge - 1100, yBase + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, $"ニゲ {nigeValue:0}", rightEdge + 1100, yBase + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
                 }
 
                 return labelTb;
@@ -9682,16 +9682,16 @@ namespace RevitProjectDataAddin
                         Brushes.Aqua, 1.2, null, "CHAIN");
             DrawText_Rec(canvas, T, item, "腹筋",
                          leftEdge - 1400 + offset5.X, yChainBot + 6850 + offset5.Y,
-                         dimFont, Brushes.Red, HAnchor.Left, VAnchor.Bottom, 150, "TEXT");
+                         dimFont, Brushes.Red, HAnchor.Left, VAnchor.Bottom, 200, "TEXT");
             DrawText_Rec(canvas, T, item, "STP",
                          leftEdge - 1400 + offset5.X, yChainBot + 7850 + offset5.Y,
-                         dimFont, Brushes.Red, HAnchor.Left, VAnchor.Bottom, 150, "TEXT");
+                         dimFont, Brushes.Red, HAnchor.Left, VAnchor.Bottom, 200, "TEXT");
             DrawText_Rec(canvas, T, item, "腹筋幅止め",
                          leftEdge - 1400 + offset5.X, yChainBot + 9850 + offset5.Y,
-                         dimFont, Brushes.Red, HAnchor.Left, VAnchor.Bottom, 150, "TEXT");
+                         dimFont, Brushes.Red, HAnchor.Left, VAnchor.Bottom, 200, "TEXT");
             DrawText_Rec(canvas, T, item, "中子",
                          leftEdge - 1400 + offset5.X, yChainBot + 10850 + offset5.Y,
-                         dimFont, Brushes.Red, HAnchor.Left, VAnchor.Bottom, 150, "TEXT");
+                         dimFont, Brushes.Red, HAnchor.Left, VAnchor.Bottom, 200, "TEXT");
             /////////// hết 5 chổ ////////////
 
 
@@ -11022,14 +11022,14 @@ namespace RevitProjectDataAddin
                     Brushes.Aqua, 1.2, null, "CHAIN");
                 //DrawText_Rec(canvas, T, item, "下筋", leftEdge - 1300, yShitaganeBase + LabelDy, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
 
-                var shitaLabel = DrawText_Rec(canvas, T, item, "下筋", leftEdge - 1300, yShitaganeBase + LabelDy, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                var shitaLabel = DrawText_Rec(canvas, T, item, "下筋", leftEdge - 1300, yShitaganeBase + LabelDy, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
                 // <<< ニゲ TEXT >>>
                 TextBlock shitaNigeLeft = null;
                 TextBlock shitaNigeRight = null;
                 if (nige1 == true)
                 {
-                    shitaNigeLeft = DrawText_Rec(canvas, T, item, $"ニゲ {nigeShita:0}", leftEdge - 1100, yShitaganeBase + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    shitaNigeRight = DrawText_Rec(canvas, T, item, $"ニゲ {nigeShita:0}", rightEdge + 1100, yShitaganeBase + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                    shitaNigeLeft = DrawText_Rec(canvas, T, item, $"ニゲ {nigeShita:0}", leftEdge - 1100, yShitaganeBase + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    shitaNigeRight = DrawText_Rec(canvas, T, item, $"ニゲ {nigeShita:0}", rightEdge + 1100, yShitaganeBase + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
                 }
                 var shitaAnkaYs = ShitaganeAnkaYsFor(item);
                 shitaAnkaYs.Clear();
@@ -11980,7 +11980,7 @@ namespace RevitProjectDataAddin
 
                 var (lines, texts, circles, arcs, solids, key) = BuildDxfGeometry(src.Item);
                 var scene = CaptureSceneForPdfExport(src.Item, src.Key);
-                var viewportWindows = BuildPdfViewportWindows(exportOptions.PaperSize, scene);
+                var viewportWindows = BuildPdfViewportWindows(exportOptions.PaperSize, scene, exportOptions.FitToPage);
                 if (viewportWindows.Count == 0)
                 {
                     viewportWindows.Add(new PdfViewportWindow
@@ -11997,6 +11997,8 @@ namespace RevitProjectDataAddin
                         PaperSize = exportOptions.PaperSize,
                         Orientation = exportOptions.Orientation,
                         ScaleDenominator = exportOptions.ScaleDenominator,
+                        HorizontalAlignment = exportOptions.HorizontalAlignment,
+                        VerticalAlignment = exportOptions.VerticalAlignment,
                         TitleText = exportOptions.TitleText,
                         DateText = exportOptions.DateText,
                         SelectedKeys = exportOptions.SelectedKeys != null ? new List<string>(exportOptions.SelectedKeys) : new List<string>(),
@@ -12046,6 +12048,8 @@ namespace RevitProjectDataAddin
             public PdfPaperSize PaperSize { get; set; }
             public PdfPaperOrientation Orientation { get; set; } = PdfPaperOrientation.Landscape;
             public double? ScaleDenominator { get; set; }
+            public PdfHorizontalAlignment HorizontalAlignment { get; set; } = PdfHorizontalAlignment.Center;
+            public PdfVerticalAlignment VerticalAlignment { get; set; } = PdfVerticalAlignment.Middle;
             public string TitleText { get; set; } = "梁配筋図";
             public string DateText { get; set; } = DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
             public List<string> SelectedKeys { get; set; } = new List<string>();
@@ -12137,6 +12141,32 @@ namespace RevitProjectDataAddin
             return $"1:{effectiveDenominator:0.##}";
         }
 
+        private static string GetPdfHorizontalAlignmentDisplayText(PdfHorizontalAlignment alignment)
+        {
+            switch (alignment)
+            {
+                case PdfHorizontalAlignment.Left:
+                    return "Trái";
+                case PdfHorizontalAlignment.Right:
+                    return "Phải";
+                default:
+                    return "Giữa";
+            }
+        }
+
+        private static string GetPdfVerticalAlignmentDisplayText(PdfVerticalAlignment alignment)
+        {
+            switch (alignment)
+            {
+                case PdfVerticalAlignment.Top:
+                    return "Trên";
+                case PdfVerticalAlignment.Bottom:
+                    return "Dưới";
+                default:
+                    return "Giữa";
+            }
+        }
+
         private static (double WidthMm, double HeightMm) GetPdfPaperBaseSizeMm(PdfPaperSize paperSize)
             => paperSize == PdfPaperSize.A3 ? (420.0, 297.0) : (297.0, 210.0);
 
@@ -12203,7 +12233,9 @@ namespace RevitProjectDataAddin
             PdfPaperOrientation orientation,
             double contentWidthMm,
             double contentHeightMm,
-            double? scaleDenominator)
+            double? scaleDenominator,
+            PdfHorizontalAlignment horizontalAlignment = PdfHorizontalAlignment.Center,
+            PdfVerticalAlignment verticalAlignment = PdfVerticalAlignment.Middle)
         {
             const double titleBlockHeightMm = 0.0;
 
@@ -12242,8 +12274,34 @@ namespace RevitProjectDataAddin
 
                 double usedWidth = contentWidthMm * scaleMmPerMm;
                 double usedHeight = contentHeightMm * scaleMmPerMm;
-                double marginLeft = contentLeft + Math.Max(0.0, (printableWidth - usedWidth) / 2.0);
-                double marginBottom = contentBottom + Math.Max(0.0, (printableHeight - usedHeight) / 2.0);
+                double remainingWidth = Math.Max(0.0, printableWidth - usedWidth);
+                double remainingHeight = Math.Max(0.0, printableHeight - usedHeight);
+
+                double marginLeft = contentLeft;
+                switch (horizontalAlignment)
+                {
+                    case PdfHorizontalAlignment.Left:
+                        break;
+                    case PdfHorizontalAlignment.Right:
+                        marginLeft += remainingWidth;
+                        break;
+                    default:
+                        marginLeft += remainingWidth / 2.0;
+                        break;
+                }
+
+                double marginBottom = contentBottom;
+                switch (verticalAlignment)
+                {
+                    case PdfVerticalAlignment.Bottom:
+                        break;
+                    case PdfVerticalAlignment.Top:
+                        marginBottom += remainingHeight;
+                        break;
+                    default:
+                        marginBottom += remainingHeight / 2.0;
+                        break;
+                }
 
                 return new PdfPageLayoutPlan
                 {
@@ -12298,7 +12356,7 @@ namespace RevitProjectDataAddin
             return $"{summary}\nCảnh báo: nội dung vượt khổ in và sẽ bị cắt, không tự fit lại.";
         }
 
-        private List<PdfViewportWindow> BuildPdfViewportWindows(PdfPaperSize paperSize, IReadOnlyList<object> scene)
+        private List<PdfViewportWindow> BuildPdfViewportWindows(PdfPaperSize paperSize, IReadOnlyList<object> scene, bool fitToPage = false)
         {
             if (scene == null || scene.Count == 0)
                 return new List<PdfViewportWindow>();
@@ -12307,7 +12365,7 @@ namespace RevitProjectDataAddin
                 return new List<PdfViewportWindow>();
 
             var windows = new List<PdfViewportWindow>();
-            if (paperSize != PdfPaperSize.A4 || _projectData?.Kihon == null || _currentSecoList == null)
+            if (fitToPage || paperSize != PdfPaperSize.A4 || _projectData?.Kihon == null || _currentSecoList == null)
             {
                 windows.Add(new PdfViewportWindow
                 {
@@ -12936,6 +12994,37 @@ namespace RevitProjectDataAddin
             scaleCombo.SelectedItem = "Fit to page";
             controlPanel.Children.Add(scaleCombo);
 
+            controlPanel.Children.Add(new TextBlock
+            {
+                Text = "Horizontal:",
+                Width = 78,
+                Margin = new Thickness(20, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                FontSize = 14
+            });
+
+            var horizontalCombo = new ComboBox { Width = 95, FontSize = 14, Margin = new Thickness(0, 0, 20, 0) };
+            horizontalCombo.Items.Add("Phải");
+            horizontalCombo.Items.Add("Giữa");
+            horizontalCombo.Items.Add("Trái");
+            horizontalCombo.SelectedItem = "Giữa";
+            controlPanel.Children.Add(horizontalCombo);
+
+            controlPanel.Children.Add(new TextBlock
+            {
+                Text = "Vertical:",
+                Width = 62,
+                VerticalAlignment = VerticalAlignment.Center,
+                FontSize = 14
+            });
+
+            var verticalCombo = new ComboBox { Width = 95, FontSize = 14 };
+            verticalCombo.Items.Add("Trên");
+            verticalCombo.Items.Add("Giữa");
+            verticalCombo.Items.Add("Dưới");
+            verticalCombo.SelectedItem = "Giữa";
+            controlPanel.Children.Add(verticalCombo);
+
             var customScalePrefix = new TextBlock
             {
                 Text = "1:",
@@ -13173,6 +13262,8 @@ namespace RevitProjectDataAddin
                     PaperSize = ((paperCombo.SelectedItem as string) == "A3") ? PdfPaperSize.A3 : PdfPaperSize.A4,
                     Orientation = ((orientationCombo.SelectedItem as string) == "Dọc") ? PdfPaperOrientation.Portrait : PdfPaperOrientation.Landscape,
                     ScaleDenominator = scaleDenominator,
+                    HorizontalAlignment = ((horizontalCombo.SelectedItem as string) == "Trái") ? PdfHorizontalAlignment.Left : ((horizontalCombo.SelectedItem as string) == "Phải") ? PdfHorizontalAlignment.Right : PdfHorizontalAlignment.Center,
+                    VerticalAlignment = ((verticalCombo.SelectedItem as string) == "Trên") ? PdfVerticalAlignment.Top : ((verticalCombo.SelectedItem as string) == "Dưới") ? PdfVerticalAlignment.Bottom : PdfVerticalAlignment.Middle,
                     TitleText = string.IsNullOrWhiteSpace(titleText) ? "梁配筋図" : titleText,
                     DateText = DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
                     SelectedKeys = positionList.SelectedItems.Cast<string>().ToList()
@@ -13196,8 +13287,7 @@ namespace RevitProjectDataAddin
                 bool hasValidScale = TryGetSelectedScaleDenominator(out var validatedScale);
                 currentSettings.ScaleDenominator = validatedScale;
                 exportButton.IsEnabled = hasValidScale;
-                summaryText.Text = $"Khổ {GetPdfPaperDisplayText(currentSettings.PaperSize)} {GetPdfOrientationDisplayText(currentSettings.Orientation)} | Scale {GetPdfScaleDisplayText(currentSettings.ScaleDenominator)} | Chọn {currentSettings.SelectedKeys.Count}/{sources.Count} vị trí";
-
+                summaryText.Text = $"Khổ {GetPdfPaperDisplayText(currentSettings.PaperSize)} {GetPdfOrientationDisplayText(currentSettings.Orientation)} | Scale {GetPdfScaleDisplayText(currentSettings.ScaleDenominator)} | H: {GetPdfHorizontalAlignmentDisplayText(currentSettings.HorizontalAlignment)} | V: {GetPdfVerticalAlignmentDisplayText(currentSettings.VerticalAlignment)} | Chọn {currentSettings.SelectedKeys.Count}/{sources.Count} vị trí";
                 var currentKey = positionList.SelectedItem as string;
                 if (string.IsNullOrWhiteSpace(currentKey))
                     currentKey = currentSettings.SelectedKeys.FirstOrDefault();
@@ -13234,7 +13324,7 @@ namespace RevitProjectDataAddin
                 }
                 catch { }
 
-                var viewportWindows = BuildPdfViewportWindows(currentSettings.PaperSize, currentScene).ToList();
+                var viewportWindows = BuildPdfViewportWindows(currentSettings.PaperSize, currentScene, currentSettings.FitToPage).ToList();
                 if (viewportWindows.Count == 0)
                 {
                     viewportWindows.Add(new PdfViewportWindow
@@ -13257,7 +13347,7 @@ namespace RevitProjectDataAddin
                 previewPageText.Text = currentSettings.ViewportWindow?.Label ?? "Trang 1/1";
                 prevPageButton.IsEnabled = currentPreviewPageIndex > 0;
                 nextPageButton.IsEnabled = currentPreviewPageIndex < viewportWindows.Count - 1;
-                summaryText.Text = $"Khổ {GetPdfPaperDisplayText(currentSettings.PaperSize)} {GetPdfOrientationDisplayText(currentSettings.Orientation)} | Scale {GetPdfScaleDisplayText(currentSettings, layout)} | Chọn {currentSettings.SelectedKeys.Count}/{sources.Count} vị trí";
+                summaryText.Text = $"Khổ {GetPdfPaperDisplayText(currentSettings.PaperSize)} {GetPdfOrientationDisplayText(currentSettings.Orientation)} | Scale {GetPdfScaleDisplayText(currentSettings, layout)} | H: {GetPdfHorizontalAlignmentDisplayText(currentSettings.HorizontalAlignment)} | V: {GetPdfVerticalAlignmentDisplayText(currentSettings.VerticalAlignment)} | Chọn {currentSettings.SelectedKeys.Count}/{sources.Count} vị trí";
                 previewInfo.Text = BuildPdfPlotStatusText(currentSettings, layout);
 
                 const double previewFrameSafetyInset = 6.0;
@@ -13299,7 +13389,7 @@ namespace RevitProjectDataAddin
                             var scene = CaptureSceneForPdfExport(src.Item, src.Key);
                             if (TryGetSceneBounds(scene, TextOutputTarget.Pdf, out double minX, out double minY, out double maxX, out double maxY))
                             {
-                                var layout = ResolvePdfPageLayout(result.PaperSize, result.Orientation, maxX - minX, maxY - minY, result.ScaleDenominator);
+                                var layout = ResolvePdfPageLayout(result.PaperSize, result.Orientation, maxX - minX, maxY - minY, result.ScaleDenominator, result.HorizontalAlignment, result.VerticalAlignment);
                                 if (layout.IsClipped)
                                     clippedKeys.Add(src.Key);
                             }
@@ -13357,6 +13447,8 @@ namespace RevitProjectDataAddin
                 UpdatePreview();
             };
             scaleCombo.SelectionChanged += (_, __) => UpdatePreview();
+            horizontalCombo.SelectionChanged += (_, __) => UpdatePreview();
+            verticalCombo.SelectionChanged += (_, __) => UpdatePreview();
             customScaleBox.TextChanged += (_, __) => UpdatePreview();
             positionList.SelectionChanged += (_, __) =>
             {
@@ -13401,7 +13493,7 @@ namespace RevitProjectDataAddin
                 maxY = viewportWindow.MaxY;
             }
 
-            layout = ResolvePdfPageLayout(settings.PaperSize, settings.Orientation, maxX - minX, maxY - minY, settings.ScaleDenominator);
+            layout = ResolvePdfPageLayout(settings.PaperSize, settings.Orientation, maxX - minX, maxY - minY, settings.ScaleDenominator, settings.HorizontalAlignment, settings.VerticalAlignment);
 
             const double mmToPx = 96.0 / 25.4;
             int pixelWidth = Math.Max(1, (int)Math.Round(layout.PageWidthMm * mmToPx));
@@ -14052,6 +14144,20 @@ namespace RevitProjectDataAddin
             Portrait
         }
 
+        private enum PdfHorizontalAlignment
+        {
+            Left,
+            Center,
+            Right
+        }
+
+        private enum PdfVerticalAlignment
+        {
+            Top,
+            Middle,
+            Bottom
+        }
+
         private static class PdfVectorBuilder
         {
             private const double MmToPt = 72.0 / 25.4;
@@ -14565,7 +14671,7 @@ namespace RevitProjectDataAddin
                     double contentWidth = maxX - minX;
                     double contentHeight = maxY - minY;
 
-                    var page = ResolvePdfPageLayout(_plotSettings.PaperSize, _plotSettings.Orientation, contentWidth, contentHeight, _plotSettings.ScaleDenominator);
+                    var page = ResolvePdfPageLayout(_plotSettings.PaperSize, _plotSettings.Orientation, contentWidth, contentHeight, _plotSettings.ScaleDenominator, _plotSettings.HorizontalAlignment, _plotSettings.VerticalAlignment);
 
                     double pageWidthPoints = page.PageWidthMm * MmToPt;
                     double pageHeightPoints = page.PageHeightMm * MmToPt;
@@ -20134,7 +20240,7 @@ namespace RevitProjectDataAddin
             bool hasMat = !string.IsNullOrWhiteSpace(matText);
 
             double scalePxPerMm = Math.Abs(T.Scale) < 1e-9 ? 1.0 : Math.Abs(T.Scale);
-            const double dxfTextHeightMm = 150.0;
+            const double dxfTextHeightMm = 200.0;
             double effectiveFontPx = Math.Max(1.0, dxfTextHeightMm * scalePxPerMm);
             string fontFamilyName = this.FontFamily?.Source ?? "Yu Mincho";
             var fontFamily = new FontFamily(fontFamilyName);
