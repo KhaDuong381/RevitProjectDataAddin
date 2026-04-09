@@ -1,4 +1,4 @@
-
+﻿
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -11980,7 +11980,7 @@ namespace RevitProjectDataAddin
 
                 var (lines, texts, circles, arcs, solids, key) = BuildDxfGeometry(src.Item);
                 var scene = CaptureSceneForPdfExport(src.Item, src.Key);
-                var viewportWindows = BuildPdfViewportWindows(exportOptions.PaperSize, scene, exportOptions.FitToPage);
+                var viewportWindows = BuildPdfViewportWindows(exportOptions.PaperSize, exportOptions.Orientation, exportOptions.ScaleDenominator, scene, exportOptions.FitToPage);
                 if (viewportWindows.Count == 0)
                 {
                     viewportWindows.Add(new PdfViewportWindow
@@ -12167,6 +12167,55 @@ namespace RevitProjectDataAddin
             }
         }
 
+        private static void ApplyPdfAlignmentToVisibleBounds(PdfPlotSettings settings, ref double minX, ref double minY, ref double maxX, ref double maxY)
+        {
+            if (settings?.ScaleDenominator == null || settings.ScaleDenominator.Value <= 0)
+                return;
+
+            var page = CreateDefaultPdfPageLayout(
+                settings.PaperSize,
+                settings.Orientation);
+
+            double visibleWidthMm = page.PrintableWidthMm * settings.ScaleDenominator.Value;
+            double visibleHeightMm = page.PrintableHeightMm * settings.ScaleDenominator.Value;
+            double currentWidthMm = maxX - minX;
+            double currentHeightMm = maxY - minY;
+
+            if (currentWidthMm > visibleWidthMm + 1e-6)
+            {
+                switch (settings.HorizontalAlignment)
+                {
+                    case PdfHorizontalAlignment.Right:
+                        minX = maxX - visibleWidthMm;
+                        break;
+                    case PdfHorizontalAlignment.Center:
+                        minX += (currentWidthMm - visibleWidthMm) / 2.0;
+                        break;
+                    default:
+                        break;
+                }
+
+                maxX = minX + visibleWidthMm;
+            }
+
+            if (currentHeightMm > visibleHeightMm + 1e-6)
+            {
+                switch (settings.VerticalAlignment)
+                {
+                    case PdfVerticalAlignment.Top:
+                        maxY = minY + visibleHeightMm;
+                        break;
+                    case PdfVerticalAlignment.Middle:
+                        minY += (currentHeightMm - visibleHeightMm) / 2.0;
+                        maxY = minY + visibleHeightMm;
+                        break;
+                    default:
+                        minY = maxY - visibleHeightMm;
+                        break;
+                }
+            }
+        }
+
         private static (double WidthMm, double HeightMm) GetPdfPaperBaseSizeMm(PdfPaperSize paperSize)
             => paperSize == PdfPaperSize.A3 ? (420.0, 297.0) : (297.0, 210.0);
 
@@ -12174,14 +12223,36 @@ namespace RevitProjectDataAddin
         {
             if (paperSize == PdfPaperSize.A3)
             {
-                return isPortrait
-                    ? new PdfPaperMargins(leftMm: 10.0, rightMm: 10.0, topMm: 15.0, bottomMm: 15.0)
-                    : new PdfPaperMargins(leftMm: 15.0, rightMm: 15.0, topMm: 10.0, bottomMm: 10.0);
+                if (isPortrait)
+                {
+                    return new PdfPaperMargins(
+                        leftMm: 10.0,
+                        rightMm: 10.0,
+                        topMm: 15.0,
+                        bottomMm: 15.0);
+                }
+
+                return new PdfPaperMargins(
+                    leftMm: 15.0,
+                    rightMm: 15.0,
+                    topMm: 10.0,
+                    bottomMm: 10.0);
             }
 
-            return isPortrait
-                ? new PdfPaperMargins(leftMm: 5.0, rightMm: 5.0, topMm: 10.0, bottomMm: 10.0)
-                : new PdfPaperMargins(leftMm: 10.0, rightMm: 10.0, topMm: 5.0, bottomMm: 5.0);
+            if (isPortrait)
+            {
+                return new PdfPaperMargins(
+                    leftMm: 5.0,
+                    rightMm: 5.0,
+                    topMm: 10.0,
+                    bottomMm: 10.0);
+            }
+
+            return new PdfPaperMargins(
+                leftMm: 10.0,
+                rightMm: 10.0,
+                topMm: 5.0,
+                bottomMm: 5.0);
         }
 
         private static PdfPageLayoutPlan CreateDefaultPdfPageLayout(PdfPaperSize paperSize, PdfPaperOrientation orientation)
@@ -12195,16 +12266,20 @@ namespace RevitProjectDataAddin
             double frameBottom = margins.BottomMm;
             double frameWidth = Math.Max(1.0, pageWidthMm - margins.LeftMm - margins.RightMm);
             double frameHeight = Math.Max(1.0, pageHeightMm - margins.TopMm - margins.BottomMm);
+            double contentLeft = frameLeft;
+            double contentBottom = frameBottom;
+            double contentWidth = frameWidth;
+            double contentHeight = frameHeight;
 
             return new PdfPageLayoutPlan
             {
                 PageWidthMm = pageWidthMm,
                 PageHeightMm = pageHeightMm,
-                PrintableWidthMm = frameWidth,
-                PrintableHeightMm = frameHeight,
+                PrintableWidthMm = contentWidth,
+                PrintableHeightMm = contentHeight,
                 ScaleMmPerMm = 1.0,
-                MarginLeftMm = frameLeft,
-                MarginBottomMm = frameBottom,
+                MarginLeftMm = contentLeft,
+                MarginBottomMm = contentBottom,
                 PaperMarginLeftMm = margins.LeftMm,
                 PaperMarginRightMm = margins.RightMm,
                 PaperMarginTopMm = margins.TopMm,
@@ -12213,10 +12288,10 @@ namespace RevitProjectDataAddin
                 FrameBottomMm = frameBottom,
                 FrameWidthMm = frameWidth,
                 FrameHeightMm = frameHeight,
-                ContentLeftMm = frameLeft,
-                ContentBottomMm = frameBottom,
-                ContentWidthMm = frameWidth,
-                ContentHeightMm = frameHeight,
+                ContentLeftMm = contentLeft,
+                ContentBottomMm = contentBottom,
+                ContentWidthMm = contentWidth,
+                ContentHeightMm = contentHeight,
                 TitleBlockLeftMm = frameLeft,
                 TitleBlockBottomMm = frameBottom,
                 TitleBlockWidthMm = frameWidth,
@@ -12356,7 +12431,7 @@ namespace RevitProjectDataAddin
             return $"{summary}\nCảnh báo: nội dung vượt khổ in và sẽ bị cắt, không tự fit lại.";
         }
 
-        private List<PdfViewportWindow> BuildPdfViewportWindows(PdfPaperSize paperSize, IReadOnlyList<object> scene, bool fitToPage = false)
+        private List<PdfViewportWindow> BuildPdfViewportWindows(PdfPaperSize paperSize, PdfPaperOrientation orientation, double? scaleDenominator, IReadOnlyList<object> scene, bool fitToPage = false)
         {
             if (scene == null || scene.Count == 0)
                 return new List<PdfViewportWindow>();
@@ -12365,7 +12440,7 @@ namespace RevitProjectDataAddin
                 return new List<PdfViewportWindow>();
 
             var windows = new List<PdfViewportWindow>();
-            if (fitToPage || paperSize != PdfPaperSize.A4 || _projectData?.Kihon == null || _currentSecoList == null)
+            if (fitToPage || !scaleDenominator.HasValue || scaleDenominator.Value <= 0 || _projectData?.Kihon == null || _currentSecoList == null)
             {
                 windows.Add(new PdfViewportWindow
                 {
@@ -12389,7 +12464,7 @@ namespace RevitProjectDataAddin
                                         : new List<double>();
 
             spans = spans.Where(s => s > 0).ToList();
-            if (spans.Count <= 3)
+            if (spans.Count == 0)
             {
                 windows.Add(new PdfViewportWindow
                 {
@@ -12405,26 +12480,60 @@ namespace RevitProjectDataAddin
                 return windows;
             }
 
+            var pageLayout = CreateDefaultPdfPageLayout(paperSize, orientation);
+            double pageSliceWidthMm = pageLayout.PrintableWidthMm * scaleDenominator.Value;
+            if (pageSliceWidthMm <= 0 || double.IsNaN(pageSliceWidthMm) || double.IsInfinity(pageSliceWidthMm))
+                pageSliceWidthMm = spans.Sum();
+
             double totalWidth = spans.Sum();
+            if (totalWidth <= pageSliceWidthMm + 1e-6)
+            {
+                windows.Add(new PdfViewportWindow
+                {
+                    PageIndex = 0,
+                    PageCount = 1,
+                    StartSpanIndex = 0,
+                    EndSpanIndex = Math.Max(0, spans.Count - 1),
+                    MinX = sceneMinX,
+                    MaxX = sceneMaxX,
+                    MinY = sceneMinY,
+                    MaxY = sceneMaxY
+                });
+                return windows;
+            }
+
             var positions = new List<double> { -totalWidth / 2.0 };
             for (int i = 0; i < spans.Count; i++)
                 positions.Add(positions[i] + spans[i]);
 
             double fullSpanMinX = positions.First();
             double fullSpanMaxX = positions.Last();
-            double outerLeftInset = Math.Max(0.0, fullSpanMinX - sceneMinX);
-            double outerRightInset = Math.Max(0.0, sceneMaxX - fullSpanMaxX);
-            const double innerPageBleedMm = 12.0;
-
-            int pageCount = (int)Math.Ceiling(spans.Count / 3.0);
+            int pageCount = (int)Math.Ceiling(totalWidth / pageSliceWidthMm);
             for (int pageIndex = 0; pageIndex < pageCount; pageIndex++)
             {
-                int startSpanIndex = pageIndex * 3;
-                int endSpanIndex = Math.Min(spans.Count - 1, startSpanIndex + 2);
-                double groupMinX = positions[startSpanIndex];
-                double groupMaxX = positions[endSpanIndex + 1];
-                double leftInset = startSpanIndex == 0 ? outerLeftInset : innerPageBleedMm;
-                double rightInset = endSpanIndex == spans.Count - 1 ? outerRightInset : innerPageBleedMm;
+                double groupMinX = fullSpanMinX + (pageIndex * pageSliceWidthMm);
+                double groupMaxX = Math.Min(fullSpanMaxX, groupMinX + pageSliceWidthMm);
+
+                int startSpanIndex = 0;
+                for (int i = 0; i < spans.Count; i++)
+                {
+                    if (positions[i] <= groupMinX && groupMinX < positions[i + 1])
+                    {
+                        startSpanIndex = i;
+                        break;
+                    }
+                }
+
+                int endSpanIndex = Math.Max(0, spans.Count - 1);
+                for (int i = 0; i < spans.Count; i++)
+                {
+                    bool isLastPageEnd = pageIndex == pageCount - 1 && Math.Abs(groupMaxX - fullSpanMaxX) <= 1e-6;
+                    if ((positions[i] < groupMaxX && groupMaxX <= positions[i + 1]) || (isLastPageEnd && i == spans.Count - 1))
+                    {
+                        endSpanIndex = i;
+                        break;
+                    }
+                }
 
                 windows.Add(new PdfViewportWindow
                 {
@@ -12432,8 +12541,8 @@ namespace RevitProjectDataAddin
                     PageCount = pageCount,
                     StartSpanIndex = startSpanIndex,
                     EndSpanIndex = endSpanIndex,
-                    MinX = groupMinX - leftInset,
-                    MaxX = groupMaxX + rightInset,
+                    MinX = groupMinX,
+                    MaxX = groupMaxX,
                     MinY = sceneMinY,
                     MaxY = sceneMaxY
                 });
@@ -12644,8 +12753,7 @@ namespace RevitProjectDataAddin
                     PaperSize = ((paperCombo.SelectedItem as string) == "A3") ? PdfPaperSize.A3 : PdfPaperSize.A4,
                     SelectedKeys = selected
                 };
-                optionWindow.DialogResult = true;
-                optionWindow.Close();
+                // Keep the export options window open after exporting so the current state stays intact.
             };
 
             cancelButton.Click += (s, e) =>
@@ -13324,7 +13432,7 @@ namespace RevitProjectDataAddin
                 }
                 catch { }
 
-                var viewportWindows = BuildPdfViewportWindows(currentSettings.PaperSize, currentScene, currentSettings.FitToPage).ToList();
+                var viewportWindows = BuildPdfViewportWindows(currentSettings.PaperSize, currentSettings.Orientation, currentSettings.ScaleDenominator, currentScene, currentSettings.FitToPage).ToList();
                 if (viewportWindows.Count == 0)
                 {
                     viewportWindows.Add(new PdfViewportWindow
@@ -13389,6 +13497,7 @@ namespace RevitProjectDataAddin
                             var scene = CaptureSceneForPdfExport(src.Item, src.Key);
                             if (TryGetSceneBounds(scene, TextOutputTarget.Pdf, out double minX, out double minY, out double maxX, out double maxY))
                             {
+                                ApplyPdfAlignmentToVisibleBounds(result, ref minX, ref minY, ref maxX, ref maxY);
                                 var layout = ResolvePdfPageLayout(result.PaperSize, result.Orientation, maxX - minX, maxY - minY, result.ScaleDenominator, result.HorizontalAlignment, result.VerticalAlignment);
                                 if (layout.IsClipped)
                                     clippedKeys.Add(src.Key);
@@ -13411,8 +13520,29 @@ namespace RevitProjectDataAddin
                     }
                 }
 
-                optionWindow.DialogResult = true;
-                optionWindow.Close();
+                var dlg = new SaveFileDialog
+                {
+                    Filter = "PDF files (*.pdf)|*.pdf",
+                    FileName = $"{_currentSecoList.階を選択}_{_currentSecoList.通を選択}.pdf"
+                };
+                if (dlg.ShowDialog() != true)
+                    return;
+
+                try
+                {
+                    var scenePages = BuildPdfScenePages(sources, result);
+                    PdfExporter.Export(
+                        dlg.FileName,
+                        scenePages,
+                        FontFamily?.Source ?? "Yu Mincho",
+                        result);
+
+                    MessageBox.Show(optionWindow, "PDF exported!");
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(optionWindow, $"Xuất PDF thất bại: {ex.Message}");
+                }
             };
 
             cancelButton.Click += (s, e) =>
@@ -13492,6 +13622,8 @@ namespace RevitProjectDataAddin
                 minY = viewportWindow.MinY;
                 maxY = viewportWindow.MaxY;
             }
+
+            ApplyPdfAlignmentToVisibleBounds(settings, ref minX, ref minY, ref maxX, ref maxY);
 
             layout = ResolvePdfPageLayout(settings.PaperSize, settings.Orientation, maxX - minX, maxY - minY, settings.ScaleDenominator, settings.HorizontalAlignment, settings.VerticalAlignment);
 
@@ -14565,7 +14697,7 @@ namespace RevitProjectDataAddin
                     sb.AppendFormat(CultureInfo.InvariantCulture, "0 0 {0} {1} re\nS\n", FormatDouble(page.PageWidthMm), FormatDouble(page.PageHeightMm));
                     sb.AppendFormat(CultureInfo.InvariantCulture, "{0} {1} {2} {3} re\nS\n",
                         FormatDouble(page.FrameLeftMm),
-                        FormatDouble(page.PaperMarginTopMm),
+                        FormatDouble(page.FrameBottomMm),
                         FormatDouble(page.FrameWidthMm),
                         FormatDouble(page.FrameHeightMm));
                     sb.AppendFormat(CultureInfo.InvariantCulture, "{0} {1} {2} {3} re\nS\n",
@@ -14667,6 +14799,8 @@ namespace RevitProjectDataAddin
 
                     if (maxX <= minX) maxX = minX + 1;
                     if (maxY <= minY) maxY = minY + 1;
+
+                    ApplyPdfAlignmentToVisibleBounds(_plotSettings, ref minX, ref minY, ref maxX, ref maxY);
 
                     double contentWidth = maxX - minX;
                     double contentHeight = maxY - minY;

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -65,7 +65,7 @@ namespace RevitProjectDataAddin
             if (!_secoMap.ContainsKey(_currentKey))
                 _secoMap[_currentKey] = _currentSecoList;
 
-            // Khởi tạo bộ theo (階, 通) hiện tại
+            // Kh盻殃 t蘯｡o b盻・theo (髫・ 騾・ hi盻㌻ t蘯｡i
             Combo_SelectionChanged(null, null);
         }
 
@@ -85,7 +85,7 @@ namespace RevitProjectDataAddin
                 //    });
 
                 // [ZOOM] Wire events
-                canvas.Focusable = true;    // để nhận phím (phím F)
+                canvas.Focusable = true;    // ﾄ黛ｻ・nh蘯ｭn phﾃｭm (phﾃｭm F)
                 //canvas.MouseWheel += Canvas_MouseWheel;
                 canvas.AddHandler(
                     UIElement.MouseWheelEvent,
@@ -98,8 +98,8 @@ namespace RevitProjectDataAddin
                 //canvas.MouseLeave += Canvas_MouseUp;
                 canvas.KeyDown += Canvas_KeyDown;
                 // trong BotsecozuCanvas_Loaded(...)
-                canvas.Background = Brushes.Transparent; // vùng trống vẫn bắt sự kiện
-                canvas.ClipToBounds = true;                   // CHẶN vẽ tràn ra ngoài
+                canvas.Background = Brushes.Transparent; // vﾃｹng tr盻創g v蘯ｫn b蘯ｯt s盻ｱ ki盻㌻
+                canvas.ClipToBounds = true;                   // CH蘯ｶN v蘯ｽ trﾃn ra ngoﾃi
                 canvas.SizeChanged += (_, __) =>
                     canvas.Clip = new RectangleGeometry(new Rect(0, 0, canvas.ActualWidth, canvas.ActualHeight));
 
@@ -146,14 +146,14 @@ namespace RevitProjectDataAddin
 
             _currentSecoList.gridbotsecozu = grids;
             _currentKey = key;
-            // Không cần gọi Redraw ở đây – các Canvas mới sẽ tự Loaded và vẽ.
+            // Khﾃｴng c蘯ｧn g盻絞 Redraw 盻・ﾄ妥｢y 窶・cﾃ｡c Canvas m盻嬖 s蘯ｽ t盻ｱ Loaded vﾃ v蘯ｽ.
         }
 
         private void ExportPdfScene_Click(object sender, RoutedEventArgs e)
         {
             if (_currentSecoList?.gridbotsecozu == null || _currentSecoList.gridbotsecozu.Count == 0)
             {
-                MessageBox.Show("Không có gì để xuất.");
+                MessageBox.Show("Khﾃｴng cﾃｳ gﾃｬ ﾄ黛ｻ・xu蘯･t.");
                 return;
             }
 
@@ -166,36 +166,11 @@ namespace RevitProjectDataAddin
 
             if (sources.Count == 0)
             {
-                MessageBox.Show("Không tìm thấy canvas để plot.");
+                MessageBox.Show("Khﾃｴng tﾃｬm th蘯･y canvas ﾄ黛ｻ・plot.");
                 return;
             }
 
-            var plotSettings = ShowPdfPlotDialog(sources);
-            if (plotSettings == null)
-                return;
-
-            var dlg = new SaveFileDialog
-            {
-                Filter = "PDF files (*.pdf)|*.pdf",
-                FileName = $"{_currentSecoList.階を選択}_{_currentSecoList.通を選択}.pdf"
-            };
-            if (dlg.ShowDialog() != true) return;
-
-            try
-            {
-                var scenePages = BuildPdfScenePages(sources, plotSettings);
-                PdfExporter.Export(
-                    dlg.FileName,
-                    scenePages,
-                    FontFamily?.Source ?? "Yu Mincho",
-                    plotSettings);
-
-                MessageBox.Show("PDF exported!");
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Xuất PDF thất bại: {ex.Message}");
-            }
+            ShowPdfPlotDialog(sources);
         }
 
         private List<PdfScenePageData> BuildPdfScenePages(IReadOnlyList<PdfExportSource> sources, PdfPlotSettings plotSettings)
@@ -211,7 +186,12 @@ namespace RevitProjectDataAddin
                 if (selectedSet.Count > 0 && !selectedSet.Contains(src.Key)) continue;
 
                 var scene = CaptureSceneForPdfExport(src.Item, src.Key);
-                var viewportWindows = BuildPdfViewportWindows(paperSize, scene, plotSettings?.FitToPage == true);
+                var viewportWindows = BuildPdfViewportWindows(
+                    paperSize,
+                    plotSettings?.Orientation ?? PdfPaperOrientation.Landscape,
+                    plotSettings?.ScaleDenominator,
+                    scene,
+                    plotSettings?.FitToPage == true);
                 if (viewportWindows == null || viewportWindows.Count == 0)
                 {
                     viewportWindows = new List<PdfViewportWindow>
@@ -273,7 +253,7 @@ namespace RevitProjectDataAddin
             if (_sceneByItem.TryGetValue(item, out var scene) && scene != null && scene.Count > 0)
                 return scene.ToList();
 
-            throw new InvalidOperationException($"Scene geometry chưa sẵn sàng cho: {key}");
+            throw new InvalidOperationException($"Scene geometry chﾆｰa s蘯ｵn sﾃng cho: {key}");
         }
 
         private PdfPaperSize GetCurrentPdfPaperSize()
@@ -322,6 +302,8 @@ namespace RevitProjectDataAddin
                         PaperSize = plotSettings.PaperSize,
                         Orientation = plotSettings.Orientation,
                         ScaleDenominator = plotSettings.ScaleDenominator,
+                        HorizontalAlignment = plotSettings.HorizontalAlignment,
+                        VerticalAlignment = plotSettings.VerticalAlignment,
                         TitleText = plotSettings.TitleText,
                         DateText = plotSettings.DateText,
                         SelectedKeys = plotSettings.SelectedKeys != null ? new List<string>(plotSettings.SelectedKeys) : new List<string>(),
@@ -421,3 +403,4 @@ namespace RevitProjectDataAddin
         }
     }
 }
+
