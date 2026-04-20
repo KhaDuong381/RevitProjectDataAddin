@@ -459,6 +459,13 @@ public class GridBotsecozu : INotifyPropertyChanged
         set => SetProperty(ref _spanCentralStirrupMaterialOverrides, value ?? new Dictionary<string, string>());
     }
 
+    private Dictionary<string, string> _spanCentralStirrupShapeOverrides = new Dictionary<string, string>();
+    public Dictionary<string, string> SpanCentralStirrupShapeOverrides
+    {
+        get => _spanCentralStirrupShapeOverrides;
+        set => SetProperty(ref _spanCentralStirrupShapeOverrides, value ?? new Dictionary<string, string>());
+    }
+
     private Dictionary<string, string> _spanEndWidthStopDiameterOverrides = new Dictionary<string, string>();
     public Dictionary<string, string> SpanEndWidthStopDiameterOverrides
     {
@@ -492,6 +499,13 @@ public class GridBotsecozu : INotifyPropertyChanged
     {
         get => _spanCentralIntermediateMaterialOverrides;
         set => SetProperty(ref _spanCentralIntermediateMaterialOverrides, value ?? new Dictionary<string, string>());
+    }
+
+    private Dictionary<string, string> _spanCentralIntermediateShapeOverrides = new Dictionary<string, string>();
+    public Dictionary<string, string> SpanCentralIntermediateShapeOverrides
+    {
+        get => _spanCentralIntermediateShapeOverrides;
+        set => SetProperty(ref _spanCentralIntermediateShapeOverrides, value ?? new Dictionary<string, string>());
     }
 
     private Dictionary<string, double> _tanbuHookOverrides = new Dictionary<string, double>();
