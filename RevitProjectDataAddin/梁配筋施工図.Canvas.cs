@@ -84,6 +84,10 @@ namespace RevitProjectDataAddin
         enum HAnchor { Left, Center, Right }
         enum VAnchor { Top, Middle, Bottom }
         enum TextOutputTarget { Ui, Dxf, Pdf }
+        enum PdfFitMode { Width, Height }
+        const TextOutputTarget PlotRenderTextTarget = TextOutputTarget.Ui;
+        const double SharedMmToPx = 96.0 / 25.4;
+        const double SharedPxToMm = 25.4 / 96.0;
 
         // Change the accessibility of WCTransform from private to public
         public struct WCTransform
@@ -7057,39 +7061,30 @@ namespace RevitProjectDataAddin
             if (dc == null || string.IsNullOrEmpty(tx.Value))
                 return;
 
-            tx = ApplyTextOffset(tx, TextOutputTarget.Ui);
-
-            double fontPx = Math.Max(6.0, tx.FontPx > 0 ? tx.FontPx : Math.Abs(tx.Height * transform.Scale));
+            var metrics = MeasureDxfTextLayout(tx, PlotRenderTextTarget, transform.Scale);
+            tx = metrics.Text;
             var brush = new SolidColorBrush(tx.Color);
-            var typeface = new Typeface(new FontFamily(tx.FontFamily ?? "Yu Mincho"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
             var text = new FormattedText(
                 tx.Value,
                 CultureInfo.CurrentCulture,
                 FlowDirection.LeftToRight,
-                typeface,
-                fontPx,
+                metrics.Typeface,
+                metrics.FontPx,
                 brush,
                 1.0);
 
             Point anchor = transform.P(tx.X, tx.Y);
-            double drawX = anchor.X;
-            double drawY = anchor.Y;
-
-            if (tx.HAnchor == HAnchor.Center) drawX -= text.Width / 2.0;
-            else if (tx.HAnchor == HAnchor.Right) drawX -= text.Width;
-
-            if (tx.VAnchor == VAnchor.Middle) drawY -= text.Height / 2.0;
-            else if (tx.VAnchor == VAnchor.Bottom) drawY -= text.Height;
+            Point drawPoint = GetDxfTextTopLeft(anchor, metrics.WidthPx, metrics.HeightPx, tx.HAnchor, tx.VAnchor);
 
             if (Math.Abs(tx.RotationDeg) > 0.01)
             {
                 dc.PushTransform(new RotateTransform(-tx.RotationDeg, anchor.X, anchor.Y));
-                dc.DrawText(text, new Point(drawX, drawY));
+                dc.DrawText(text, drawPoint);
                 dc.Pop();
                 return;
             }
 
-            dc.DrawText(text, new Point(drawX, drawY));
+            dc.DrawText(text, drawPoint);
         }
 
         private bool TryBeginInteractiveViewport(Canvas canvas, GridBotsecozu item)
@@ -7433,8 +7428,8 @@ namespace RevitProjectDataAddin
             // ==== Cấu hình hiển thị kích thước cho đoạn cam ====
             const bool ShowOrangeDims = true;     // Cho phép tắt nhanh
             const double MinDimLen = 200.0;       // Chỉ hiển thị nếu đoạn ≥ ngưỡng (mm)
-            const double OrangeDimPrimaryTextGapMm = 10;
-            const double OrangeDimSecondaryTextGapMm = -10;
+            const double OrangeDimPrimaryTextGapMm = -15;
+            const double OrangeDimSecondaryTextGapMm = -30;
 
             // NEW: Bật/tắt chấm đen "tiền xử lý" (cm/cE2...) — MẶC ĐỊNH TẮT
             const bool ShowPreRoundCutMarks = false;
@@ -9723,7 +9718,7 @@ namespace RevitProjectDataAddin
                                 if (anka1 == true)
                                 {
                                     DrawText_Rec(canvas, T, item, $"{Math.Abs(leftSigned):0}", seg.X1 - 650, y - leftSigned / 2.0 + 100, dimFont,
-                                             Brushes.Black, HAnchor.Left, VAnchor.Bottom, 120, "TEXT");
+                                             Brushes.Black, HAnchor.Left, VAnchor.Bottom, 200, "TEXT");
                                 }
                             }
                             if (Math.Abs(rightSigned) > 0.0001)
@@ -9732,7 +9727,7 @@ namespace RevitProjectDataAddin
                                 if (anka1 == true)
                                 {
                                     DrawText_Rec(canvas, T, item, $"{Math.Abs(rightSigned):0}", seg.X2 + 250, y - rightSigned / 2.0 + 100, dimFont,
-                                        Brushes.Black, HAnchor.Left, VAnchor.Bottom, 120, "TEXT");
+                                        Brushes.Black, HAnchor.Left, VAnchor.Bottom, 200, "TEXT");
                                 }
                             }
                         }
@@ -10080,7 +10075,7 @@ namespace RevitProjectDataAddin
                                 if (anka1 == true)
                                 {
                                     DrawText_Rec(canvas, T, item, $"{Math.Abs(leftSigned):0}", seg.X1 - 650, y - leftSigned / 2.0 + 100, dimFont,
-                                             Brushes.Black, HAnchor.Left, VAnchor.Bottom, 120, "TEXT");
+                                             Brushes.Black, HAnchor.Left, VAnchor.Bottom, 200, "TEXT");
                                 }
                             }
                             if (Math.Abs(rightSigned) > 0.0001)
@@ -10089,7 +10084,7 @@ namespace RevitProjectDataAddin
                                 if (anka1 == true)
                                 {
                                     DrawText_Rec(canvas, T, item, $"{Math.Abs(rightSigned):0}", seg.X2 + 250, y - rightSigned / 2.0 + 100, dimFont,
-                                             Brushes.Black, HAnchor.Left, VAnchor.Bottom, 120, "TEXT");
+                                             Brushes.Black, HAnchor.Left, VAnchor.Bottom, 200, "TEXT");
                                 }
                             }
                         }
@@ -10397,7 +10392,7 @@ namespace RevitProjectDataAddin
                                 if (anka1 == true)
                                 {
                                     DrawText_Rec(canvas, T, item, $"{Math.Abs(leftSigned):0}", seg.X1 - 650, y - leftSigned / 2.0 + 100, dimFont,
-                                         Brushes.Black, HAnchor.Left, VAnchor.Bottom, 120, "TEXT");
+                                         Brushes.Black, HAnchor.Left, VAnchor.Bottom, 200, "TEXT");
                                 }
                             }
                             if (Math.Abs(rightSigned) > 0.0001)
@@ -10406,7 +10401,7 @@ namespace RevitProjectDataAddin
                                 if (anka1 == true)
                                 {
                                     DrawText_Rec(canvas, T, item, $"{Math.Abs(rightSigned):0}", seg.X2 + 250, y - rightSigned / 2.0 + 100, dimFont,
-                                         Brushes.Black, HAnchor.Left, VAnchor.Bottom, 120, "TEXT");
+                                         Brushes.Black, HAnchor.Left, VAnchor.Bottom, 200, "TEXT");
                                 }
                             }
                         }
@@ -10719,7 +10714,7 @@ namespace RevitProjectDataAddin
                                 if (anka1 == true)
                                 {
                                     DrawText_Rec(canvas, T, item, $"{Math.Abs(leftSigned):0}", seg.X1 - 650, y - leftSigned / 2.0 + 100, dimFont,
-                                             Brushes.Black, HAnchor.Left, VAnchor.Bottom, 120, "TEXT");
+                                             Brushes.Black, HAnchor.Left, VAnchor.Bottom, 200, "TEXT");
                                 }
                             }
                             if (Math.Abs(rightSigned) > 0.0001)
@@ -10728,7 +10723,7 @@ namespace RevitProjectDataAddin
                                 if (anka1 == true)
                                 {
                                     DrawText_Rec(canvas, T, item, $"{Math.Abs(rightSigned):0}", seg.X2 + 250, y - rightSigned / 2.0 + 100, dimFont,
-                                             Brushes.Black, HAnchor.Left, VAnchor.Bottom, 120, "TEXT");
+                                             Brushes.Black, HAnchor.Left, VAnchor.Bottom, 200, "TEXT");
                                 }
                             }
                         }
@@ -11039,7 +11034,7 @@ namespace RevitProjectDataAddin
                                 if (anka1 == true)
                                 {
                                     DrawText_Rec(canvas, T, item, $"{Math.Abs(leftSigned):0}", seg.X1 - 650, y - leftSigned / 2.0 + 100, dimFont,
-                                             Brushes.Black, HAnchor.Left, VAnchor.Bottom, 120, "TEXT");
+                                             Brushes.Black, HAnchor.Left, VAnchor.Bottom, 200, "TEXT");
                                 }
                             }
                             if (Math.Abs(rightSigned) > 0.0001)
@@ -11048,7 +11043,7 @@ namespace RevitProjectDataAddin
                                 if (anka1 == true)
                                 {
                                     DrawText_Rec(canvas, T, item, $"{Math.Abs(rightSigned):0}", seg.X2 + 250, y - rightSigned / 2.0 + 100, dimFont,
-                                             Brushes.Black, HAnchor.Left, VAnchor.Bottom, 120, "TEXT");
+                                             Brushes.Black, HAnchor.Left, VAnchor.Bottom, 200, "TEXT");
                                 }
                             }
                         }
@@ -11437,7 +11432,7 @@ namespace RevitProjectDataAddin
                                     if (anka1 == true)
                                     {
                                         DrawText_Rec(canvas, T, item, $"{Math.Abs(leftSigned):0}", seg.X1 - 650, y - leftSigned / 2.0 + 100, dimFont,
-                                                 Brushes.Black, HAnchor.Left, VAnchor.Bottom, 120, "TEXT");
+                                                 Brushes.Black, HAnchor.Left, VAnchor.Bottom, 200, "TEXT");
                                     }
                                 }
                                 if (Math.Abs(rightSigned) > 0.0001)
@@ -11447,7 +11442,7 @@ namespace RevitProjectDataAddin
                                     if (anka1 == true)
                                     {
                                         DrawText_Rec(canvas, T, item, $"{Math.Abs(rightSigned):0}", seg.X2 + 250, y - rightSigned / 2.0 + 100, dimFont,
-                                                 Brushes.Black, HAnchor.Left, VAnchor.Bottom, 120, "TEXT");
+                                                 Brushes.Black, HAnchor.Left, VAnchor.Bottom, 200, "TEXT");
                                     }
                                 }
                             }
@@ -11598,6 +11593,117 @@ namespace RevitProjectDataAddin
             text.Y += offsetY;
             return text;
         }
+
+        private readonly struct DxfTextLayoutMetrics
+        {
+            public DxfTextLayoutMetrics(DxfText text, Typeface typeface, double fontPx, double widthPx, double heightPx, double widthMm, double heightMm)
+            {
+                Text = text;
+                Typeface = typeface;
+                FontPx = fontPx;
+                WidthPx = widthPx;
+                HeightPx = heightPx;
+                WidthMm = widthMm;
+                HeightMm = heightMm;
+            }
+
+            public DxfText Text { get; }
+            public Typeface Typeface { get; }
+            public double FontPx { get; }
+            public double WidthPx { get; }
+            public double HeightPx { get; }
+            public double WidthMm { get; }
+            public double HeightMm { get; }
+        }
+
+        private static Typeface CreateDxfTextTypeface(DxfText text)
+            => new Typeface(new FontFamily(text.FontFamily ?? "Yu Mincho"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+
+        private static double ResolveDxfTextFontPx(DxfText text, double scalePxPerMm)
+        {
+            if (text.Height > 0 && scalePxPerMm > 0)
+                return Math.Max(1.0, Math.Abs(text.Height * scalePxPerMm));
+
+            if (text.FontPx > 0)
+                return Math.Max(1.0, text.FontPx);
+
+            if (text.Height > 0)
+                return Math.Max(1.0, text.Height * SharedMmToPx);
+
+            return 12.0;
+        }
+
+        private static DxfTextLayoutMetrics MeasureDxfTextLayout(DxfText source, TextOutputTarget target, double scalePxPerMm)
+        {
+            var text = ApplyTextOffset(source, target);
+            var typeface = CreateDxfTextTypeface(text);
+            double fontPx = ResolveDxfTextFontPx(text, scalePxPerMm);
+            var formatted = new FormattedText(
+                text.Value ?? string.Empty,
+                CultureInfo.CurrentCulture,
+                FlowDirection.LeftToRight,
+                typeface,
+                fontPx,
+                Brushes.Black,
+                1.0);
+
+            double widthPx = Math.Max(0.0, formatted.WidthIncludingTrailingWhitespace);
+            double heightPx = Math.Max(1.0, formatted.Height);
+            double widthMm;
+            double heightMm;
+
+            if (scalePxPerMm > 0)
+            {
+                widthMm = widthPx / scalePxPerMm;
+                heightMm = heightPx / scalePxPerMm;
+            }
+            else
+            {
+                heightMm = Math.Max(1.0, text.Height > 0 ? text.Height : heightPx * SharedPxToMm);
+                widthMm = heightPx > 0
+                    ? widthPx * (heightMm / heightPx)
+                    : Math.Max(heightMm, (text.Value?.Length ?? 0) * heightMm * 0.6);
+            }
+
+            return new DxfTextLayoutMetrics(text, typeface, fontPx, widthPx, heightPx, widthMm, heightMm);
+        }
+
+        private static Point GetDxfTextTopLeft(Point anchorPoint, double width, double height, HAnchor hAnchor, VAnchor vAnchor)
+        {
+            double drawX = anchorPoint.X;
+            double drawY = anchorPoint.Y;
+
+            if (hAnchor == HAnchor.Center) drawX -= width / 2.0;
+            else if (hAnchor == HAnchor.Right) drawX -= width;
+
+            if (vAnchor == VAnchor.Middle) drawY -= height / 2.0;
+            else if (vAnchor == VAnchor.Bottom) drawY -= height;
+
+            return new Point(drawX, drawY);
+        }
+
+        private static Vector GetDxfTextAnchorOffset(double width, double height, HAnchor hAnchor, VAnchor vAnchor)
+        {
+            double offsetX = 0;
+            double offsetY = 0;
+
+            if (hAnchor == HAnchor.Center) offsetX = width / 2.0;
+            else if (hAnchor == HAnchor.Right) offsetX = width;
+
+            if (vAnchor == VAnchor.Middle) offsetY = height / 2.0;
+            else if (vAnchor == VAnchor.Bottom) offsetY = height;
+
+            return new Vector(offsetX, offsetY);
+        }
+
+        private static Point GetPlotRenderTextAnchorWorld(DxfText text)
+            => new Point(text.X, text.Y +25);
+
+        private static Point GetPlotRenderTextTopLeftWorld(DxfTextLayoutMetrics metrics)
+            => GetDxfTextTopLeft(GetPlotRenderTextAnchorWorld(metrics.Text), metrics.WidthMm, metrics.HeightMm, metrics.Text.HAnchor, metrics.Text.VAnchor);
+
+        private static Point GetDxfTextTopLeftWorld(DxfTextLayoutMetrics metrics)
+            => GetDxfTextTopLeft(new Point(metrics.Text.X, metrics.Text.Y), metrics.WidthMm, metrics.HeightMm, metrics.Text.HAnchor, metrics.Text.VAnchor);
 
         private (List<DxfLine> lines, List<DxfText> texts,
              List<DxfCircle> circles, List<DxfArc> arcs,
@@ -12080,7 +12186,7 @@ namespace RevitProjectDataAddin
 
                 var (lines, texts, circles, arcs, solids, key) = BuildDxfGeometry(src.Item);
                 var scene = CaptureSceneForPdfExport(src.Item, src.Key);
-                var viewportWindows = BuildPdfViewportWindows(exportOptions.PaperSize, exportOptions.Orientation, exportOptions.ScaleDenominator, scene, exportOptions.FitToPage, exportOptions.InnerFrameOffsetMm);
+                var viewportWindows = BuildPdfViewportWindows(exportOptions.PaperSize, exportOptions.Orientation, exportOptions.ScaleDenominator, scene, exportOptions.FitToPage, exportOptions.InnerFrameOffsetMm, exportOptions.FitMode);
                 if (viewportWindows.Count == 0)
                 {
                     viewportWindows.Add(new PdfViewportWindow
@@ -12097,6 +12203,7 @@ namespace RevitProjectDataAddin
                         PaperSize = exportOptions.PaperSize,
                         Orientation = exportOptions.Orientation,
                         ScaleDenominator = exportOptions.ScaleDenominator,
+                        FitMode = exportOptions.FitMode,
                         HorizontalAlignment = exportOptions.HorizontalAlignment,
                         VerticalAlignment = exportOptions.VerticalAlignment,
                         InnerFrameOffsetMm = exportOptions.InnerFrameOffsetMm,
@@ -12149,6 +12256,7 @@ namespace RevitProjectDataAddin
             public PdfPaperSize PaperSize { get; set; }
             public PdfPaperOrientation Orientation { get; set; } = PdfPaperOrientation.Landscape;
             public double? ScaleDenominator { get; set; }
+            public PdfFitMode FitMode { get; set; } = PdfFitMode.Width;
             public PdfHorizontalAlignment HorizontalAlignment { get; set; } = PdfHorizontalAlignment.Center;
             public PdfVerticalAlignment VerticalAlignment { get; set; } = PdfVerticalAlignment.Middle;
             public double InnerFrameOffsetMm { get; set; } = DefaultPdfInnerFrameOffsetMm;
@@ -12242,14 +12350,27 @@ namespace RevitProjectDataAddin
         private static string GetPdfScaleDisplayText(double? scaleDenominator)
             => scaleDenominator.HasValue ? $"1:{scaleDenominator.Value:0}" : "Fit to page";
 
+        private static string GetPdfScaleDisplayText(PdfPlotSettings settings)
+        {
+            if (settings == null)
+                return "Fit to page (Width)";
+
+            if (settings.ScaleDenominator.HasValue)
+                return $"1:{settings.ScaleDenominator.Value:0}";
+
+            return settings.FitMode == PdfFitMode.Height ? "Fit to page (Height)" : "Fit to page (Width)";
+        }
+
         private static string GetPdfScaleDisplayText(PdfPlotSettings settings, PdfPageLayoutPlan layout)
         {
             if (layout == null || layout.ScaleMmPerMm <= 0 || double.IsNaN(layout.ScaleMmPerMm) || double.IsInfinity(layout.ScaleMmPerMm))
-                return GetPdfScaleDisplayText(settings?.ScaleDenominator);
+                return GetPdfScaleDisplayText(settings);
 
             double effectiveDenominator = 1.0 / layout.ScaleMmPerMm;
             if (settings?.FitToPage == true)
-                return $"Fit to page (≈ 1:{effectiveDenominator:0.##})";
+                return settings.FitMode == PdfFitMode.Height
+                    ? $"Fit to page (Height) (≈ 1:{effectiveDenominator:0.##})"
+                    : $"Fit to page (Width) (≈ 1:{effectiveDenominator:0.##})";
 
             return $"1:{effectiveDenominator:0.##}";
         }
@@ -12332,64 +12453,11 @@ namespace RevitProjectDataAddin
 
         private static Rect GetDxfTextBounds(DxfText text, TextOutputTarget target)
         {
-            var exportText = ApplyTextOffset(text, target);
-            double heightMm = Math.Max(1.0, exportText.Height);
-
-            double widthMm;
-            try
-            {
-                double fontPx = exportText.FontPx > 0 ? exportText.FontPx : 100.0;
-                var typeface = new Typeface(new FontFamily(exportText.FontFamily ?? "Yu Mincho"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
-                var ft = new FormattedText(
-                    exportText.Value ?? string.Empty,
-                    CultureInfo.CurrentCulture,
-                    FlowDirection.LeftToRight,
-                    typeface,
-                    fontPx,
-                    Brushes.Black,
-                    1.0);
-
-                double measuredHeightPx = Math.Max(1.0, ft.Height);
-                widthMm = ft.WidthIncludingTrailingWhitespace * (heightMm / measuredHeightPx);
-            }
-            catch
-            {
-                widthMm = Math.Max(heightMm, (exportText.Value?.Length ?? 0) * heightMm * 0.6);
-            }
-
-            double minX = exportText.X;
-            double maxX = exportText.X;
-            switch (exportText.HAnchor)
-            {
-                case HAnchor.Left:
-                    maxX = minX + widthMm;
-                    break;
-                case HAnchor.Center:
-                    minX -= widthMm / 2.0;
-                    maxX += widthMm / 2.0;
-                    break;
-                case HAnchor.Right:
-                    minX -= widthMm;
-                    break;
-            }
-
-            double minY = exportText.Y;
-            double maxY = exportText.Y;
-            switch (exportText.VAnchor)
-            {
-                case VAnchor.Top:
-                    maxY = minY + heightMm;
-                    break;
-                case VAnchor.Middle:
-                    minY -= heightMm / 2.0;
-                    maxY += heightMm / 2.0;
-                    break;
-                case VAnchor.Bottom:
-                    minY -= heightMm;
-                    break;
-            }
-
-            return new Rect(new Point(minX, minY), new Point(maxX, maxY));
+            var metrics = MeasureDxfTextLayout(text, target, SharedMmToPx);
+            Point topLeft = target == PlotRenderTextTarget
+                ? GetPlotRenderTextTopLeftWorld(metrics)
+                : GetDxfTextTopLeftWorld(metrics);
+            return new Rect(topLeft.X, topLeft.Y, metrics.WidthMm, metrics.HeightMm);
         }
 
         private static (double WidthMm, double HeightMm) GetPdfPaperBaseSizeMm(PdfPaperSize paperSize)
@@ -12495,6 +12563,7 @@ namespace RevitProjectDataAddin
             double contentWidthMm,
             double contentHeightMm,
             double? scaleDenominator,
+            PdfFitMode fitMode = PdfFitMode.Width,
             PdfHorizontalAlignment horizontalAlignment = PdfHorizontalAlignment.Center,
             PdfVerticalAlignment verticalAlignment = PdfVerticalAlignment.Middle,
             double innerFrameOffsetMm = DefaultPdfInnerFrameOffsetMm)
@@ -12532,7 +12601,9 @@ namespace RevitProjectDataAddin
                 }
                 else
                 {
-                    scaleMmPerMm = Math.Min(printableWidth / contentWidthMm, printableHeight / contentHeightMm);
+                    scaleMmPerMm = fitMode == PdfFitMode.Height
+                        ? printableHeight / contentHeightMm
+                        : printableWidth / contentWidthMm;
                     fitsContent = true;
                 }
 
@@ -12628,19 +12699,19 @@ namespace RevitProjectDataAddin
             return $"{summary}\nCảnh báo: nội dung vượt khổ in và sẽ bị cắt, không tự fit lại.";
         }
 
-        private List<PdfViewportWindow> BuildPdfViewportWindows(PdfPaperSize paperSize, PdfPaperOrientation orientation, double? scaleDenominator, IReadOnlyList<object> scene, bool fitToPage = false, double innerFrameOffsetMm = DefaultPdfInnerFrameOffsetMm)
+        private List<PdfViewportWindow> BuildPdfViewportWindows(PdfPaperSize paperSize, PdfPaperOrientation orientation, double? scaleDenominator, IReadOnlyList<object> scene, bool fitToPage = false, double innerFrameOffsetMm = DefaultPdfInnerFrameOffsetMm, PdfFitMode fitMode = PdfFitMode.Width)
         {
-            const double pageOverlapMm = 1000.0;
-            const double pageOverlapHalfMm = pageOverlapMm / 2.0;
+            const double pageOverlapRatio = 0.20;
 
             if (scene == null || scene.Count == 0)
                 return new List<PdfViewportWindow>();
 
-            if (!TryGetSceneBounds(scene, TextOutputTarget.Pdf, out double sceneMinX, out double sceneMinY, out double sceneMaxX, out double sceneMaxY))
+            if (!TryGetSceneBounds(scene, PlotRenderTextTarget, out double sceneMinX, out double sceneMinY, out double sceneMaxX, out double sceneMaxY))
                 return new List<PdfViewportWindow>();
 
             var windows = new List<PdfViewportWindow>();
-            if (fitToPage || !scaleDenominator.HasValue || scaleDenominator.Value <= 0 || _projectData?.Kihon == null || _currentSecoList == null)
+            bool fitToPageByHeight = fitToPage && fitMode == PdfFitMode.Height;
+            if ((fitToPage && !fitToPageByHeight) || (!scaleDenominator.HasValue && !fitToPageByHeight) || _projectData?.Kihon == null || _currentSecoList == null)
             {
                 windows.Add(new PdfViewportWindow
                 {
@@ -12681,7 +12752,29 @@ namespace RevitProjectDataAddin
             }
 
             var pageLayout = CreateDefaultPdfPageLayout(paperSize, orientation, innerFrameOffsetMm);
-            double pageSliceWidthMm = pageLayout.PrintableWidthMm * scaleDenominator.Value;
+            double pageSliceWidthMm;
+            if (fitToPageByHeight)
+            {
+                double contentWidthMm = Math.Max(1.0, sceneMaxX - sceneMinX);
+                double contentHeightMm = Math.Max(1.0, sceneMaxY - sceneMinY);
+                var fitHeightLayout = ResolvePdfPageLayout(
+                    paperSize,
+                    orientation,
+                    contentWidthMm,
+                    contentHeightMm,
+                    scaleDenominator: null,
+                    fitMode: PdfFitMode.Height,
+                    innerFrameOffsetMm: innerFrameOffsetMm);
+                double fitScaleMmPerMm = fitHeightLayout?.ScaleMmPerMm ?? 0.0;
+                pageSliceWidthMm = fitScaleMmPerMm > 0
+                    ? fitHeightLayout.PrintableWidthMm / fitScaleMmPerMm
+                    : contentWidthMm;
+            }
+            else
+            {
+                pageSliceWidthMm = pageLayout.PrintableWidthMm * scaleDenominator.Value;
+            }
+
             if (pageSliceWidthMm <= 0 || double.IsNaN(pageSliceWidthMm) || double.IsInfinity(pageSliceWidthMm))
                 pageSliceWidthMm = spans.Sum();
 
@@ -12712,13 +12805,13 @@ namespace RevitProjectDataAddin
             double fullSpanMinX = positions.First();
             double spanOffsetX = contentMinX - fullSpanMinX;
             var scenePositions = positions.Select(p => p + spanOffsetX).ToList();
-            double pageAdvanceMm = Math.Max(1.0, pageSliceWidthMm - pageOverlapHalfMm);
+            double pageOverlapMm = Math.Max(0.0, Math.Min(pageSliceWidthMm * pageOverlapRatio, pageSliceWidthMm - 1.0));
+            double pageAdvanceMm = Math.Max(1.0, pageSliceWidthMm - pageOverlapMm);
             double baseStartX = contentMinX;
 
             while (baseStartX < contentMaxX - 1e-6)
             {
-                bool isFirstPage = windows.Count == 0;
-                double groupMinX = isFirstPage ? contentMinX : Math.Max(contentMinX, baseStartX - pageOverlapHalfMm);
+                double groupMinX = Math.Max(contentMinX, baseStartX);
                 double groupMaxX = Math.Min(contentMaxX, baseStartX + pageSliceWidthMm);
 
                 int startSpanIndex = 0;
@@ -13281,7 +13374,8 @@ namespace RevitProjectDataAddin
 
             var scaleCombo = new ComboBox { Width = 150, FontSize = 14 };
             scaleCombo.Items.Add("Custom...");
-            scaleCombo.Items.Add("Fit to page");
+            scaleCombo.Items.Add("Fit to page (Width)");
+            scaleCombo.Items.Add("Fit to page (Height)");
             scaleCombo.Items.Add("1:1");
             scaleCombo.Items.Add("1:2");
             scaleCombo.Items.Add("1:5");
@@ -13291,7 +13385,7 @@ namespace RevitProjectDataAddin
             scaleCombo.Items.Add("1:50");
             scaleCombo.Items.Add("1:100");
             scaleCombo.Items.Add("1:200");
-            scaleCombo.SelectedItem = "Fit to page";
+            scaleCombo.SelectedItem = "Fit to page (Width)";
             controlPanel.Children.Add(scaleCombo);
 
             controlPanel.Children.Add(new TextBlock
@@ -13544,7 +13638,7 @@ namespace RevitProjectDataAddin
 
             PdfPlotSettings result = null;
             int currentPreviewPageIndex = 0;
-            string previousScaleSelection = (scaleCombo.SelectedItem as string) ?? "Fit to page";
+            string previousScaleSelection = (scaleCombo.SelectedItem as string) ?? "Fit to page (Width)";
             bool scaleSelectionChangedWhileOpen = false;
 
             bool IsAllowedNonNegativeNumberCandidate(string text)
@@ -13681,7 +13775,7 @@ namespace RevitProjectDataAddin
 
                 var selectedScaleText = IsCustomScaleSelected()
                     ? previousScaleSelection
-                    : ((scaleCombo.SelectedItem as string) ?? previousScaleSelection ?? "Fit to page");
+                    : ((scaleCombo.SelectedItem as string) ?? previousScaleSelection ?? "Fit to page (Width)");
 
                 if (!string.IsNullOrWhiteSpace(selectedScaleText) &&
                     selectedScaleText.StartsWith("1:", StringComparison.OrdinalIgnoreCase) &&
@@ -13691,7 +13785,8 @@ namespace RevitProjectDataAddin
                     return presetScale.ToString("0.##", CultureInfo.InvariantCulture);
                 }
 
-                if (string.Equals(selectedScaleText, "Fit to page", StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(selectedScaleText, "Fit to page (Width)", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(selectedScaleText, "Fit to page (Height)", StringComparison.OrdinalIgnoreCase))
                 {
                     var currentKey = positionList.SelectedItem as string;
                     if (string.IsNullOrWhiteSpace(currentKey))
@@ -13704,7 +13799,7 @@ namespace RevitProjectDataAddin
                         {
                             var currentScene = CaptureSceneForPdfExport(currentSource.Item, currentSource.Key);
                             if (currentScene != null &&
-                                TryGetSceneBounds(currentScene, TextOutputTarget.Pdf, out double minX, out double minY, out double maxX, out double maxY))
+                                TryGetSceneBounds(currentScene, PlotRenderTextTarget, out double minX, out double minY, out double maxX, out double maxY))
                             {
                                 var fitLayout = ResolvePdfPageLayout(
                                     ((paperCombo.SelectedItem as string) == "A3") ? PdfPaperSize.A3 : PdfPaperSize.A4,
@@ -13712,6 +13807,7 @@ namespace RevitProjectDataAddin
                                     maxX - minX,
                                     maxY - minY,
                                     scaleDenominator: null,
+                                    fitMode: GetSelectedFitMode(),
                                     ((horizontalCombo.SelectedItem as string) == "Trái") ? PdfHorizontalAlignment.Left : ((horizontalCombo.SelectedItem as string) == "Phải") ? PdfHorizontalAlignment.Right : PdfHorizontalAlignment.Center,
                                     ((verticalCombo.SelectedItem as string) == "Trên") ? PdfVerticalAlignment.Top : ((verticalCombo.SelectedItem as string) == "Dưới") ? PdfVerticalAlignment.Bottom : PdfVerticalAlignment.Middle,
                                     TryGetInnerFrameOffsetMm(out var offsetMm) ? offsetMm : DefaultPdfInnerFrameOffsetMm);
@@ -13865,9 +13961,12 @@ namespace RevitProjectDataAddin
             bool TryGetSelectedScaleDenominator(out double? scaleDenominator)
             {
                 scaleDenominator = null;
-                var selectedScale = (scaleCombo.SelectedItem as string) ?? "Fit to page";
+                var selectedScale = (scaleCombo.SelectedItem as string) ?? "Fit to page (Width)";
 
-                if (string.Equals(selectedScale, "Fit to page", StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(selectedScale, "Fit to page (Width)", StringComparison.OrdinalIgnoreCase))
+                    return true;
+
+                if (string.Equals(selectedScale, "Fit to page (Height)", StringComparison.OrdinalIgnoreCase))
                     return true;
 
                 if (string.Equals(selectedScale, "Custom...", StringComparison.OrdinalIgnoreCase))
@@ -13891,6 +13990,14 @@ namespace RevitProjectDataAddin
                 }
 
                 return false;
+            }
+
+            PdfFitMode GetSelectedFitMode()
+            {
+                var selectedScale = (scaleCombo.SelectedItem as string) ?? "Fit to page (Width)";
+                return string.Equals(selectedScale, "Fit to page (Height)", StringComparison.OrdinalIgnoreCase)
+                    ? PdfFitMode.Height
+                    : PdfFitMode.Width;
             }
 
             bool TryGetInnerFrameOffsetMm(out double innerFrameOffsetMm)
@@ -13925,6 +14032,7 @@ namespace RevitProjectDataAddin
                     PaperSize = ((paperCombo.SelectedItem as string) == "A3") ? PdfPaperSize.A3 : PdfPaperSize.A4,
                     Orientation = ((orientationCombo.SelectedItem as string) == "Dọc") ? PdfPaperOrientation.Portrait : PdfPaperOrientation.Landscape,
                     ScaleDenominator = scaleDenominator,
+                    FitMode = GetSelectedFitMode(),
                     HorizontalAlignment = ((horizontalCombo.SelectedItem as string) == "Trái") ? PdfHorizontalAlignment.Left : ((horizontalCombo.SelectedItem as string) == "Phải") ? PdfHorizontalAlignment.Right : PdfHorizontalAlignment.Center,
                     VerticalAlignment = ((verticalCombo.SelectedItem as string) == "Trên") ? PdfVerticalAlignment.Top : ((verticalCombo.SelectedItem as string) == "Dưới") ? PdfVerticalAlignment.Bottom : PdfVerticalAlignment.Middle,
                     InnerFrameOffsetMm = innerFrameOffsetMm,
@@ -13953,7 +14061,7 @@ namespace RevitProjectDataAddin
                 currentSettings.ScaleDenominator = validatedScale;
                 currentSettings.InnerFrameOffsetMm = validatedOffset;
                 exportButton.IsEnabled = hasValidScale && hasValidOffset;
-                summaryText.Text = $"Khổ {GetPdfPaperDisplayText(currentSettings.PaperSize)} {GetPdfOrientationDisplayText(currentSettings.Orientation)} | Scale {GetPdfScaleDisplayText(currentSettings.ScaleDenominator)} | H: {GetPdfHorizontalAlignmentDisplayText(currentSettings.HorizontalAlignment)} | V: {GetPdfVerticalAlignmentDisplayText(currentSettings.VerticalAlignment)} | Offset: {currentSettings.InnerFrameOffsetMm:0.##} mm | Chọn {currentSettings.SelectedKeys.Count}/{sources.Count} vị trí";
+                summaryText.Text = $"Khổ {GetPdfPaperDisplayText(currentSettings.PaperSize)} {GetPdfOrientationDisplayText(currentSettings.Orientation)} | Scale {GetPdfScaleDisplayText(currentSettings)} | H: {GetPdfHorizontalAlignmentDisplayText(currentSettings.HorizontalAlignment)} | V: {GetPdfVerticalAlignmentDisplayText(currentSettings.VerticalAlignment)} | Offset: {currentSettings.InnerFrameOffsetMm:0.##} mm | Chọn {currentSettings.SelectedKeys.Count}/{sources.Count} vị trí";
                 var currentKey = positionList.SelectedItem as string;
                 if (string.IsNullOrWhiteSpace(currentKey))
                     currentKey = currentSettings.SelectedKeys.FirstOrDefault();
@@ -14002,7 +14110,7 @@ namespace RevitProjectDataAddin
                 }
                 catch { }
 
-                var viewportWindows = BuildPdfViewportWindows(currentSettings.PaperSize, currentSettings.Orientation, currentSettings.ScaleDenominator, currentScene, currentSettings.FitToPage, currentSettings.InnerFrameOffsetMm).ToList();
+                var viewportWindows = BuildPdfViewportWindows(currentSettings.PaperSize, currentSettings.Orientation, currentSettings.ScaleDenominator, currentScene, currentSettings.FitToPage, currentSettings.InnerFrameOffsetMm, currentSettings.FitMode).ToList();
                 if (viewportWindows.Count == 0)
                 {
                     viewportWindows.Add(new PdfViewportWindow
@@ -14088,10 +14196,10 @@ namespace RevitProjectDataAddin
                         try
                         {
                             var scene = CaptureSceneForPdfExport(src.Item, src.Key);
-                            if (TryGetSceneBounds(scene, TextOutputTarget.Pdf, out double minX, out double minY, out double maxX, out double maxY))
+                            if (TryGetSceneBounds(scene, PlotRenderTextTarget, out double minX, out double minY, out double maxX, out double maxY))
                             {
                                 ApplyPdfAlignmentToVisibleBounds(result, ref minX, ref minY, ref maxX, ref maxY);
-                                var layout = ResolvePdfPageLayout(result.PaperSize, result.Orientation, maxX - minX, maxY - minY, result.ScaleDenominator, result.HorizontalAlignment, result.VerticalAlignment, result.InnerFrameOffsetMm);
+                                var layout = ResolvePdfPageLayout(result.PaperSize, result.Orientation, maxX - minX, maxY - minY, result.ScaleDenominator, result.FitMode, result.HorizontalAlignment, result.VerticalAlignment, result.InnerFrameOffsetMm);
                                 if (layout.IsClipped)
                                     clippedKeys.Add(src.Key);
                             }
@@ -14179,7 +14287,7 @@ namespace RevitProjectDataAddin
                     return;
 
                 if (!IsCustomScaleSelected())
-                    previousScaleSelection = (scaleCombo.SelectedItem as string) ?? "Fit to page";
+                    previousScaleSelection = (scaleCombo.SelectedItem as string) ?? "Fit to page (Width)";
 
                 UpdatePreview();
             };
@@ -14253,7 +14361,7 @@ namespace RevitProjectDataAddin
                 return CreateCanvasPreviewImageSource(src.Canvas);
             }
 
-            if (scene == null || !TryGetSceneBounds(scene, TextOutputTarget.Pdf, out double minX, out double minY, out double maxX, out double maxY))
+            if (scene == null || !TryGetSceneBounds(scene, PlotRenderTextTarget, out double minX, out double minY, out double maxX, out double maxY))
                 return CreateCanvasPreviewImageSource(src.Canvas);
 
             var viewportWindow = settings.ViewportWindow;
@@ -14267,7 +14375,7 @@ namespace RevitProjectDataAddin
 
             ApplyPdfAlignmentToVisibleBounds(settings, ref minX, ref minY, ref maxX, ref maxY);
 
-            layout = ResolvePdfPageLayout(settings.PaperSize, settings.Orientation, maxX - minX, maxY - minY, settings.ScaleDenominator, settings.HorizontalAlignment, settings.VerticalAlignment, settings.InnerFrameOffsetMm);
+            layout = ResolvePdfPageLayout(settings.PaperSize, settings.Orientation, maxX - minX, maxY - minY, settings.ScaleDenominator, settings.FitMode, settings.HorizontalAlignment, settings.VerticalAlignment, settings.InnerFrameOffsetMm);
 
             const double mmToPx = 96.0 / 25.4;
             int pixelWidth = Math.Max(1, (int)Math.Round(layout.PageWidthMm * mmToPx));
@@ -14374,38 +14482,28 @@ namespace RevitProjectDataAddin
         {
             if (string.IsNullOrEmpty(tx.Value)) return;
 
-            // Preview should match the interactive canvas positioning as closely as possible.
-            tx = ApplyTextOffset(tx, TextOutputTarget.Ui);
-
-            double fontPx = Math.Max(6.0, tx.Height * scale * mmToPx);
-            var typeface = new Typeface(new FontFamily(tx.FontFamily ?? "Yu Mincho"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+            var metrics = MeasureDxfTextLayout(tx, PlotRenderTextTarget, scale * mmToPx);
+            tx = metrics.Text;
             var ft = new FormattedText(tx.Value,
                                        CultureInfo.CurrentCulture,
                                        FlowDirection.LeftToRight,
-                                       typeface,
-                                       fontPx,
+                                       metrics.Typeface,
+                                       metrics.FontPx,
                                        new SolidColorBrush(tx.Color),
                                        1.0);
-
-            var anchor = WorldToPdfPlotPreviewPoint(tx.X, tx.Y, minX, maxY, pageHeightMm, scale, marginLeftMm, marginBottomMm, mmToPx);
-            double drawX = anchor.X;
-            double drawY = anchor.Y;
-
-            if (tx.HAnchor == HAnchor.Center) drawX -= ft.Width / 2.0;
-            else if (tx.HAnchor == HAnchor.Right) drawX -= ft.Width;
-
-            if (tx.VAnchor == VAnchor.Middle) drawY -= ft.Height / 2.0;
-            else if (tx.VAnchor == VAnchor.Bottom) drawY -= ft.Height;
-
+            var anchorWorld = GetPlotRenderTextAnchorWorld(tx);
+            var topLeftWorld = GetPlotRenderTextTopLeftWorld(metrics);
+            var anchor = WorldToPdfPlotPreviewPoint(anchorWorld.X, anchorWorld.Y, minX, maxY, pageHeightMm, scale, marginLeftMm, marginBottomMm, mmToPx);
+            Point drawPoint = WorldToPdfPlotPreviewPoint(topLeftWorld.X, topLeftWorld.Y, minX, maxY, pageHeightMm, scale, marginLeftMm, marginBottomMm, mmToPx);
             if (Math.Abs(tx.RotationDeg) > 0.01)
             {
                 dc.PushTransform(new RotateTransform(-tx.RotationDeg, anchor.X, anchor.Y));
-                dc.DrawText(ft, new Point(drawX, drawY));
+                dc.DrawText(ft, drawPoint);
                 dc.Pop();
                 return;
             }
 
-            dc.DrawText(ft, new Point(drawX, drawY));
+            dc.DrawText(ft, drawPoint);
         }
 
         private static Point WorldToReviewPoint(double x, double y, double maxX, double minY,
@@ -14544,29 +14642,20 @@ namespace RevitProjectDataAddin
         {
             if (string.IsNullOrEmpty(tx.Value)) return;
 
-            tx = ApplyTextOffset(tx, textTarget);
-
-            double fontPx = Math.Max(6.0, tx.Height * scale * mmToPx);
-            var typeface = new Typeface(new FontFamily(tx.FontFamily ?? "Yu Mincho"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+            var metrics = MeasureDxfTextLayout(tx, textTarget, scale * mmToPx);
+            tx = metrics.Text;
             var ft = new FormattedText(tx.Value,
                                        CultureInfo.CurrentCulture,
                                        FlowDirection.LeftToRight,
-                                       typeface,
-                                       fontPx,
+                                       metrics.Typeface,
+                                       metrics.FontPx,
                                        new SolidColorBrush(tx.Color),
                                        1.0);
 
             var anchor = WorldToReviewPoint(tx.X, tx.Y, maxX, minY, scale, offsetX, offsetY, mmToPx);
-            double drawX = anchor.X;
-            double drawY = anchor.Y;
+            Point drawPoint = GetDxfTextTopLeft(anchor, metrics.WidthPx, metrics.HeightPx, tx.HAnchor, tx.VAnchor);
 
-            if (tx.HAnchor == HAnchor.Center) drawX -= ft.Width / 2.0;
-            else if (tx.HAnchor == HAnchor.Right) drawX -= ft.Width;
-
-            if (tx.VAnchor == VAnchor.Middle) drawY -= ft.Height / 2.0;
-            else if (tx.VAnchor == VAnchor.Bottom) drawY -= ft.Height;
-
-            dc.DrawText(ft, new Point(drawX, drawY));
+            dc.DrawText(ft, drawPoint);
         }
 
         private ImageSource CreateCanvasPreviewImageSource(Canvas canvas)
@@ -15106,24 +15195,17 @@ namespace RevitProjectDataAddin
                         if (string.IsNullOrWhiteSpace(txt.Value))
                             continue;
 
-                        var exportText = ApplyTextOffset(txt, TextOutputTarget.Pdf);
-
-                        double fontPx;
-                        if (exportText.FontPx > 0)
-                        {
-                            fontPx = exportText.FontPx;
-                        }
-                        else if (exportText.Height > 0)
-                        {
-                            fontPx = exportText.Height * MmToPx;
-                        }
-                        else
-                        {
-                            fontPx = 12.0;
-                        }
-                        string fontFamilyName = string.IsNullOrWhiteSpace(exportText.FontFamily) ? _fallbackFont : exportText.FontFamily;
-                        var glyphTypeface = ResolveGlyphTypeface(fontFamilyName);
-                        var geometryPx = BuildTextGeometryPixels(exportText.Value, glyphTypeface, fontPx, fontFamilyName);
+                        var metrics = MeasureDxfTextLayout(txt, PlotRenderTextTarget, MmToPx);
+                        var exportText = metrics.Text;
+                        var formatted = new FormattedText(
+                            exportText.Value,
+                            CultureInfo.CurrentCulture,
+                            FlowDirection.LeftToRight,
+                            metrics.Typeface,
+                            metrics.FontPx,
+                            Brushes.Black,
+                            1.0);
+                        var geometryPx = formatted.BuildGeometry(new Point(0, 0));
                         if (geometryPx == null)
                             continue;
 
@@ -15132,36 +15214,16 @@ namespace RevitProjectDataAddin
                         if (boundsPx.IsEmpty || boundsPx.Width <= 0 || boundsPx.Height <= 0)
                             continue;
 
-                        int lineCount = CountTextLines(exportText.Value);
-                        double metricHeightPx = Math.Max(glyphTypeface.Height * fontPx * lineCount, 1.0);
-                        double scaleMmPerPx = PxToMm;
-                        if (exportText.Height > 0)
-                        {
-                            // Keep PDF text scale tied to the font metrics instead of per-string glyph bounds
-                            // so strings like "(xxxx)" do not render smaller than regular labels.
-                            scaleMmPerPx = exportText.Height / metricHeightPx;
-                        }
-
-                        double widthMm = boundsPx.Width * scaleMmPerPx;
-                        double heightMm = boundsPx.Height * scaleMmPerPx;
-
-                        double anchorDx = 0;
-                        if (exportText.HAnchor == HAnchor.Center) anchorDx = -widthMm / 2.0;
-                        else if (exportText.HAnchor == HAnchor.Right) anchorDx = -widthMm;
-
-                        double anchorDy = 0;
-                        if (exportText.VAnchor == VAnchor.Middle) anchorDy = -heightMm / 2.0;
-                        else if (exportText.VAnchor == VAnchor.Bottom) anchorDy = -heightMm;
+                        Point topLeftWorld = GetPlotRenderTextTopLeftWorld(metrics);
+                        Vector anchorOffsetMm = GetDxfTextAnchorOffset(metrics.WidthMm, metrics.HeightMm, exportText.HAnchor, exportText.VAnchor);
 
                         var transform = new TransformGroup();
-                        transform.Children.Add(new TranslateTransform(-boundsPx.X, -boundsPx.Y));
-                        transform.Children.Add(new ScaleTransform(scaleMmPerPx, scaleMmPerPx));
-                        transform.Children.Add(new TranslateTransform(anchorDx, anchorDy));
+                        transform.Children.Add(new ScaleTransform(PxToMm, PxToMm));
                         if (Math.Abs(exportText.RotationDeg) > 0.001)
                         {
-                            transform.Children.Add(new RotateTransform(-exportText.RotationDeg));
+                            transform.Children.Add(new RotateTransform(-exportText.RotationDeg, anchorOffsetMm.X, anchorOffsetMm.Y));
                         }
-                        transform.Children.Add(new TranslateTransform(exportText.X, exportText.Y));
+                        transform.Children.Add(new TranslateTransform(topLeftWorld.X, topLeftWorld.Y));
 
                         geometryPx.Transform = transform;
                         var pathGeometry = PathGeometry.CreateFromGeometry(geometryPx);
@@ -15434,7 +15496,7 @@ namespace RevitProjectDataAddin
                     double contentWidth = maxX - minX;
                     double contentHeight = maxY - minY;
 
-                    var page = ResolvePdfPageLayout(_plotSettings.PaperSize, _plotSettings.Orientation, contentWidth, contentHeight, _plotSettings.ScaleDenominator, _plotSettings.HorizontalAlignment, _plotSettings.VerticalAlignment, _plotSettings.InnerFrameOffsetMm);
+                    var page = ResolvePdfPageLayout(_plotSettings.PaperSize, _plotSettings.Orientation, contentWidth, contentHeight, _plotSettings.ScaleDenominator, _plotSettings.FitMode, _plotSettings.HorizontalAlignment, _plotSettings.VerticalAlignment, _plotSettings.InnerFrameOffsetMm);
 
                     double pageWidthPoints = page.PageWidthMm * MmToPt;
                     double pageHeightPoints = page.PageHeightMm * MmToPt;
@@ -15452,11 +15514,11 @@ namespace RevitProjectDataAddin
                     DrawPageLayout(sb, state, page, key);
                     SetStrokeColor(sb, state, MediaColor.FromRgb(120, 120, 120));
                     SetLineWidth(sb, state, 0.18 * MmToPt);
-                    sb.AppendFormat(CultureInfo.InvariantCulture, "{0} {1} {2} {3} re\nS\n",
-                                    FormatDouble(contentLeftPoints),
-                                    FormatDouble(contentBottomPoints),
-                                    FormatDouble(contentWidthPoints),
-                                    FormatDouble(contentHeightPoints));
+                    //sb.AppendFormat(CultureInfo.InvariantCulture, "{0} {1} {2} {3} re\nS\n",
+                    //                FormatDouble(contentLeftPoints),
+                    //                FormatDouble(contentBottomPoints),
+                    //                FormatDouble(contentWidthPoints),
+                    //                FormatDouble(contentHeightPoints));
                     sb.AppendFormat(CultureInfo.InvariantCulture, "{0} {1} {2} {3} re W n\n",
                                     FormatDouble(contentLeftPoints),
                                     FormatDouble(contentBottomPoints),
@@ -21059,14 +21121,14 @@ namespace RevitProjectDataAddin
                                            skipCanvasBitmap: true));
         }
         private void BeginInlinePitchEditPushNeighbors(
-    Canvas canvas,
-    TextBlock tbPitch,
-    FrameworkElement leftTb,   // tbDia
-    FrameworkElement rightTb,  // tbMat
-    Func<string> getCurrentText,
-    Action<string> commitText,
-    double gapPx = 6.0,
-    double paddingPx = 14.0)
+        Canvas canvas,
+        TextBlock tbPitch,
+        FrameworkElement leftTb,   // tbDia
+        FrameworkElement rightTb,  // tbMat
+        Func<string> getCurrentText,
+        Action<string> commitText,
+        double gapPx = 6.0,
+        double paddingPx = 14.0)
         {
             if (canvas == null || tbPitch == null || leftTb == null || rightTb == null) return;
 

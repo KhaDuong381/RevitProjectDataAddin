@@ -191,7 +191,8 @@ namespace RevitProjectDataAddin
                     plotSettings?.Orientation ?? PdfPaperOrientation.Landscape,
                     plotSettings?.ScaleDenominator,
                     scene,
-                    plotSettings?.FitToPage == true);
+                    plotSettings?.FitToPage == true,
+                    plotSettings?.InnerFrameOffsetMm ?? DefaultPdfInnerFrameOffsetMm);
                 if (viewportWindows == null || viewportWindows.Count == 0)
                 {
                     viewportWindows = new List<PdfViewportWindow>
@@ -304,6 +305,7 @@ namespace RevitProjectDataAddin
                         ScaleDenominator = plotSettings.ScaleDenominator,
                         HorizontalAlignment = plotSettings.HorizontalAlignment,
                         VerticalAlignment = plotSettings.VerticalAlignment,
+                        InnerFrameOffsetMm = plotSettings.InnerFrameOffsetMm,
                         TitleText = plotSettings.TitleText,
                         DateText = plotSettings.DateText,
                         SelectedKeys = plotSettings.SelectedKeys != null ? new List<string>(plotSettings.SelectedKeys) : new List<string>(),
