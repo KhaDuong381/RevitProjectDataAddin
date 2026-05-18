@@ -192,7 +192,8 @@ namespace RevitProjectDataAddin
                     plotSettings?.ScaleDenominator,
                     scene,
                     plotSettings?.FitToPage == true,
-                    plotSettings?.InnerFrameOffsetMm ?? DefaultPdfInnerFrameOffsetMm);
+                    plotSettings?.InnerFrameOffsetMm ?? DefaultPdfInnerFrameOffsetMm,
+                    plotSettings?.FitMode ?? PdfFitMode.Width);
                 if (viewportWindows == null || viewportWindows.Count == 0)
                 {
                     viewportWindows = new List<PdfViewportWindow>
@@ -303,6 +304,7 @@ namespace RevitProjectDataAddin
                         PaperSize = plotSettings.PaperSize,
                         Orientation = plotSettings.Orientation,
                         ScaleDenominator = plotSettings.ScaleDenominator,
+                        FitMode = plotSettings.FitMode,
                         HorizontalAlignment = plotSettings.HorizontalAlignment,
                         VerticalAlignment = plotSettings.VerticalAlignment,
                         InnerFrameOffsetMm = plotSettings.InnerFrameOffsetMm,
