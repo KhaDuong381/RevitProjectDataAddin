@@ -105,6 +105,12 @@
     <Compile Include="3Dモデル\リスト\柱\柱リストを入力.xaml.cs">
       <DependentUpon>柱リストを入力.xaml</DependentUpon>
     </Compile>
+    <Compile Include="Command\BeamCommand.cs" />
+    <Compile Include="Command\ColumnCommand.cs" />
+    <Compile Include="Command\ColumnHoopCommand.cs" />
+    <Compile Include="Command\ColumnYokoNakagoCommand.cs" />
+    <Compile Include="Command\GridCommand.cs" />
+    <Compile Include="Command\LevelCommand.cs" />
     <Compile Include="Config\ButtonManager.cs" />
     <Compile Include="Config\ElementIdConverter.cs" />
     <Compile Include="Config\ExtensibleStorageHelper.cs" />
