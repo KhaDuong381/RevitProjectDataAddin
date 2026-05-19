@@ -153,7 +153,7 @@ namespace RevitProjectDataAddin
         {
             if (_currentSecoList?.gridbotsecozu == null || _currentSecoList.gridbotsecozu.Count == 0)
             {
-                MessageBox.Show("Khﾃｴng cﾃｳ gﾃｬ ﾄ黛ｻ・xu蘯･t.");
+                MessageBox.Show("Không có gì để xuất.");
                 return;
             }
 
@@ -166,7 +166,7 @@ namespace RevitProjectDataAddin
 
             if (sources.Count == 0)
             {
-                MessageBox.Show("Khﾃｴng tﾃｬm th蘯･y canvas ﾄ黛ｻ・plot.");
+                MessageBox.Show("Không tìm thấy canvas để plot.");
                 return;
             }
 
@@ -255,7 +255,7 @@ namespace RevitProjectDataAddin
             if (_sceneByItem.TryGetValue(item, out var scene) && scene != null && scene.Count > 0)
                 return scene.ToList();
 
-            throw new InvalidOperationException($"Scene geometry chﾆｰa s蘯ｵn sﾃng cho: {key}");
+            throw new InvalidOperationException($"Scene geometry chưa sẵn sàng cho: {key}");
         }
 
         private PdfPaperSize GetCurrentPdfPaperSize()

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -100,41 +100,41 @@ public class ProjectData : INotifyPropertyChanged
         // Guards
         if (Kihon == null) return;
         if (Haichi?.梁配置図 == null || Haichi.梁配置図.Count == 0) return;
-
+ 
         var layout = Haichi.梁配置図[0];
         if (layout.BeamSegmentsMap == null)
             layout.BeamSegmentsMap = new Dictionary<string, ObservableCollection<梁セグメント>>();
-
+ 
         // Danh sách tên
         var kaiList = Kihon.NameKai?.Select(x => x.Name).Where(s => !string.IsNullOrWhiteSpace(s)).ToList() ?? new List<string>();
         var xList = Kihon.NameX?.Select(x => x.Name).Where(s => !string.IsNullOrWhiteSpace(s)).ToList() ?? new List<string>();
         var yList = Kihon.NameY?.Select(y => y.Name).Where(s => !string.IsNullOrWhiteSpace(s)).ToList() ?? new List<string>();
-
+ 
         var tsuAll = xList.Concat(yList).ToList();
-
+ 
         foreach (var kai in kaiList)
         {
             foreach (var tsu in tsuAll)
             {
                 var key = MakeKeyForMap(kai, tsu);
                 var along = xList.Contains(tsu) ? yList : xList;
-
+ 
                 if (!layout.BeamSegmentsMap.TryGetValue(key, out var segments))
                 {
                     segments = new ObservableCollection<梁セグメント>();
                     layout.BeamSegmentsMap[key] = segments;
                 }
-
+ 
                 SyncBeamSegments(segments, along, kai, tsu);
-
+ 
                 // Lấy danh sách ứng viên 梁 theo tầng; nếu rỗng → ["G0"] (đúng UI)
                 var floorBeamList = リスト?.梁リスト?.FirstOrDefault(r => r.各階 == kai);
                 var candidates = (floorBeamList?.梁 != null && floorBeamList.梁.Any())
                     ? floorBeamList.梁.Select(b => b.Name).ToList()
                     : new List<string> { "G0" };
-
+ 
                 var first = candidates.FirstOrDefault() ?? "G0";
-
+ 
                 // Chuẩn hoá 梁の符号 về phần tử đầu nếu null/invalid (đúng bước (5) của UI)
                 foreach (var s in segments)
                 {
@@ -3093,7 +3093,7 @@ public class KesanData : INotifyPropertyChanged
         Teiuwachu = true;
         Teishitachu = true;
         Teishita = true;
-
+        
 
         // Thiết lập giá trị mặc định cho ComboBox "中央部", "端部"
         Tsuuwa = "中央部";

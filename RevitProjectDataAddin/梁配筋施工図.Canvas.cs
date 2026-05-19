@@ -1,4 +1,4 @@
-﻿
+
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -9462,7 +9462,7 @@ namespace RevitProjectDataAddin
                     Brushes.Aqua, 1.2, null, "CHAIN");
 
                 var labelTb = DrawText_Rec(canvas, T, item, label,
-                    leftEdge - 1300, yBase + LabelDy +100, dimFont, Brushes.Red,
+                    leftEdge - 1300, yBase + LabelDy + 100, dimFont, Brushes.Red,
                     HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
 
                 if (nige1 == true)
@@ -9776,7 +9776,7 @@ namespace RevitProjectDataAddin
                         rightEdge + 1500 + offset5.X, yChainBot + 6600 + offset5.Y,
                         Brushes.Aqua, 1.2, null, "CHAIN");
             DrawText_Rec(canvas, T, item, "腹筋",
-                         leftEdge - 1400 + offset5.X, yChainBot + 6850 + offset5.Y +100,
+                         leftEdge - 1400 + offset5.X, yChainBot + 6850 + offset5.Y + 100,
                          dimFont, Brushes.Red, HAnchor.Left, VAnchor.Bottom, 200, "TEXT");
             DrawText_Rec(canvas, T, item, "STP",
                          leftEdge - 1400 + offset5.X, yChainBot + 7850 + offset5.Y,
@@ -11117,7 +11117,7 @@ namespace RevitProjectDataAddin
                     Brushes.Aqua, 1.2, null, "CHAIN");
                 //DrawText_Rec(canvas, T, item, "下筋", leftEdge - 1300, yShitaganeBase + LabelDy, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
 
-                var shitaLabel = DrawText_Rec(canvas, T, item, "下筋", leftEdge - 1300, yShitaganeBase + LabelDy +100, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                var shitaLabel = DrawText_Rec(canvas, T, item, "下筋", leftEdge - 1300, yShitaganeBase + LabelDy + 100, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
                 // <<< ニゲ TEXT >>>
                 TextBlock shitaNigeLeft = null;
                 TextBlock shitaNigeRight = null;
@@ -11362,11 +11362,11 @@ namespace RevitProjectDataAddin
                             (cut, leftBaseX) => leftBaseX + CeilToBase(cut - leftBaseX, 500.0) + 500.0 + GetTonariDotOffset(kRow, cut)
                         );
 
-                    var visibleSegs = ClampVisibleOrangeSegsToBounds(
-                        GetVisibleOrangeSegs(item, kRow, y, merged),
-                        leftAnkaX_Global,
-                        rightAnkaX_Global);
-                    if (visibleSegs.Count == 0) continue;
+                        var visibleSegs = ClampVisibleOrangeSegsToBounds(
+                            GetVisibleOrangeSegs(item, kRow, y, merged),
+                            leftAnkaX_Global,
+                            rightAnkaX_Global);
+                        if (visibleSegs.Count == 0) continue;
 
                         hasVisibleShita = true;
                         lastYOfShitakin1 = y;
@@ -11697,7 +11697,7 @@ namespace RevitProjectDataAddin
         }
 
         private static Point GetPlotRenderTextAnchorWorld(DxfText text)
-            => new Point(text.X, text.Y +25);
+            => new Point(text.X, text.Y + 25);
 
         private static Point GetPlotRenderTextTopLeftWorld(DxfTextLayoutMetrics metrics)
             => GetDxfTextTopLeft(GetPlotRenderTextAnchorWorld(metrics.Text), metrics.WidthMm, metrics.HeightMm, metrics.Text.HAnchor, metrics.Text.VAnchor);
@@ -13435,7 +13435,7 @@ namespace RevitProjectDataAddin
                 FontSize = 14,
                 VerticalContentAlignment = VerticalAlignment.Center,
                 HorizontalAlignment = HorizontalAlignment.Left,
-                Text = DefaultPdfInnerFrameOffsetMm.ToString("0.##", CultureInfo.InvariantCulture), 
+                Text = DefaultPdfInnerFrameOffsetMm.ToString("0.##", CultureInfo.InvariantCulture),
             };
             controlPanel.Children.Add(offsetFrameBox);
 

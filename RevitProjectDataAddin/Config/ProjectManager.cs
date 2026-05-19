@@ -15,6 +15,12 @@
             リスト入力ButtonManager.Enableリスト(true);
             配置リストButtonManager.Enableリスト(true);
             施工図リストButtonManager.Enableリスト(true);
+            GridButtonManager.EnableGrid(true);
+            LevelButtonManager.EnableLevel(true);
+            ColumnButtonManager.EnableColumn(true);
+            ColumnHoopButtonManager.EnableColumnHoop(true);
+            ColumnYokoNakagoButtonManager.EnableColumnYokoNakago(true);
+            BeamButtonManager.EnableBeam(true);
         }
 
         public static void ClearProject()
@@ -26,6 +32,12 @@
             リスト入力ButtonManager.Enableリスト(false);
             配置リストButtonManager.Enableリスト(false);
             施工図リストButtonManager.Enableリスト(false);
+            GridButtonManager.EnableGrid(false);
+            LevelButtonManager.EnableLevel(false);
+            ColumnButtonManager.EnableColumn(false);
+            ColumnHoopButtonManager.EnableColumnHoop(false);
+            ColumnYokoNakagoButtonManager.EnableColumnYokoNakago(false);
+            BeamButtonManager.EnableBeam(false);
         }
     }
 }

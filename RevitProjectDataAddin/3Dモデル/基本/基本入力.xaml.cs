@@ -62,6 +62,7 @@ namespace RevitProjectDataAddin
                 if (result == MessageBoxResult.Yes)
                 {
                     NormalizeAllTextBoxValues();
+                    _projectData.SyncDependentDataWithKihon();
                     // Lưu dữ liệu
                     StorageUtils.SaveProject(_doc, _projectData);
                 }
@@ -378,6 +379,7 @@ namespace RevitProjectDataAddin
                 UpdateCanvas("Y");
                 _currentKihonData.SyncListSpanXNames();
                 _currentKihonData.SyncListSpanYNames();
+                _projectData.SyncDependentDataWithKihon();
 
             }
         }

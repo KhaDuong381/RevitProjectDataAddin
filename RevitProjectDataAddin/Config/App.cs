@@ -73,6 +73,68 @@ namespace RevitProjectDataAddin
             bvbsButton.Enabled = false;
             BVBSButtonManager.SetButton(bvbsButton);
 
+            RibbonPanel panel3 = application.CreateRibbonPanel(tabName, "3D");
+
+            PushButtonData gridButtonData = new PushButtonData(
+                "GridButton",
+                "Grid",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitProjectDataAddin.GridCommand");
+
+            PushButton gridButton = panel3.AddItem(gridButtonData) as PushButton;
+            gridButton.Enabled = false;
+            GridButtonManager.SetButton(gridButton);
+
+            PushButtonData levelButtonData = new PushButtonData(
+                "LevelButton",
+                "Level",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitProjectDataAddin.LevelCommand");
+
+            PushButton levelButton = panel3.AddItem(levelButtonData) as PushButton;
+            levelButton.Enabled = false;
+            LevelButtonManager.SetButton(levelButton);
+
+            PushButtonData columnButtonData = new PushButtonData(
+                "ColumnButton",
+                "Column",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitProjectDataAddin.ColumnCommand");
+
+            PushButton columnButton = panel3.AddItem(columnButtonData) as PushButton;
+            columnButton.Enabled = false;
+            ColumnButtonManager.SetButton(columnButton);
+
+            PushButtonData columnHoopButtonData = new PushButtonData(
+                "ColumnHoopButton",
+                "Column HOOP",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitProjectDataAddin.ColumnHoopCommand");
+
+            PushButton columnHoopButton = panel3.AddItem(columnHoopButtonData) as PushButton;
+            columnHoopButton.Enabled = false;
+            ColumnHoopButtonManager.SetButton(columnHoopButton);
+
+            PushButtonData columnYokoNakagoButtonData = new PushButtonData(
+                "ColumnYokoNakagoButton",
+                "Yoko Nakago",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitProjectDataAddin.ColumnYokoNakagoCommand");
+
+            PushButton columnYokoNakagoButton = panel3.AddItem(columnYokoNakagoButtonData) as PushButton;
+            columnYokoNakagoButton.Enabled = false;
+            ColumnYokoNakagoButtonManager.SetButton(columnYokoNakagoButton);
+
+            PushButtonData beamButtonData = new PushButtonData(
+                "BeamButton",
+                "Beam",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitProjectDataAddin.BeamCommand");
+
+            PushButton beamButton = panel3.AddItem(beamButtonData) as PushButton;
+            beamButton.Enabled = false;
+            BeamButtonManager.SetButton(beamButton);
+
             return Result.Succeeded;
         }
 
