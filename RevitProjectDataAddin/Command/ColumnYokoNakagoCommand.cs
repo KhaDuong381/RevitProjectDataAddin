@@ -1,651 +1,1205 @@
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
+using Autodesk.Revit.DB.Structure;
 using Autodesk.Revit.UI;
 using System;
-using System.Collections;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
 using System.Reflection;
-using System.Text;
 
 namespace RevitProjectDataAddin
 {
     [Transaction(TransactionMode.Manual)]
     public class ColumnYokoNakagoCommand : IExternalCommand
     {
-        private const string NotFound = "NOT FOUND";
+        private const double FeetPerMillimeter = 1.0 / 304.8;
+        private const double LocationToleranceFeet = 1e-4;
         private const string SectionName = "柱頭";
+        private const string RebarCommentPrefix = "COLUMN_YOKO_NAKAGO ";
+        private const string HookType1804DName = "DBS_HOOK_180_4D";
+        private const string HookType1356DName = "DBS_HOOK_135_6D";
+        private const string HookType908DName = "DBS_HOOK_90_8D";
 
         public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
         {
             if (!ProjectManager.HasSelectedProject)
             {
-                TaskDialog.Show("Column Yoko Nakago Debug", "Please select a project first.");
+                TaskDialog.Show("Column Yoko Nakago", "Please select a project first.");
                 return Result.Cancelled;
             }
 
             UIDocument uiDoc = commandData.Application.ActiveUIDocument;
             if (uiDoc == null)
             {
-                TaskDialog.Show("Column Yoko Nakago Debug", "No active Revit document was found.");
+                TaskDialog.Show("Column Yoko Nakago", "No active Revit document was found.");
                 return Result.Cancelled;
             }
 
-            ProjectData projectData = StorageUtils.LoadProject(uiDoc.Document, ProjectManager.SelectedProjectName);
+            Document doc = uiDoc.Document;
+            ProjectData projectData = StorageUtils.LoadProject(doc, ProjectManager.SelectedProjectName);
             if (projectData == null)
             {
-                TaskDialog.Show("Column Yoko Nakago Debug", $"Could not load ProjectData for project '{ProjectManager.SelectedProjectName}'.");
+                TaskDialog.Show("Column Yoko Nakago", $"Could not load ProjectData for project '{ProjectManager.SelectedProjectName}'.");
                 return Result.Cancelled;
             }
 
-            TaskDialog.Show("Column Yoko Nakago Debug", BuildDebugMessage(projectData));
+            List<string> xNames = GetAxisNames(projectData.Kihon?.NameX?.Select(axis => axis?.Name));
+            List<string> yNames = GetAxisNames(projectData.Kihon?.NameY?.Select(axis => axis?.Name));
+            List<string> kaiNames = GetAxisNames(projectData.Kihon?.NameKai?.Select(kai => kai?.Name));
+
+            if (xNames == null || yNames == null || kaiNames == null || kaiNames.Count < 2)
+            {
+                TaskDialog.Show("Column Yoko Nakago", "ProjectData Kihon axis data is missing or invalid.");
+                return Result.Cancelled;
+            }
+
+            柱配置図 columnLayout;
+            string layoutError;
+            if (!TryGetColumnLayout(projectData, out columnLayout, out layoutError))
+            {
+                TaskDialog.Show("Column Yoko Nakago", layoutError);
+                return Result.Cancelled;
+            }
+
+            Dictionary<string, Grid> gridsByName;
+            string gridError;
+            if (!TryCollectGridsByName(doc, out gridsByName, out gridError))
+            {
+                TaskDialog.Show("Column Yoko Nakago", gridError);
+                return Result.Cancelled;
+            }
+
+            Dictionary<string, Level> levelsByName;
+            string levelError;
+            if (!TryCollectLevelsByName(doc, out levelsByName, out levelError))
+            {
+                TaskDialog.Show("Column Yoko Nakago", levelError);
+                return Result.Cancelled;
+            }
+
+            List<string> warnings = new List<string>();
+            List<YokoNakagoSpec> specs = BuildYokoNakagoSpecs(
+                projectData,
+                columnLayout,
+                kaiNames,
+                yNames,
+                xNames,
+                gridsByName,
+                levelsByName,
+                warnings);
+
+            if (specs.Count == 0)
+            {
+                string emptyResult = $"No valid {SectionName} Yoko Nakago specs were found.";
+                if (warnings.Count > 0)
+                {
+                    emptyResult += "\n\nWarnings:\n" + string.Join("\n", warnings.Take(20));
+                }
+
+                TaskDialog.Show("Column Yoko Nakago", emptyResult);
+                return Result.Cancelled;
+            }
+
+            Dictionary<string, FamilyInstance> existingColumnsByKey = CollectExistingColumnsByKey(doc);
+            Dictionary<string, RebarBarType> barTypeCache = new Dictionary<string, RebarBarType>(StringComparer.OrdinalIgnoreCase);
+
+            int created = 0;
+            List<string> failed = new List<string>();
+
+            using (Transaction tx = new Transaction(doc, "Create Column Yoko Nakago"))
+            {
+                tx.Start();
+                DeleteExistingYokoNakago(doc, SectionName);
+
+                HookTypes hookTypes = FindOrCreateHookTypes(doc, warnings);
+
+                foreach (YokoNakagoSpec spec in specs)
+                {
+                    try
+                    {
+                        string columnKey = BuildColumnKey(spec.Point, spec.BaseLevel.Id, spec.TopLevel.Id);
+                        FamilyInstance hostColumn;
+                        if (!existingColumnsByKey.TryGetValue(columnKey, out hostColumn))
+                        {
+                            warnings.Add($"{spec.Kai} {spec.YName}-{spec.XName} {spec.ColumnCode}: host column was not found in the model.");
+                            continue;
+                        }
+
+                        RebarBarType barType = GetOrFindRebarBarType(doc, spec, barTypeCache);
+                        if (barType == null)
+                        {
+                            warnings.Add($"{spec.Kai} {spec.YName}-{spec.XName} {spec.ColumnCode}: no RebarBarType matched 横向き中子径 '{spec.Diameter}'.");
+                            continue;
+                        }
+
+                        created += CreateYokoNakagoForSpec(doc, hostColumn, spec, barType, hookTypes, warnings);
+                    }
+                    catch (Exception ex)
+                    {
+                        failed.Add($"{spec.Kai} {spec.YName}-{spec.XName} {spec.ColumnCode}: {GetExceptionMessage(ex)}");
+                    }
+                }
+
+                tx.Commit();
+            }
+
+            string result = $"Created Yoko Nakago count: {created}";
+            if (warnings.Count > 0)
+            {
+                result += "\n\nWarnings:\n" + string.Join("\n", warnings.Take(20));
+            }
+
+            if (failed.Count > 0)
+            {
+                result += "\n\nFailed:\n" + string.Join("\n", failed.Take(10));
+            }
+
+            TaskDialog.Show("Column Yoko Nakago", result);
             return Result.Succeeded;
         }
 
-        private static string BuildDebugMessage(ProjectData projectData)
+        private static List<YokoNakagoSpec> BuildYokoNakagoSpecs(
+            ProjectData projectData,
+            柱配置図 columnLayout,
+            List<string> kaiNames,
+            List<string> yNames,
+            List<string> xNames,
+            Dictionary<string, Grid> gridsByName,
+            Dictionary<string, Level> levelsByName,
+            List<string> warnings)
         {
-            List<string> xNames = GetNamedList(projectData.Kihon, "NameX");
-            List<string> yNames = GetNamedList(projectData.Kihon, "NameY");
-            List<string> kaiNames = GetNamedList(projectData.Kihon, "NameKai");
+            List<YokoNakagoSpec> specs = new List<YokoNakagoSpec>();
+            Dictionary<string, 柱リスト> floorListsByKai = (projectData?.リスト?.柱リスト ?? new ObservableCollection<柱リスト>())
+                .Where(list => list != null && !string.IsNullOrWhiteSpace(list.各階))
+                .GroupBy(list => list.各階, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
 
-            string kai = FirstOrDefault(kaiNames, "1F");
-            string yName = FirstOrDefault(yNames, "Y1");
-            string xName = FirstOrDefault(xNames, "X1");
-            int xIndex = Math.Max(0, xNames.FindIndex(name => string.Equals(name, xName, StringComparison.OrdinalIgnoreCase)));
+            for (int kaiIndex = 0; kaiIndex < kaiNames.Count - 1; kaiIndex++)
+            {
+                string kaiName = kaiNames[kaiIndex];
+                string topKaiName = kaiNames[kaiIndex + 1];
 
-            object columnLayout = GetFirstItem(GetPropertyValue(GetPropertyValue(projectData, "Haichi"), "柱配置図"));
-            string mapKey = $"{kai}::{yName}";
-            object segment = GetSegment(columnLayout, mapKey, xIndex);
-            string columnCode = FirstNonEmpty(GetStringProperty(segment, "柱の符号"), "C0");
-            object columnData = GetColumnData(projectData, kai, columnCode);
-            object columnSection = GetPropertyValue(columnData, "柱の配置");
-            object sectionData = GetSectionData(columnSection, SectionName);
+                Level baseLevel;
+                if (!levelsByName.TryGetValue(kaiName, out baseLevel))
+                {
+                    warnings.Add($"Level '{kaiName}' was not found in the model.");
+                    continue;
+                }
 
-            StringBuilder sb = new StringBuilder();
-            sb.AppendLine($"Project: {ProjectManager.SelectedProjectName}");
-            sb.AppendLine();
-            sb.AppendLine("Target:");
-            sb.AppendLine($"Kai: {ValueOrNotFound(kai)}");
-            sb.AppendLine($"Grid: {ValueOrNotFound(yName)}-{ValueOrNotFound(xName)}");
-            sb.AppendLine($"ColumnCode: {ValueOrNotFound(columnCode)}");
-            sb.AppendLine($"Section: {SectionName}");
-            sb.AppendLine();
-            sb.AppendLine("Axis:");
-            sb.AppendLine($"NameX: {FormatList(xNames)}");
-            sb.AppendLine($"NameY: {FormatList(yNames)}");
-            sb.AppendLine($"NameKai: {FormatList(kaiNames)}");
-            sb.AppendLine($"ListSpanX: {FormatNameSpanList(GetPropertyValue(projectData.Kihon, "ListSpanX"))}");
-            sb.AppendLine($"ListSpanY: {FormatNameSpanList(GetPropertyValue(projectData.Kihon, "ListSpanY"))}");
-            sb.AppendLine($"ListSpanKai: {FormatNameSpanList(GetPropertyValue(projectData.Kihon, "ListSpanKai"))}");
-            sb.AppendLine();
-            sb.AppendLine("Column layout:");
-            sb.AppendLine($"MapKey: {mapKey}");
-            sb.AppendLine($"Position: {FirstNonEmpty(GetStringProperty(segment, "位置表示"), $"{kai} {yName}-{xName}")}");
-            sb.AppendLine($"ColumnCode: {ValueOrNotFound(columnCode)}");
-            sb.AppendLine($"LeftOffset: {ValueOrNotFound(GetStringProperty(segment, "左側のズレ"))}");
-            sb.AppendLine($"RightOffset: {ValueOrNotFound(GetStringProperty(segment, "右側のズレ"))}");
-            sb.AppendLine($"TopOffset: {ValueOrNotFound(GetStringProperty(segment, "上側のズレ"))}");
-            sb.AppendLine($"BottomOffset: {ValueOrNotFound(GetStringProperty(segment, "下側のズレ"))}");
-            sb.AppendLine();
-            sb.AppendLine("Column section 柱頭:");
-            sb.AppendLine($"Width: {GetSectionProperty(columnSection, SectionName, "柱幅", "幅")}");
-            sb.AppendLine($"Depth: {GetSectionProperty(columnSection, SectionName, "柱成", "成")}");
-            sb.AppendLine($"MainDia: {GetSectionProperty(columnSection, SectionName, "主筋径")}");
-            sb.AppendLine($"HoopDia: {GetSectionProperty(columnSection, SectionName, "HOOP径")}");
-            sb.AppendLine($"HoopPitch: {GetSectionProperty(columnSection, SectionName, "ピッチ")}");
-            sb.AppendLine($"CoverTop: {ValueOrNotFound(GetStringProperty(sectionData, "上"))}");
-            sb.AppendLine($"CoverBottom: {ValueOrNotFound(GetStringProperty(sectionData, "下"))}");
-            sb.AppendLine($"CoverLeft: {ValueOrNotFound(GetStringProperty(sectionData, "左"))}");
-            sb.AppendLine($"CoverRight: {ValueOrNotFound(GetStringProperty(sectionData, "右"))}");
-            sb.AppendLine($"YokoNakagoDia: {GetSectionProperty(columnSection, SectionName, "横向き中子径")}");
-            sb.AppendLine($"YokoNakagoShape: {GetSectionProperty(columnSection, SectionName, "横向き中子形")}");
-            sb.AppendLine($"YokoNakagoMaterial: {GetSectionProperty(columnSection, SectionName, "横向き中子材質")}");
-            sb.AppendLine($"YokoNakagoPitch: {GetSectionProperty(columnSection, SectionName, "横向き中子ピッチ")}");
-            sb.AppendLine($"YokoNakagoCount: {FirstNonEmpty(GetSectionProperty(columnSection, SectionName, "横向き中子本数", "柱頭横向き中子本数"), GetStringProperty(sectionData, "横向き中子本数"), NotFound)}");
-            sb.AppendLine($"HookPosition: {ValueOrNotFound(GetStringProperty(sectionData, "フックの位置"))}");
-            sb.AppendLine();
-            sb.AppendLine("YokoNakago UI data:");
-            sb.AppendLine($"CustomPositions: {FormatValue(GetPropertyValue(sectionData, "YokogaoNakagoCustomPositions"))}");
-            sb.AppendLine($"Directions: {FormatValue(GetPropertyValue(sectionData, "YokogaoNakagoDirections"))}");
-            sb.AppendLine();
-            sb.AppendLine("Old-style generated data:");
-            sb.AppendLine($"index_yokomuki: {FoundStatus(FindPropertyValue(projectData, "index_yokomuki"))}");
-            sb.AppendLine($"offset_data1: {FoundStatus(FindPropertyValue(projectData, "offset_data1", "yokomuki nakago offset_data1"))}");
-            sb.AppendLine($"hook_data1: {FoundStatus(FindPropertyValue(projectData, "hook_data1", "yokomuki nakago hook_data1"))}");
-            sb.AppendLine();
-            sb.AppendLine("Generated old-style preview:");
-            AppendGeneratedOldStylePreview(sb, sb.ToString(), sectionData);
-            sb.AppendLine();
-            sb.AppendLine("Notes:");
-            sb.AppendLine("No Rebar was created. ProjectData and Revit elements were not modified.");
+                Level topLevel;
+                if (!levelsByName.TryGetValue(topKaiName, out topLevel))
+                {
+                    warnings.Add($"Top level '{topKaiName}' was not found in the model.");
+                    continue;
+                }
 
-            return sb.ToString();
+                柱リスト floorColumnList;
+                if (!floorListsByKai.TryGetValue(kaiName, out floorColumnList) || floorColumnList?.柱 == null)
+                {
+                    warnings.Add($"ProjectData.リスト.柱リスト does not contain floor '{kaiName}'.");
+                    continue;
+                }
+
+                foreach (string yName in yNames)
+                {
+                    string mapKey = $"{kaiName}::{yName}";
+                    ObservableCollection<柱セグメント> segments;
+                    if (!columnLayout.BeamSegmentsMap.TryGetValue(mapKey, out segments) || segments == null)
+                    {
+                        warnings.Add($"Column layout key '{mapKey}' was not found.");
+                        continue;
+                    }
+
+                    Grid yGrid;
+                    if (!gridsByName.TryGetValue(yName, out yGrid))
+                    {
+                        warnings.Add($"Grid '{yName}' was not found in the model.");
+                        continue;
+                    }
+
+                    int maxIndex = Math.Min(xNames.Count, segments.Count);
+                    if (segments.Count < xNames.Count)
+                    {
+                        warnings.Add($"Column layout key '{mapKey}' has {segments.Count} segments but NameX has {xNames.Count}; extra X grids were skipped.");
+                    }
+
+                    for (int xIndex = 0; xIndex < maxIndex; xIndex++)
+                    {
+                        柱セグメント segment = segments[xIndex];
+                        if (segment == null)
+                        {
+                            continue;
+                        }
+
+                        string columnCode = segment.柱の符号?.Trim();
+                        if (string.IsNullOrWhiteSpace(columnCode))
+                        {
+                            continue;
+                        }
+
+                        柱 columnData = floorColumnList.柱?.FirstOrDefault(column =>
+                            column != null && string.Equals(column.Name?.Trim(), columnCode, StringComparison.OrdinalIgnoreCase));
+                        if (columnData == null)
+                        {
+                            warnings.Add($"{kaiName} {yName}-{xNames[xIndex]} {columnCode}: column data was not found in ProjectData.リスト.柱リスト.");
+                            continue;
+                        }
+
+                        string xName = xNames[xIndex];
+                        Grid xGrid;
+                        if (!gridsByName.TryGetValue(xName, out xGrid))
+                        {
+                            warnings.Add($"Grid '{xName}' was not found in the model.");
+                            continue;
+                        }
+
+                        XYZ intersectionPoint;
+                        if (!TryGetGridIntersectionPoint(xGrid, yGrid, out intersectionPoint))
+                        {
+                            warnings.Add($"Could not find the intersection of grids '{xName}' and '{yName}'.");
+                            continue;
+                        }
+
+                        double offsetXmm;
+                        double offsetYmm;
+                        string offsetError;
+                        if (!TryGetColumnPlacementOffsetFromSegment(segment, out offsetXmm, out offsetYmm, out offsetError))
+                        {
+                            warnings.Add($"{kaiName} {yName}-{xName} {columnCode}: {offsetError}");
+                            continue;
+                        }
+
+                        XYZ adjustedPoint = new XYZ(
+                            intersectionPoint.X + offsetXmm * FeetPerMillimeter,
+                            intersectionPoint.Y + offsetYmm * FeetPerMillimeter,
+                            baseLevel.Elevation);
+
+                        YokoNakagoSpec spec;
+                        string specError;
+                        if (!TryBuildYokoNakagoSpec(
+                            kaiName,
+                            xName,
+                            yName,
+                            columnCode,
+                            columnData,
+                            adjustedPoint,
+                            baseLevel,
+                            topLevel,
+                            out spec,
+                            out specError))
+                        {
+                            warnings.Add($"{kaiName} {yName}-{xName} {columnCode}: {specError}");
+                            continue;
+                        }
+
+                        specs.Add(spec);
+                    }
+                }
+            }
+
+            return specs;
         }
 
-        private static void AppendGeneratedOldStylePreview(StringBuilder sb, string existingDebugText, object sectionData)
+        private static bool TryBuildYokoNakagoSpec(
+            string kaiName,
+            string xName,
+            string yName,
+            string columnCode,
+            柱 columnData,
+            XYZ point,
+            Level baseLevel,
+            Level topLevel,
+            out YokoNakagoSpec spec,
+            out string errorMessage)
         {
-            string widthText = GetDebugLineValue(existingDebugText, "Width");
-            string depthText = GetDebugLineValue(existingDebugText, "Depth");
-            string mainDiaText = GetDebugLineValue(existingDebugText, "MainDia");
-            string hoopDiaText = GetDebugLineValue(existingDebugText, "HoopDia");
-            string yokoDiaText = GetDebugLineValue(existingDebugText, "YokoNakagoDia");
-            string shapeText = GetDebugLineValue(existingDebugText, "YokoNakagoShape");
-            string countText = GetDebugLineValue(existingDebugText, "YokoNakagoCount");
-            string coverTopText = GetDebugLineValue(existingDebugText, "CoverTop");
-            string coverBottomText = GetDebugLineValue(existingDebugText, "CoverBottom");
-            string coverLeftText = GetDebugLineValue(existingDebugText, "CoverLeft");
-            string coverRightText = GetDebugLineValue(existingDebugText, "CoverRight");
+            spec = null;
+            errorMessage = null;
 
-            List<string> missing = new List<string>();
-            double width = ParsePreviewDouble(widthText, "Width", missing);
-            double depth = ParsePreviewDouble(depthText, "Depth", missing);
-            double mainDia = ParsePreviewDouble(mainDiaText, "MainDia", missing);
-            double hoopDia = ParsePreviewDouble(hoopDiaText, "HoopDia", missing);
-            double yokoDia = ParsePreviewDouble(yokoDiaText, "YokoNakagoDia", missing);
-            double coverTop = ParsePreviewDouble(coverTopText, "CoverTop", missing);
-            double coverBottom = ParsePreviewDouble(coverBottomText, "CoverBottom", missing);
-            double coverLeft = ParsePreviewDouble(coverLeftText, "CoverLeft", missing);
-            double coverRight = ParsePreviewDouble(coverRightText, "CoverRight", missing);
+            Z柱の配置 layout = columnData?.柱の配置;
+            if (layout == null)
+            {
+                errorMessage = "柱の配置 is null.";
+                return false;
+            }
+
+            GridBotDataHashira sectionData = GetSectionData(layout, SectionName);
+            if (sectionData == null)
+            {
+                errorMessage = $"{SectionName} data was not found.";
+                return false;
+            }
+
+            double widthMm;
+            string widthText = GetSectionProperty(layout, SectionName, "柱幅", "幅");
+            if (!TryParseMillimeters(widthText, out widthMm) || widthMm <= 0.0)
+            {
+                errorMessage = $"{SectionName} 柱幅 is invalid: '{widthText}'.";
+                return false;
+            }
+
+            double depthMm;
+            string depthText = GetSectionProperty(layout, SectionName, "柱成", "成");
+            if (!TryParseMillimeters(depthText, out depthMm) || depthMm <= 0.0)
+            {
+                errorMessage = $"{SectionName} 柱成 is invalid: '{depthText}'.";
+                return false;
+            }
+
+            double mainDiaMm;
+            string mainDiaText = GetSectionProperty(layout, SectionName, "主筋径");
+            if (!TryParseMillimeters(mainDiaText, out mainDiaMm) || mainDiaMm <= 0.0)
+            {
+                errorMessage = $"{SectionName} 主筋径 is invalid: '{mainDiaText}'.";
+                return false;
+            }
+
+            double hoopDiaMm;
+            string hoopDiaText = GetSectionProperty(layout, SectionName, "HOOP径");
+            if (!TryParseMillimeters(hoopDiaText, out hoopDiaMm) || hoopDiaMm <= 0.0)
+            {
+                errorMessage = $"{SectionName} HOOP径 is invalid: '{hoopDiaText}'.";
+                return false;
+            }
+
+            double pitchMm;
+            string pitchText = GetSectionProperty(layout, SectionName, "横向き中子ピッチ");
+            if (!TryParseMillimeters(pitchText, out pitchMm) || pitchMm <= 0.0)
+            {
+                pitchText = GetSectionProperty(layout, SectionName, "ピッチ");
+                if (!TryParseMillimeters(pitchText, out pitchMm) || pitchMm <= 0.0)
+                {
+                    errorMessage = $"{SectionName} 横向き中子ピッチ is invalid: '{pitchText}'.";
+                    return false;
+                }
+            }
+
+            double coverTopMm;
+            if (!TryParseMillimeters(sectionData.上, out coverTopMm) || coverTopMm < 0.0)
+            {
+                errorMessage = $"{SectionName} 上 cover is invalid: '{sectionData.上}'.";
+                return false;
+            }
+
+            double coverBottomMm;
+            if (!TryParseMillimeters(sectionData.下, out coverBottomMm) || coverBottomMm < 0.0)
+            {
+                errorMessage = $"{SectionName} 下 cover is invalid: '{sectionData.下}'.";
+                return false;
+            }
+
+            double coverLeftMm;
+            if (!TryParseMillimeters(sectionData.左, out coverLeftMm) || coverLeftMm < 0.0)
+            {
+                errorMessage = $"{SectionName} 左 cover is invalid: '{sectionData.左}'.";
+                return false;
+            }
+
+            double coverRightMm;
+            if (!TryParseMillimeters(sectionData.右, out coverRightMm) || coverRightMm < 0.0)
+            {
+                errorMessage = $"{SectionName} 右 cover is invalid: '{sectionData.右}'.";
+                return false;
+            }
+
+            string diameter = GetSectionProperty(layout, SectionName, "横向き中子径")?.Trim();
+            if (string.IsNullOrWhiteSpace(diameter))
+            {
+                errorMessage = $"{SectionName} 横向き中子径 is empty.";
+                return false;
+            }
+
+            double diameterMm;
+            if (!TryParseMillimeters(diameter, out diameterMm) || diameterMm <= 0.0)
+            {
+                errorMessage = $"{SectionName} 横向き中子径 is invalid: '{diameter}'.";
+                return false;
+            }
+
+            string shape = GetSectionProperty(layout, SectionName, "横向き中子形")?.Trim();
+            if (string.IsNullOrWhiteSpace(shape))
+            {
+                errorMessage = $"{SectionName} 横向き中子形 is empty.";
+                return false;
+            }
 
             int count;
+            string countText = GetFirstNonEmptyString(
+                GetSectionProperty(layout, SectionName, "横向き中子本数", "柱頭横向き中子本数"),
+                sectionData.横向き中子本数);
             if (!TryParsePositiveInt(countText, out count))
             {
-                missing.Add($"YokoNakagoCount='{ValueOrNotFound(countText)}'");
-                count = 0;
+                errorMessage = $"{SectionName} 横向き中子本数 is invalid: '{countText}'.";
+                return false;
             }
 
-            if (missing.Count > 0)
+            spec = new YokoNakagoSpec(
+                kaiName,
+                xName,
+                yName,
+                columnCode,
+                widthMm,
+                depthMm,
+                mainDiaMm,
+                hoopDiaMm,
+                diameter,
+                diameterMm,
+                shape,
+                GetSectionProperty(layout, SectionName, "横向き中子材質")?.Trim() ?? string.Empty,
+                pitchMm,
+                count,
+                coverTopMm,
+                coverBottomMm,
+                coverLeftMm,
+                coverRightMm,
+                sectionData.YokogaoNakagoCustomPositions,
+                sectionData.YokogaoNakagoDirections,
+                sectionData.横向き中子_方向,
+                point,
+                baseLevel,
+                topLevel);
+
+            return true;
+        }
+
+        private static int CreateYokoNakagoForSpec(
+            Document doc,
+            FamilyInstance column,
+            YokoNakagoSpec spec,
+            RebarBarType barType,
+            HookTypes hookTypes,
+            List<string> warnings)
+        {
+            XYZ center = GetColumnCenter(column) ?? spec.Point;
+            List<YokoNakagoBarData> barData = BuildBarData(spec, center, warnings);
+            if (barData.Count == 0)
             {
-                sb.AppendLine($"index_yokomuki_generated: NOT COMPUTED ({string.Join(", ", missing)})");
-                sb.AppendLine($"offset_data1_generated: NOT COMPUTED ({string.Join(", ", missing)})");
-                sb.AppendLine($"hook_data1_generated: NOT COMPUTED ({string.Join(", ", missing)})");
-                return;
+                return 0;
             }
 
-            object customPositions = GetPropertyValue(sectionData, "YokogaoNakagoCustomPositions");
-            object directions = GetPropertyValue(sectionData, "YokogaoNakagoDirections");
+            double minZ;
+            double maxZ;
+            if (!TryGetHostVerticalRange(column, out minZ, out maxZ))
+            {
+                throw new InvalidOperationException("Could not resolve host column vertical range.");
+            }
 
-            // Preview-only offset calculation. This will be matched exactly to the old Python formula in the next step.
-            double leftX = -width / 2.0 + coverLeft + hoopDia - yokoDia;
-            double rightX = width / 2.0 - coverRight - hoopDia + yokoDia;
-            double centerY = -(depth / 2.0 + GetActualBarDiameter(mainDia));
+            double pitchFt = spec.PitchMm * FeetPerMillimeter;
+            double startZ = minZ + spec.CoverBottomMm * FeetPerMillimeter;
+            double endZ = maxZ - spec.CoverTopMm * FeetPerMillimeter;          
+            double yokoNakagoLiftFt = GetYokoNakagoClearanceMm(spec.HoopDiaMm, spec.DiameterMm) * FeetPerMillimeter;
+            if (endZ < startZ)
+                if (endZ < startZ)
+            {
+                warnings.Add($"{spec.Kai} {spec.YName}-{spec.XName} {spec.ColumnCode}: host column height is too small for the requested cover.");
+                return 0;
+            }
+
+            int created = 0;
+            for (double z = startZ; z <= endZ + 1e-9; z += pitchFt)
+            {
+                foreach (YokoNakagoBarData data in barData)
+                {
+                    double barZ = z + yokoNakagoLiftFt;
+                    if (barZ > endZ + 1e-9)
+                    {
+                        continue;
+                    }
+
+                    RebarHookType startHook = hookTypes.Resolve(data.StartHook);
+                    RebarHookType endHook = hookTypes.Resolve(data.EndHook);
+                    if (data.RequiresMissingHook(startHook, endHook))
+                    {
+                        warnings.Add($"{spec.Kai} {spec.YName}-{spec.XName} {spec.ColumnCode}: hook type for Shape={spec.Shape} was not found.");
+                        continue;
+                    }
+
+                    XYZ start = ConvertLocalPointMmToModelPoint(data.StartMm, center, spec.DepthMm, barZ);
+                    XYZ end = ConvertLocalPointMmToModelPoint(data.EndMm, center, spec.DepthMm, barZ);
+                    if (start.IsAlmostEqualTo(end))
+                    {
+                        continue;
+                    }
+
+                    Rebar rebar = Rebar.CreateFromCurves(
+                        doc,
+                        RebarStyle.StirrupTie,
+                        barType,
+                        startHook,
+                        endHook,
+                        column,
+                        XYZ.BasisZ,
+                        new List<Curve> { Line.CreateBound(start, end) },
+                        data.StartHookOrientation,
+                        data.EndHookOrientation,
+                        true,
+                        true);
+
+                    if (rebar == null)
+                    {
+                        continue;
+                    }
+
+                    Parameter comments = rebar.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS);
+                    if (comments != null && !comments.IsReadOnly)
+                    {
+                        comments.Set($"{RebarCommentPrefix}{spec.Kai} {spec.YName}-{spec.XName} {spec.ColumnCode} {spec.SectionName} D={spec.Diameter} Shape={spec.Shape} Pitch={spec.PitchMm} Bar={data.Index + 1} HookStart={data.StartHook} HookEnd={data.EndHook}");
+                    }
+
+                    created++;
+                }
+            }
+
+            return created;
+        }
+
+        private static List<YokoNakagoBarData> BuildBarData(YokoNakagoSpec spec, XYZ columnCenter, List<string> warnings)
+        {
+            List<YokoNakagoBarData> bars = new List<YokoNakagoBarData>();
+            int shape;
+            if (!int.TryParse(ExtractDigits(spec.Shape), out shape) || shape < 1 || shape > 5)
+            {
+                warnings.Add($"{spec.Kai} {spec.YName}-{spec.XName} {spec.ColumnCode}: 横向き中子形='{spec.Shape}' is not handled yet; supported shapes are 1..5.");
+                return bars;
+            }
+
+            double actualMainDiaMm = GetActualBarDiameter(spec.MainDiaMm);
+            double actualHoopDiaMm = GetActualBarDiameter(spec.HoopDiaMm);
+            double actualYokoDiaMm = GetActualBarDiameter(spec.DiameterMm);
+            double yokoNakagoOffsetMm = GetYokoNakagoClearanceMm(spec.HoopDiaMm, spec.DiameterMm);
+            double leftX = -spec.WidthMm / 2.0 + spec.CoverLeftMm + actualHoopDiaMm - actualYokoDiaMm;
+            double rightX = spec.WidthMm / 2.0 - spec.CoverRightMm - actualHoopDiaMm + actualYokoDiaMm;
+            double centerY = -(spec.DepthMm / 2.0 + actualMainDiaMm);
             double halfRange = Math.Min(
-                depth / 2.0 - coverTop - hoopDia - yokoDia / 2.0,
-                depth / 2.0 - coverBottom - hoopDia - yokoDia / 2.0) / 2.0;
+                spec.DepthMm / 2.0 - spec.CoverTopMm - actualHoopDiaMm - actualYokoDiaMm / 2.0,
+                spec.DepthMm / 2.0 - spec.CoverBottomMm - actualHoopDiaMm - actualYokoDiaMm / 2.0) / 2.0;
             if (halfRange < 0.0)
             {
                 halfRange = 0.0;
             }
 
-            sb.AppendLine($"index_yokomuki_generated: {count}");
-            sb.AppendLine();
-            for (int i = 0; i < count; i++)
+            if (rightX <= leftX)
             {
-                int positionIndex = GetIndexedIntValue(customPositions, i, i);
-                bool isReversed = GetIndexedBoolValue(directions, i, false);
-                string[] hookData = GetYokoNakagoHookData(shapeText, isReversed);
-                double y = count == 1
+                warnings.Add($"{spec.Kai} {spec.YName}-{spec.XName} {spec.ColumnCode}: calculated Yoko Nakago length is not positive.");
+                return bars;
+            }
+
+            for (int i = 0; i < spec.Count; i++)
+            {
+                int directionIndex = spec.Count - 1 - i;
+                bool isReversed = GetIndexedBoolValue(spec.Directions, directionIndex, false);
+                HookPair hooks = GetYokoNakagoHookData(shape, false);
+                double y = spec.Count == 1
                     ? centerY
-                    : centerY - halfRange + 2.0 * halfRange * i / (count - 1);
+                    : centerY - halfRange + 2.0 * halfRange * i / (spec.Count - 1);
+                UV startMm = new UV(leftX, y);
+                UV endMm = new UV(rightX, y);
+                string startHook = hooks.Start;
+                string endHook = hooks.End;
+                RebarHookOrientation startHookOrientation = RebarHookOrientation.Left;
+                RebarHookOrientation endHookOrientation = RebarHookOrientation.Left;
 
-                sb.AppendLine($"bar{i + 1}:");
-                sb.AppendLine($"positionIndex: {positionIndex}");
-                sb.AppendLine($"isReversed: {isReversed.ToString().ToLowerInvariant()}");
-                sb.AppendLine($"offset_data{i + 1}_generated: [[{FormatDouble(leftX)}, {FormatDouble(y)}], [{FormatDouble(rightX)}, {FormatDouble(y)}]]");
-                sb.AppendLine($"hook_data{i + 1}_generated: [{hookData[0]}, {hookData[1]}]");
-                sb.AppendLine();
+                if (isReversed)
+                {
+                    UV originalStartMm = startMm;
+                    startMm = endMm;
+                    endMm = originalStartMm;
+
+                    string originalStartHook = startHook;
+                    startHook = endHook;
+                    endHook = originalStartHook;
+
+                    startHookOrientation = RebarHookOrientation.Right;
+                    endHookOrientation = RebarHookOrientation.Right;
+                }
+
+                bars.Add(new YokoNakagoBarData(
+                    i,
+                    startMm,
+                    endMm,
+                    startHook,
+                    endHook,
+                    startHookOrientation,
+                    endHookOrientation));
             }
+
+            return bars;
         }
 
-        private static object GetSegment(object columnLayout, string mapKey, int xIndex)
+        private static Dictionary<string, FamilyInstance> CollectExistingColumnsByKey(Document doc)
         {
-            object mapObject = GetPropertyValue(columnLayout, "BeamSegmentsMap");
-            if (!(mapObject is IDictionary map) || !map.Contains(mapKey))
-            {
-                return null;
-            }
+            Dictionary<string, FamilyInstance> columnsByKey = new Dictionary<string, FamilyInstance>(StringComparer.Ordinal);
 
-            return GetItemAt(map[mapKey], xIndex);
-        }
-
-        private static object GetColumnData(ProjectData projectData, string kai, string columnCode)
-        {
-            object columnLists = GetPropertyValue(GetPropertyValue(projectData, "リスト"), "柱リスト");
-            foreach (object floorList in Enumerate(columnLists))
+            foreach (FamilyInstance column in new FilteredElementCollector(doc)
+                .OfCategory(BuiltInCategory.OST_StructuralColumns)
+                .OfClass(typeof(FamilyInstance))
+                .Cast<FamilyInstance>())
             {
-                string floorName = GetStringProperty(floorList, "各階");
-                if (!string.Equals(floorName, kai, StringComparison.OrdinalIgnoreCase))
+                string columnKey;
+                if (!TryGetColumnKey(column, out columnKey))
                 {
                     continue;
                 }
 
-                foreach (object column in Enumerate(GetPropertyValue(floorList, "柱")))
+                if (!columnsByKey.ContainsKey(columnKey))
                 {
-                    if (string.Equals(GetStringProperty(column, "Name"), columnCode, StringComparison.OrdinalIgnoreCase))
-                    {
-                        return column;
-                    }
+                    columnsByKey.Add(columnKey, column);
                 }
             }
 
-            return null;
+            return columnsByKey;
         }
 
-        private static object GetSectionData(object columnSection, string sectionName)
+        private static bool TryGetColumnKey(FamilyInstance column, out string columnKey)
         {
-            object mapObject = GetPropertyValue(columnSection, "gridbotdata");
-            if (mapObject is IDictionary map && map.Contains(sectionName))
+            columnKey = null;
+
+            LocationPoint locationPoint = column?.Location as LocationPoint;
+            if (locationPoint == null)
             {
-                return map[sectionName];
+                return false;
             }
 
-            return null;
+            ElementId baseLevelId = GetElementIdParameterValue(column, BuiltInParameter.FAMILY_BASE_LEVEL_PARAM, BuiltInParameter.SCHEDULE_BASE_LEVEL_PARAM);
+            ElementId topLevelId = GetElementIdParameterValue(column, BuiltInParameter.FAMILY_TOP_LEVEL_PARAM, BuiltInParameter.SCHEDULE_TOP_LEVEL_PARAM);
+            if (baseLevelId == ElementId.InvalidElementId || topLevelId == ElementId.InvalidElementId)
+            {
+                return false;
+            }
+
+            columnKey = BuildColumnKey(locationPoint.Point, baseLevelId, topLevelId);
+            return true;
         }
 
-        private static string GetSectionProperty(object columnSection, string sectionName, params string[] baseNames)
+        private static RebarBarType GetOrFindRebarBarType(Document doc, YokoNakagoSpec spec, Dictionary<string, RebarBarType> cache)
         {
-            if (columnSection == null || baseNames == null)
+            string cacheKey = $"{spec.Diameter}|{spec.Material}";
+            RebarBarType barType;
+            if (cache.TryGetValue(cacheKey, out barType))
             {
-                return NotFound;
+                return barType;
+            }
+
+            barType = FindRebarBarType(doc, spec.Diameter, spec.Material);
+            cache[cacheKey] = barType;
+            return barType;
+        }
+
+        private static RebarBarType FindRebarBarType(Document doc, string nominalDiameter, string material)
+        {
+            string diameterToken = ExtractDigits(nominalDiameter);
+            string materialToken = material?.Trim();
+
+            List<RebarBarType> types = new FilteredElementCollector(doc)
+                .OfClass(typeof(RebarBarType))
+                .Cast<RebarBarType>()
+                .ToList();
+
+            if (types.Count == 0)
+            {
+                return null;
+            }
+
+            RebarBarType exact = types.FirstOrDefault(type =>
+                NameContains(type.Name, diameterToken)
+                && NameContains(type.Name, materialToken));
+            if (exact != null)
+            {
+                return exact;
+            }
+
+            return types.FirstOrDefault(type => NameContains(type.Name, diameterToken));
+        }
+
+        private static HookTypes FindOrCreateHookTypes(Document doc, List<string> warnings)
+        {
+            HookTypes hookTypes = new HookTypes
+            {
+                Hook180 = FindOrCreateHookType(doc, HookType1804DName, 180.0, 4.0, warnings),
+                Hook135 = FindOrCreateHookType(doc, HookType1356DName, 135.0, 6.0, warnings),
+                Hook90 = FindOrCreateHookType(doc, HookType908DName, 90.0, 8.0, warnings)
+            };
+
+            return hookTypes;
+        }
+
+        private static RebarHookType FindOrCreateHookType(Document doc, string name, double angleDegrees, double multiplier, List<string> warnings)
+        {
+            List<RebarHookType> hooks = new FilteredElementCollector(doc)
+                .OfClass(typeof(RebarHookType))
+                .Cast<RebarHookType>()
+                .ToList();
+
+            RebarHookType existing = hooks.FirstOrDefault(hook =>
+                string.Equals(hook.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (existing != null)
+            {
+                return existing;
+            }
+
+            double angleRadians = angleDegrees * Math.PI / 180.0;
+            try
+            {
+                RebarHookType created = RebarHookType.Create(doc, angleRadians, multiplier);
+                if (created != null)
+                {
+                    created.Style = RebarStyle.StirrupTie;
+                    created.HookAngle = angleRadians;
+                    created.StraightLineMultiplier = multiplier;
+                    created.Name = name;
+                    return created;
+                }
+            }
+            catch
+            {
+                // Revit may reject creating hook types in some templates; fall back by name below.
+            }
+
+            RebarHookType fallback = hooks.FirstOrDefault(hook =>
+                hook.Name.IndexOf(((int)Math.Round(angleDegrees)).ToString(CultureInfo.InvariantCulture), StringComparison.OrdinalIgnoreCase) >= 0);
+            if (fallback == null)
+            {
+                warnings.Add($"Could not create or find hook type {name}.");
+            }
+
+            return fallback;
+        }
+
+        private static void DeleteExistingYokoNakago(Document doc, string sectionName)
+        {
+            List<ElementId> rebarIdsToDelete = new FilteredElementCollector(doc)
+                .OfClass(typeof(Rebar))
+                .Cast<Rebar>()
+                .Where(rebar =>
+                {
+                    Parameter comments = rebar.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS);
+                    string comment = comments?.AsString();
+                    if (string.IsNullOrWhiteSpace(comment) || !comment.StartsWith(RebarCommentPrefix, StringComparison.Ordinal))
+                    {
+                        return false;
+                    }
+
+                    return string.IsNullOrWhiteSpace(sectionName)
+                        || comment.IndexOf(" " + sectionName, StringComparison.Ordinal) >= 0;
+                })
+                .Select(rebar => rebar.Id)
+                .ToList();
+
+            if (rebarIdsToDelete.Count > 0)
+            {
+                doc.Delete(rebarIdsToDelete);
+            }
+        }
+
+        private static bool TryGetColumnPlacementOffsetFromSegment(
+            柱セグメント segment,
+            out double offsetXmm,
+            out double offsetYmm,
+            out string errorMessage)
+        {
+            offsetXmm = 0.0;
+            offsetYmm = 0.0;
+            errorMessage = null;
+
+            double leftMm;
+            double rightMm;
+            double topMm;
+            double bottomMm;
+            if (!TryParseMillimeters(segment?.左側のズレ, out leftMm)
+                || !TryParseMillimeters(segment?.右側のズレ, out rightMm)
+                || !TryParseMillimeters(segment?.上側のズレ, out topMm)
+                || !TryParseMillimeters(segment?.下側のズレ, out bottomMm))
+            {
+                errorMessage = "column placement offset is invalid.";
+                return false;
+            }
+
+            offsetXmm = (rightMm - leftMm) / 2.0;
+            offsetYmm = (bottomMm - topMm) / 2.0;
+            return true;
+        }
+
+        private static bool TryGetColumnLayout(ProjectData projectData, out 柱配置図 columnLayout, out string errorMessage)
+        {
+            columnLayout = null;
+            errorMessage = null;
+
+            if (projectData.Haichi == null)
+            {
+                errorMessage = "ProjectData.Haichi is null.";
+                return false;
+            }
+
+            if (projectData.Haichi.柱配置図 == null || projectData.Haichi.柱配置図.Count == 0)
+            {
+                errorMessage = "ProjectData.Haichi.柱配置図 does not contain any layouts.";
+                return false;
+            }
+
+            columnLayout = projectData.Haichi.柱配置図[0];
+            if (columnLayout == null)
+            {
+                errorMessage = "ProjectData.Haichi.柱配置図[0] is null.";
+                return false;
+            }
+
+            if (columnLayout.BeamSegmentsMap == null || columnLayout.BeamSegmentsMap.Count == 0)
+            {
+                errorMessage = "ProjectData.Haichi.柱配置図.BeamSegmentsMap is empty.";
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool TryCollectGridsByName(Document doc, out Dictionary<string, Grid> gridsByName, out string errorMessage)
+        {
+            gridsByName = new Dictionary<string, Grid>(StringComparer.OrdinalIgnoreCase);
+            errorMessage = null;
+            List<string> duplicateNames = new List<string>();
+
+            foreach (Grid grid in new FilteredElementCollector(doc).OfClass(typeof(Grid)).Cast<Grid>())
+            {
+                if (grid == null || string.IsNullOrWhiteSpace(grid.Name))
+                {
+                    continue;
+                }
+
+                if (gridsByName.ContainsKey(grid.Name))
+                {
+                    duplicateNames.Add(grid.Name);
+                    continue;
+                }
+
+                gridsByName.Add(grid.Name, grid);
+            }
+
+            if (duplicateNames.Count > 0)
+            {
+                errorMessage = "Model contains duplicate grid names. Please resolve them before running Column Yoko Nakago: "
+                    + string.Join(", ", duplicateNames.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(name => name, StringComparer.OrdinalIgnoreCase));
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool TryCollectLevelsByName(Document doc, out Dictionary<string, Level> levelsByName, out string errorMessage)
+        {
+            levelsByName = new Dictionary<string, Level>(StringComparer.OrdinalIgnoreCase);
+            errorMessage = null;
+            List<string> duplicateNames = new List<string>();
+
+            foreach (Level level in new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>())
+            {
+                if (level == null || string.IsNullOrWhiteSpace(level.Name))
+                {
+                    continue;
+                }
+
+                if (levelsByName.ContainsKey(level.Name))
+                {
+                    duplicateNames.Add(level.Name);
+                    continue;
+                }
+
+                levelsByName.Add(level.Name, level);
+            }
+
+            if (duplicateNames.Count > 0)
+            {
+                errorMessage = "Model contains duplicate level names. Please resolve them before running Column Yoko Nakago: "
+                    + string.Join(", ", duplicateNames.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(name => name, StringComparer.OrdinalIgnoreCase));
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool TryGetGridIntersectionPoint(Grid xGrid, Grid yGrid, out XYZ point)
+        {
+            point = null;
+
+            if (xGrid?.Curve == null || yGrid?.Curve == null)
+            {
+                return false;
+            }
+
+            IntersectionResultArray results;
+            SetComparisonResult comparison = xGrid.Curve.Intersect(yGrid.Curve, out results);
+            if ((comparison == SetComparisonResult.Overlap
+                || comparison == SetComparisonResult.Subset
+                || comparison == SetComparisonResult.Superset)
+                && results != null
+                && results.Size > 0)
+            {
+                point = results.get_Item(0).XYZPoint;
+                return point != null;
+            }
+
+            return false;
+        }
+
+        private static GridBotDataHashira GetSectionData(Z柱の配置 layout, string sectionName)
+        {
+            if (layout?.gridbotdata == null || string.IsNullOrWhiteSpace(sectionName))
+            {
+                return null;
+            }
+
+            GridBotDataHashira sectionData;
+            return layout.gridbotdata.TryGetValue(sectionName, out sectionData) ? sectionData : null;
+        }
+
+        private static string GetSectionProperty(object layout, string sectionName, params string[] baseNames)
+        {
+            if (layout == null || string.IsNullOrWhiteSpace(sectionName) || baseNames == null)
+            {
+                return null;
             }
 
             foreach (string baseName in baseNames.Where(name => !string.IsNullOrWhiteSpace(name)))
             {
-                List<string> candidates = new List<string>();
                 if (sectionName == "柱頭")
                 {
-                    candidates.Add(baseName + "1");
-                    candidates.Add("柱頭" + baseName);
+                    string headValue = GetStringProperty(layout, baseName + "1");
+                    if (!string.IsNullOrWhiteSpace(headValue))
+                    {
+                        return headValue;
+                    }
+
+                    string prefixedValue = GetStringProperty(layout, "柱頭" + baseName);
+                    if (!string.IsNullOrWhiteSpace(prefixedValue))
+                    {
+                        return prefixedValue;
+                    }
                 }
 
-                candidates.Add(baseName);
-
-                foreach (string candidate in candidates)
+                string value = GetStringProperty(layout, baseName);
+                if (!string.IsNullOrWhiteSpace(value))
                 {
-                    string value = GetStringProperty(columnSection, candidate);
-                    if (!string.IsNullOrWhiteSpace(value))
+                    return value;
+                }
+            }
+
+            return null;
+        }
+
+        private static string GetStringProperty(object obj, string propertyName)
+        {
+            if (obj == null || string.IsNullOrWhiteSpace(propertyName))
+            {
+                return null;
+            }
+
+            PropertyInfo property = obj.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public);
+            if (property == null || property.PropertyType != typeof(string))
+            {
+                return null;
+            }
+
+            return property.GetValue(obj) as string;
+        }
+
+        private static List<string> GetAxisNames(IEnumerable<string> names)
+        {
+            if (names == null)
+            {
+                return null;
+            }
+
+            List<string> normalizedNames = names
+                .Select(name => name?.Trim())
+                .ToList();
+
+            if (normalizedNames.Count == 0 || normalizedNames.Any(string.IsNullOrWhiteSpace))
+            {
+                return null;
+            }
+
+            return normalizedNames;
+        }
+
+        private static XYZ GetColumnCenter(FamilyInstance column)
+        {
+            LocationPoint locationPoint = column?.Location as LocationPoint;
+            return locationPoint?.Point;
+        }
+
+        private static bool TryGetHostVerticalRange(FamilyInstance column, out double minZ, out double maxZ)
+        {
+            minZ = 0.0;
+            maxZ = 0.0;
+
+            Level baseLevel = column.Document.GetElement(GetElementIdParameterValue(
+                column,
+                BuiltInParameter.FAMILY_BASE_LEVEL_PARAM,
+                BuiltInParameter.SCHEDULE_BASE_LEVEL_PARAM)) as Level;
+            Level topLevel = column.Document.GetElement(GetElementIdParameterValue(
+                column,
+                BuiltInParameter.FAMILY_TOP_LEVEL_PARAM,
+                BuiltInParameter.SCHEDULE_TOP_LEVEL_PARAM)) as Level;
+
+            if (baseLevel != null && topLevel != null)
+            {
+                minZ = baseLevel.Elevation
+                    + GetFirstDoubleParameterValue(
+                        column,
+                        BuiltInParameter.FAMILY_BASE_LEVEL_OFFSET_PARAM,
+                        BuiltInParameter.SCHEDULE_BASE_LEVEL_OFFSET_PARAM);
+                maxZ = topLevel.Elevation
+                    + GetFirstDoubleParameterValue(
+                        column,
+                        BuiltInParameter.FAMILY_TOP_LEVEL_OFFSET_PARAM,
+                        BuiltInParameter.SCHEDULE_TOP_LEVEL_OFFSET_PARAM);
+
+                if (maxZ > minZ)
+                {
+                    return true;
+                }
+            }
+
+            BoundingBoxXYZ bbox = column.get_BoundingBox(null);
+            if (bbox == null)
+            {
+                return false;
+            }
+
+            minZ = bbox.Min.Z;
+            maxZ = bbox.Max.Z;
+            return maxZ > minZ;
+        }
+
+        private static XYZ ConvertLocalPointMmToModelPoint(UV pointMm, XYZ center, double depthMm, double z)
+        {
+            double x = center.X + pointMm.U * FeetPerMillimeter;
+            double y = center.Y + (depthMm / 2.0 + pointMm.V) * FeetPerMillimeter;
+            return new XYZ(x, y, z);
+        }
+
+        private static ElementId GetElementIdParameterValue(Element element, params BuiltInParameter[] parameterIds)
+        {
+            foreach (BuiltInParameter parameterId in parameterIds)
+            {
+                Parameter parameter = element?.get_Parameter(parameterId);
+                if (parameter != null && parameter.StorageType == StorageType.ElementId)
+                {
+                    ElementId value = parameter.AsElementId();
+                    if (value != null && value != ElementId.InvalidElementId)
                     {
                         return value;
                     }
                 }
             }
 
-            return NotFound;
+            return ElementId.InvalidElementId;
         }
 
-        private static List<string> GetNamedList(object source, string propertyName)
+        private static double GetFirstDoubleParameterValue(Element element, params BuiltInParameter[] parameterIds)
         {
-            return Enumerate(GetPropertyValue(source, propertyName))
-                .Select(item => GetStringProperty(item, "Name"))
-                .Where(value => !string.IsNullOrWhiteSpace(value))
-                .ToList();
-        }
-
-        private static object GetPropertyValue(object source, string propertyName)
-        {
-            if (source == null || string.IsNullOrWhiteSpace(propertyName))
+            foreach (BuiltInParameter parameterId in parameterIds)
             {
-                return null;
-            }
-
-            PropertyInfo property = source.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public);
-            return property?.GetValue(source);
-        }
-
-        private static string GetStringProperty(object source, string propertyName)
-        {
-            object value = GetPropertyValue(source, propertyName);
-            return value?.ToString();
-        }
-
-        private static object FindPropertyValue(object root, params string[] propertyNames)
-        {
-            if (root == null || propertyNames == null)
-            {
-                return null;
-            }
-
-            HashSet<object> visited = new HashSet<object>(ReferenceEqualityComparer.Instance);
-            Queue<object> queue = new Queue<object>();
-            queue.Enqueue(root);
-
-            while (queue.Count > 0 && visited.Count < 1000)
-            {
-                object current = queue.Dequeue();
-                if (current == null || IsSimpleValue(current) || !visited.Add(current))
+                Parameter parameter = element?.get_Parameter(parameterId);
+                if (parameter != null && parameter.StorageType == StorageType.Double)
                 {
-                    continue;
-                }
-
-                foreach (PropertyInfo property in current.GetType().GetProperties(BindingFlags.Instance | BindingFlags.Public))
-                {
-                    if (property.GetIndexParameters().Length > 0)
-                    {
-                        continue;
-                    }
-
-                    object value = null;
-                    try
-                    {
-                        value = property.GetValue(current);
-                    }
-                    catch
-                    {
-                        continue;
-                    }
-
-                    if (propertyNames.Any(name => string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase)))
-                    {
-                        return value ?? new object();
-                    }
-
-                    if (value == null || IsSimpleValue(value))
-                    {
-                        continue;
-                    }
-
-                    if (value is IEnumerable && !(value is string))
-                    {
-                        foreach (object item in Enumerate(value))
-                        {
-                            if (item != null && !IsSimpleValue(item))
-                            {
-                                queue.Enqueue(item);
-                            }
-                        }
-                    }
-                    else
-                    {
-                        queue.Enqueue(value);
-                    }
+                    return parameter.AsDouble();
                 }
             }
 
-            return null;
+            return 0.0;
         }
 
-        private static IEnumerable<object> Enumerate(object value)
+        private static string BuildColumnKey(XYZ point, ElementId baseLevelId, ElementId topLevelId)
         {
-            if (value == null || value is string)
-            {
-                yield break;
-            }
+            XYZ normalizedPoint = new XYZ(point.X, point.Y, 0.0);
+            return $"{BuildPointKey(normalizedPoint)}|{baseLevelId.IntegerValue}|{topLevelId.IntegerValue}";
+        }
 
-            if (value is IDictionary dictionary)
-            {
-                foreach (DictionaryEntry entry in dictionary)
-                {
-                    yield return entry.Value;
-                }
+        private static string BuildPointKey(XYZ point)
+        {
+            return $"{RoundToLocationTolerance(point.X)}|{RoundToLocationTolerance(point.Y)}";
+        }
 
-                yield break;
-            }
+        private static double RoundToLocationTolerance(double value)
+        {
+            return Math.Round(value / LocationToleranceFeet) * LocationToleranceFeet;
+        }
 
-            if (value is IEnumerable enumerable)
+        private static HookPair GetYokoNakagoHookData(int shape, bool isReversed)
+        {
+            switch (shape)
             {
-                foreach (object item in enumerable)
-                {
-                    yield return item;
-                }
+                case 1:
+                    return new HookPair("180", "180");
+                case 2:
+                    return isReversed ? new HookPair("180", "90") : new HookPair("90", "180");
+                case 3:
+                    return new HookPair("90", "90");
+                case 4:
+                    return new HookPair("135", "135");
+                case 5:
+                    return isReversed ? new HookPair("135", "90") : new HookPair("90", "135");
+                default:
+                    return new HookPair("0", "0");
             }
         }
 
-        private static object GetFirstItem(object value)
+        private static bool TryParseMillimeters(string input, out double valueMm)
         {
-            return Enumerate(value).FirstOrDefault();
-        }
+            valueMm = 0.0;
 
-        private static object GetItemAt(object value, int index)
-        {
-            if (value == null || index < 0)
-            {
-                return null;
-            }
-
-            int currentIndex = 0;
-            foreach (object item in Enumerate(value))
-            {
-                if (currentIndex == index)
-                {
-                    return item;
-                }
-
-                currentIndex++;
-            }
-
-            return null;
-        }
-
-        private static string FormatNameSpanList(object value)
-        {
-            List<string> entries = Enumerate(value)
-                .Select(item =>
-                {
-                    string name = GetStringProperty(item, "Name");
-                    string span = GetStringProperty(item, "Span");
-                    if (string.IsNullOrWhiteSpace(name) && string.IsNullOrWhiteSpace(span))
-                    {
-                        return null;
-                    }
-
-                    return string.IsNullOrWhiteSpace(span) ? name : $"{name}={span}";
-                })
-                .Where(entry => !string.IsNullOrWhiteSpace(entry))
-                .ToList();
-
-            return FormatList(entries);
-        }
-
-        private static string FormatList(IEnumerable<string> values)
-        {
-            List<string> list = values?.Where(value => !string.IsNullOrWhiteSpace(value)).ToList() ?? new List<string>();
-            return list.Count == 0 ? NotFound : string.Join(", ", list);
-        }
-
-        private static string FormatValue(object value)
-        {
-            if (value == null)
-            {
-                return NotFound;
-            }
-
-            if (value is IDictionary dictionary)
-            {
-                List<string> entries = new List<string>();
-                foreach (DictionaryEntry entry in dictionary)
-                {
-                    entries.Add($"{entry.Key}:{entry.Value}");
-                }
-
-                return entries.Count == 0 ? NotFound : string.Join(", ", entries);
-            }
-
-            if (!(value is string) && value is IEnumerable enumerable)
-            {
-                List<string> entries = new List<string>();
-                foreach (object item in enumerable)
-                {
-                    entries.Add(item?.ToString() ?? string.Empty);
-                }
-
-                return entries.Count == 0 ? NotFound : string.Join(", ", entries);
-            }
-
-            return ValueOrNotFound(value.ToString());
-        }
-
-        private static string GetDebugLineValue(string text, string label)
-        {
-            if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(label))
-            {
-                return NotFound;
-            }
-
-            string prefix = label + ":";
-            foreach (string line in text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None))
-            {
-                if (line.StartsWith(prefix, StringComparison.Ordinal))
-                {
-                    return line.Substring(prefix.Length).Trim();
-                }
-            }
-
-            return NotFound;
-        }
-
-        private static double ParsePreviewDouble(string value, string label, List<string> missing)
-        {
-            double result;
-            if (!TryParseDouble(value, out result))
-            {
-                missing.Add($"{label}='{ValueOrNotFound(value)}'");
-                return 0.0;
-            }
-
-            return result;
-        }
-
-        private static bool TryParseDouble(string value, out double result)
-        {
-            result = 0.0;
-            if (string.IsNullOrWhiteSpace(value))
+            if (string.IsNullOrWhiteSpace(input))
             {
                 return false;
             }
 
-            string normalized = ExtractNumberText(value);
+            string normalized = ExtractNumberText(input);
+
             return double.TryParse(
                 normalized,
                 NumberStyles.Float | NumberStyles.AllowLeadingSign,
                 CultureInfo.InvariantCulture,
-                out result)
+                out valueMm)
                 || double.TryParse(
-                    normalized,
-                    NumberStyles.Float | NumberStyles.AllowLeadingSign,
-                    CultureInfo.CurrentCulture,
-                    out result);
+                normalized,
+                NumberStyles.Float | NumberStyles.AllowLeadingSign,
+                CultureInfo.CurrentCulture,
+                out valueMm);
         }
 
-        private static bool TryParsePositiveInt(string value, out int result)
+        private static bool TryParsePositiveInt(string input, out int value)
         {
-            result = 0;
-            double doubleValue;
-            if (!TryParseDouble(value, out doubleValue))
+            value = 0;
+            double parsed;
+            if (!TryParseMillimeters(input, out parsed))
             {
                 return false;
             }
 
-            result = (int)Math.Round(doubleValue);
-            return result > 0;
+            value = (int)Math.Round(parsed);
+            return value > 0;
         }
 
-        private static string ExtractNumberText(string value)
+        private static string ExtractDigits(string input)
         {
-            if (string.IsNullOrWhiteSpace(value))
+            if (string.IsNullOrWhiteSpace(input))
             {
                 return string.Empty;
             }
 
-            string text = value.Trim().Replace(",", string.Empty);
-            StringBuilder sb = new StringBuilder();
-            foreach (char c in text)
-            {
-                if (char.IsDigit(c) || c == '.' || c == '-' || c == '+')
-                {
-                    sb.Append(c);
-                }
-            }
-
-            return sb.ToString();
+            return new string(input.Where(char.IsDigit).ToArray());
         }
 
-        private static int GetIndexedIntValue(object dictionaryObject, int index, int fallback)
+        private static string ExtractNumberText(string input)
         {
-            object value;
-            if (!TryGetIndexedDictionaryValue(dictionaryObject, index, out value))
+            if (string.IsNullOrWhiteSpace(input))
             {
-                return fallback;
+                return string.Empty;
             }
 
-            int result;
-            if (value is int)
-            {
-                return (int)value;
-            }
-
-            return int.TryParse(value?.ToString(), out result) ? result : fallback;
-        }
-
-        private static bool GetIndexedBoolValue(object dictionaryObject, int index, bool fallback)
-        {
-            object value;
-            if (!TryGetIndexedDictionaryValue(dictionaryObject, index, out value))
-            {
-                return fallback;
-            }
-
-            if (value is bool)
-            {
-                return (bool)value;
-            }
-
-            bool result;
-            return bool.TryParse(value?.ToString(), out result) ? result : fallback;
-        }
-
-        private static bool TryGetIndexedDictionaryValue(object dictionaryObject, int index, out object value)
-        {
-            value = null;
-            IDictionary dictionary = dictionaryObject as IDictionary;
-            if (dictionary == null)
-            {
-                return false;
-            }
-
-            if (dictionary.Contains(index))
-            {
-                value = dictionary[index];
-                return true;
-            }
-
-            string stringIndex = index.ToString(CultureInfo.InvariantCulture);
-            if (dictionary.Contains(stringIndex))
-            {
-                value = dictionary[stringIndex];
-                return true;
-            }
-
-            return false;
-        }
-
-        private static string[] GetYokoNakagoHookData(string shapeText, bool isReversed)
-        {
-            int shape;
-            if (!TryParsePositiveInt(shapeText, out shape))
-            {
-                return new[] { "NOT COMPUTED", "NOT COMPUTED" };
-            }
-
-            switch (shape)
-            {
-                case 1:
-                    return new[] { "180", "180" };
-                case 2:
-                    return isReversed
-                        ? new[] { "180", "90" }
-                        : new[] { "90", "180" };
-                case 3:
-                    return new[] { "90", "90" };
-                case 4:
-                    return new[] { "135", "135" };
-                case 5:
-                    return isReversed
-                        ? new[] { "135", "90" }
-                        : new[] { "90", "135" };
-                default:
-                    return new[] { "NOT COMPUTED", "NOT COMPUTED" };
-            }
+            string text = input.Trim().Replace(",", string.Empty);
+            return new string(text.Where(c => char.IsDigit(c) || c == '.' || c == '-' || c == '+').ToArray());
         }
 
         private static double GetActualBarDiameter(double nominalDiameter)
@@ -666,61 +1220,192 @@ namespace RevitProjectDataAddin
                 default: return nominalDiameter;
             }
         }
-
-        private static string FormatDouble(double value)
+        private static double GetYokoNakagoClearanceMm(double nominalHoopDiameter, double nominalYokoNakagoDiameter)
         {
-            return value.ToString("0.###############", CultureInfo.InvariantCulture);
+            double actualHoopDiaMm = GetActualBarDiameter(nominalHoopDiameter);
+            double actualYokoDiaMm = GetActualBarDiameter(nominalYokoNakagoDiameter);
+            return (actualHoopDiaMm + actualYokoDiaMm) / 2.0;
         }
 
-        private static string ValueOrNotFound(string value)
+        private static bool GetIndexedBoolValue(Dictionary<int, bool> dictionary, int index, bool fallback)
         {
-            return string.IsNullOrWhiteSpace(value) ? NotFound : value;
+            bool value;
+            return dictionary != null && dictionary.TryGetValue(index, out value) ? value : fallback;
         }
 
-        private static string FirstOrDefault(List<string> values, string preferred)
-        {
-            return values.FirstOrDefault(value => string.Equals(value, preferred, StringComparison.OrdinalIgnoreCase))
-                ?? values.FirstOrDefault()
-                ?? preferred;
-        }
-
-        private static string FirstNonEmpty(params string[] values)
+        private static string GetFirstNonEmptyString(params string[] values)
         {
             if (values == null)
             {
-                return NotFound;
+                return null;
             }
 
-            return values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? NotFound;
+            return values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
         }
 
-        private static string FoundStatus(object value)
+        private static bool NameContains(string source, string token)
         {
-            return value == null ? "NOT FOUND" : "FOUND";
+            return !string.IsNullOrWhiteSpace(source)
+                && !string.IsNullOrWhiteSpace(token)
+                && source.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
-        private static bool IsSimpleValue(object value)
+        private static string GetExceptionMessage(Exception ex)
         {
-            Type type = value.GetType();
-            return type.IsPrimitive
-                || type.IsEnum
-                || value is string
-                || value is decimal
-                || value is DateTime;
-        }
-
-        private sealed class ReferenceEqualityComparer : IEqualityComparer<object>
-        {
-            public static readonly ReferenceEqualityComparer Instance = new ReferenceEqualityComparer();
-
-            public new bool Equals(object x, object y)
+            if (ex == null)
             {
-                return ReferenceEquals(x, y);
+                return "unknown error";
             }
 
-            public int GetHashCode(object obj)
+            return string.IsNullOrWhiteSpace(ex.Message) ? ex.GetType().Name : ex.Message;
+        }
+
+        private sealed class YokoNakagoSpec
+        {
+            public YokoNakagoSpec(
+                string kai,
+                string xName,
+                string yName,
+                string columnCode,
+                double widthMm,
+                double depthMm,
+                double mainDiaMm,
+                double hoopDiaMm,
+                string diameter,
+                double diameterMm,
+                string shape,
+                string material,
+                double pitchMm,
+                int count,
+                double coverTopMm,
+                double coverBottomMm,
+                double coverLeftMm,
+                double coverRightMm,
+                Dictionary<int, int> customPositions,
+                Dictionary<int, bool> directions,
+                bool _,
+                XYZ point,
+                Level baseLevel,
+                Level topLevel)
             {
-                return System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj);
+                Kai = kai;
+                XName = xName;
+                YName = yName;
+                ColumnCode = columnCode;
+                WidthMm = widthMm;
+                DepthMm = depthMm;
+                MainDiaMm = mainDiaMm;
+                HoopDiaMm = hoopDiaMm;
+                Diameter = diameter;
+                DiameterMm = diameterMm;
+                Shape = shape;
+                Material = material;
+                PitchMm = pitchMm;
+                Count = count;
+                CoverTopMm = coverTopMm;
+                CoverBottomMm = coverBottomMm;
+                CoverLeftMm = coverLeftMm;
+                CoverRightMm = coverRightMm;
+                CustomPositions = customPositions ?? new Dictionary<int, int>();
+                Directions = directions ?? new Dictionary<int, bool>();
+                SectionName = ColumnYokoNakagoCommand.SectionName;
+                Point = point;
+                BaseLevel = baseLevel;
+                TopLevel = topLevel;
+            }
+
+            public string Kai { get; }
+            public string XName { get; }
+            public string YName { get; }
+            public string ColumnCode { get; }
+            public double WidthMm { get; }
+            public double DepthMm { get; }
+            public double MainDiaMm { get; }
+            public double HoopDiaMm { get; }
+            public string Diameter { get; }
+            public double DiameterMm { get; }
+            public string Shape { get; }
+            public string Material { get; }
+            public double PitchMm { get; }
+            public int Count { get; }
+            public double CoverTopMm { get; }
+            public double CoverBottomMm { get; }
+            public double CoverLeftMm { get; }
+            public double CoverRightMm { get; }
+            public Dictionary<int, int> CustomPositions { get; }
+            public Dictionary<int, bool> Directions { get; }
+            public string SectionName { get; }
+            public XYZ Point { get; }
+            public Level BaseLevel { get; }
+            public Level TopLevel { get; }
+        }
+
+        private sealed class YokoNakagoBarData
+        {
+            public YokoNakagoBarData(
+                int index,
+                UV startMm,
+                UV endMm,
+                string startHook,
+                string endHook,
+                RebarHookOrientation startHookOrientation,
+                RebarHookOrientation endHookOrientation)
+            {
+                Index = index;
+                StartMm = startMm;
+                EndMm = endMm;
+                StartHook = startHook;
+                EndHook = endHook;
+                StartHookOrientation = startHookOrientation;
+                EndHookOrientation = endHookOrientation;
+            }
+
+            public int Index { get; }
+            public UV StartMm { get; }
+            public UV EndMm { get; }
+            public string StartHook { get; }
+            public string EndHook { get; }
+            public RebarHookOrientation StartHookOrientation { get; }
+            public RebarHookOrientation EndHookOrientation { get; }
+
+            public bool RequiresMissingHook(RebarHookType startHookType, RebarHookType endHookType)
+            {
+                return StartHook != "0" && startHookType == null
+                    || EndHook != "0" && endHookType == null;
+            }
+        }
+
+        private sealed class HookPair
+        {
+            public HookPair(string start, string end)
+            {
+                Start = start;
+                End = end;
+            }
+
+            public string Start { get; }
+            public string End { get; }
+        }
+
+        private sealed class HookTypes
+        {
+            public RebarHookType Hook180 { get; set; }
+            public RebarHookType Hook135 { get; set; }
+            public RebarHookType Hook90 { get; set; }
+
+            public RebarHookType Resolve(string hookCode)
+            {
+                switch (hookCode)
+                {
+                    case "180":
+                        return Hook180;
+                    case "135":
+                        return Hook135;
+                    case "90":
+                        return Hook90;
+                    default:
+                        return null;
+                }
             }
         }
     }
