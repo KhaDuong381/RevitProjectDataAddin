@@ -7,15 +7,20 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using Autodesk.Revit.DB;
+using Microsoft.Win32;
 
 namespace RevitProjectDataAddin
 {
     public partial class 梁配筋施工図 : Window
     {
+        private const double PdfSceneCanvasWidth = 1400.0;
+        private const double PdfSceneCanvasHeight = 1000.0;
+
         private Document doc;
         private readonly ProjectData _projectData;
         private 梁施工図 _currentSecoList;
         public TrackedObject<梁施工図> _trackedSecoList;
+        private TrackedObject<KihonData> _trackedKihonData;
         private KesanData _kesan;
         private Z梁の配置 _z梁の配置;
 
@@ -34,6 +39,7 @@ namespace RevitProjectDataAddin
             DataContext = _currentSecoList;
             Load();
             _trackedSecoList = new TrackedObject<梁施工図>(_currentSecoList);
+            _trackedKihonData = new TrackedObject<KihonData>(_projectData.Kihon);
 
             this.Closing += Close;
         }
@@ -59,7 +65,7 @@ namespace RevitProjectDataAddin
             if (!_secoMap.ContainsKey(_currentKey))
                 _secoMap[_currentKey] = _currentSecoList;
 
-            // Khởi tạo bộ theo (階, 通) hiện tại
+            // Kh盻殃 t蘯｡o b盻・theo (髫・ 騾・ hi盻㌻ t蘯｡i
             Combo_SelectionChanged(null, null);
         }
 
@@ -79,7 +85,7 @@ namespace RevitProjectDataAddin
                 //    });
 
                 // [ZOOM] Wire events
-                canvas.Focusable = true;    // để nhận phím (phím F)
+                canvas.Focusable = true;    // ﾄ黛ｻ・nh蘯ｭn phﾃｭm (phﾃｭm F)
                 //canvas.MouseWheel += Canvas_MouseWheel;
                 canvas.AddHandler(
                     UIElement.MouseWheelEvent,
@@ -92,8 +98,8 @@ namespace RevitProjectDataAddin
                 //canvas.MouseLeave += Canvas_MouseUp;
                 canvas.KeyDown += Canvas_KeyDown;
                 // trong BotsecozuCanvas_Loaded(...)
-                canvas.Background = Brushes.Transparent; // vùng trống vẫn bắt sự kiện
-                canvas.ClipToBounds = true;                   // CHẶN vẽ tràn ra ngoài
+                canvas.Background = Brushes.Transparent; // vﾃｹng tr盻創g v蘯ｫn b蘯ｯt s盻ｱ ki盻㌻
+                canvas.ClipToBounds = true;                   // CH蘯ｶN v蘯ｽ trﾃn ra ngoﾃi
                 canvas.SizeChanged += (_, __) =>
                     canvas.Clip = new RectangleGeometry(new Rect(0, 0, canvas.ActualWidth, canvas.ActualHeight));
 
@@ -140,12 +146,242 @@ namespace RevitProjectDataAddin
 
             _currentSecoList.gridbotsecozu = grids;
             _currentKey = key;
-            // Không cần gọi Redraw ở đây – các Canvas mới sẽ tự Loaded và vẽ.
+            // Khﾃｴng c蘯ｧn g盻絞 Redraw 盻・ﾄ妥｢y 窶・cﾃ｡c Canvas m盻嬖 s蘯ｽ t盻ｱ Loaded vﾃ v蘯ｽ.
+        }
+
+        private void ExportPdfScene_Click(object sender, RoutedEventArgs e)
+        {
+            if (_currentSecoList?.gridbotsecozu == null || _currentSecoList.gridbotsecozu.Count == 0)
+            {
+                MessageBox.Show("Không có gì để xuất.");
+                return;
+            }
+
+            GridList?.UpdateLayout();
+            var sources = EnumerateCanvasVisuals()
+                .Select(canvas => new { canvas, item = canvas?.DataContext as GridBotsecozu })
+                .Where(x => x.canvas != null && x.item != null)
+                .Select(x => new PdfExportSource(x.item, x.canvas, BuildDxfGeometry(x.item).fileKey))
+                .ToList();
+
+            if (sources.Count == 0)
+            {
+                MessageBox.Show("Không tìm thấy canvas để plot.");
+                return;
+            }
+
+            ShowPdfPlotDialog(sources);
+        }
+
+        private List<PdfScenePageData> BuildPdfScenePages(IReadOnlyList<PdfExportSource> sources, PdfPlotSettings plotSettings)
+        {
+            var pages = new List<PdfScenePageData>();
+            var selectedKeys = plotSettings?.SelectedKeys ?? new List<string>();
+            var selectedSet = new HashSet<string>(selectedKeys, StringComparer.Ordinal);
+            var paperSize = plotSettings?.PaperSize ?? PdfPaperSize.A4;
+
+            foreach (var src in sources)
+            {
+                if (src?.Item == null) continue;
+                if (selectedSet.Count > 0 && !selectedSet.Contains(src.Key)) continue;
+
+                var scene = CaptureSceneForPdfExport(src.Item, src.Key);
+                var viewportWindows = BuildPdfViewportWindows(
+                    paperSize,
+                    plotSettings?.Orientation ?? PdfPaperOrientation.Landscape,
+                    plotSettings?.ScaleDenominator,
+                    scene,
+                    plotSettings?.FitToPage == true,
+                    plotSettings?.InnerFrameOffsetMm ?? DefaultPdfInnerFrameOffsetMm,
+                    plotSettings?.FitMode ?? PdfFitMode.Width);
+                if (viewportWindows == null || viewportWindows.Count == 0)
+                {
+                    viewportWindows = new List<PdfViewportWindow>
+                    {
+                        new PdfViewportWindow
+                        {
+                            PageIndex = 0,
+                            PageCount = 1
+                        }
+                    };
+                }
+
+                foreach (var viewportWindow in viewportWindows)
+                {
+                    string pageKey = viewportWindow.PageCount > 1 ? $"{src.Key}_{viewportWindow.PageIndex + 1}" : src.Key;
+                    pages.Add(new PdfScenePageData(pageKey, scene, viewportWindow));
+                }
+            }
+
+            return pages;
+        }
+
+        private IReadOnlyList<object> CaptureSceneForPdfExport(GridBotsecozu item, string key)
+        {
+            if (item == null)
+                throw new ArgumentNullException(nameof(item));
+
+            var scratchCanvas = new Canvas
+            {
+                Width = PdfSceneCanvasWidth,
+                Height = PdfSceneCanvasHeight,
+                Visibility = System.Windows.Visibility.Collapsed,
+                IsHitTestVisible = false
+            };
+            scratchCanvas.Measure(new Size(PdfSceneCanvasWidth, PdfSceneCanvasHeight));
+            scratchCanvas.Arrange(new Rect(0, 0, PdfSceneCanvasWidth, PdfSceneCanvasHeight));
+            scratchCanvas.UpdateLayout();
+
+            var viewState = VS(item);
+            double zoom = viewState.Zoom;
+            double panX = viewState.PanXmm;
+            double panY = viewState.PanYmm;
+
+            try
+            {
+                // Export always records from a normalized view state so PDF is not tied to UI pan/zoom.
+                viewState.Zoom = 1.0;
+                viewState.PanXmm = 0.0;
+                viewState.PanYmm = 0.0;
+                Redraw(scratchCanvas, item);
+            }
+            finally
+            {
+                viewState.Zoom = zoom;
+                viewState.PanXmm = panX;
+                viewState.PanYmm = panY;
+            }
+
+            if (_sceneByItem.TryGetValue(item, out var scene) && scene != null && scene.Count > 0)
+                return scene.ToList();
+
+            throw new InvalidOperationException($"Scene geometry chưa sẵn sàng cho: {key}");
+        }
+
+        private PdfPaperSize GetCurrentPdfPaperSize()
+            => _projectData?.Kesan?.Printsize2 == true ? PdfPaperSize.A3 : PdfPaperSize.A4;
+
+        private sealed class PdfScenePageData
+        {
+            public PdfScenePageData(string key, IReadOnlyList<object> scene, PdfViewportWindow viewportWindow)
+            {
+                Key = string.IsNullOrWhiteSpace(key) ? "page" : key;
+                Scene = scene ?? throw new ArgumentNullException(nameof(scene));
+                ViewportWindow = viewportWindow;
+            }
+
+            public string Key { get; }
+            public IReadOnlyList<object> Scene { get; }
+            public PdfViewportWindow ViewportWindow { get; }
+        }
+
+        private static class PdfExporter
+        {
+            public static void Export(
+                string path,
+                IReadOnlyList<PdfScenePageData> scenePages,
+                string fallbackFont,
+                PdfPlotSettings plotSettings)
+            {
+                if (scenePages == null || scenePages.Count == 0)
+                    throw new ArgumentException("No scene pages to export.", nameof(scenePages));
+                if (plotSettings == null)
+                    throw new ArgumentNullException(nameof(plotSettings));
+
+                var vectorPages = new List<PdfVectorPage>();
+                foreach (var scenePage in scenePages)
+                {
+                    CollectSceneEntities(
+                        scenePage.Scene,
+                        out var lines,
+                        out var texts,
+                        out var circles,
+                        out var arcs,
+                        out var solids);
+
+                    var pageSettings = new PdfPlotSettings
+                    {
+                        PaperSize = plotSettings.PaperSize,
+                        Orientation = plotSettings.Orientation,
+                        ScaleDenominator = plotSettings.ScaleDenominator,
+                        FitMode = plotSettings.FitMode,
+                        HorizontalAlignment = plotSettings.HorizontalAlignment,
+                        VerticalAlignment = plotSettings.VerticalAlignment,
+                        InnerFrameOffsetMm = plotSettings.InnerFrameOffsetMm,
+                        TitleText = plotSettings.TitleText,
+                        DateText = plotSettings.DateText,
+                        SelectedKeys = plotSettings.SelectedKeys != null ? new List<string>(plotSettings.SelectedKeys) : new List<string>(),
+                        ViewportWindow = scenePage.ViewportWindow
+                    };
+
+                    var page = PdfVectorBuilder.Create(
+                        scenePage.Key,
+                        lines,
+                        texts,
+                        circles,
+                        arcs,
+                        solids,
+                        fallbackFont,
+                        pageSettings);
+
+                    if (page != null)
+                        vectorPages.Add(page);
+                }
+
+                if (vectorPages.Count == 0)
+                    throw new InvalidOperationException("No vector pages were created from the recorded scene.");
+
+                PdfVectorWriter.WritePdf(path, vectorPages);
+            }
+
+            private static void CollectSceneEntities(
+                IReadOnlyList<object> scene,
+                out List<DxfLine> lines,
+                out List<DxfText> texts,
+                out List<DxfCircle> circles,
+                out List<DxfArc> arcs,
+                out List<DxfSolid> solids)
+            {
+                lines = new List<DxfLine>();
+                texts = new List<DxfText>();
+                circles = new List<DxfCircle>();
+                arcs = new List<DxfArc>();
+                solids = new List<DxfSolid>();
+
+                if (scene == null) return;
+
+                foreach (var entity in scene)
+                {
+                    if (entity is SceneLine ln)
+                    {
+                        lines.Add(new DxfLine(ln.X1, ln.Y1, ln.X2, ln.Y2, ln.Layer, ln.Thickness, ln.Dash, ln.StrokeColor));
+                    }
+                    else if (entity is DxfText text)
+                    {
+                        texts.Add(text);
+                    }
+                    else if (entity is DxfCircle circle)
+                    {
+                        circles.Add(circle);
+                    }
+                    else if (entity is DxfArc arc)
+                    {
+                        arcs.Add(arc);
+                    }
+                    else if (entity is DxfSolid solid)
+                    {
+                        solids.Add(solid);
+                    }
+                }
+            }
         }
 
         private void Close(object sender, System.ComponentModel.CancelEventArgs e)
         {
-            if (_trackedSecoList.HasChanged())
+            bool hasSecoChanges = _trackedSecoList?.HasChanged() == true;
+            bool hasKihonChanges = _trackedKihonData?.HasChanged() == true;
+
+            if (hasSecoChanges || hasKihonChanges)
             {
                 var result = MessageBox.Show(
                     "データが変更されています。保存しますか？",
@@ -164,9 +400,11 @@ namespace RevitProjectDataAddin
                 }
                 else if (result == MessageBoxResult.No)
                 {
-                    _trackedSecoList.RestoreOriginal();
+                    _trackedSecoList?.RestoreOriginal();
+                    _trackedKihonData?.RestoreOriginal();
                 }
             }
         }
     }
 }
+

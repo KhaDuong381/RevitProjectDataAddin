@@ -67,5 +67,109 @@ namespace RevitProjectDataAddin
                 _施工図リストButton.Enabled = enable;
         }
     }
+
+    public static class GridButtonManager
+    {
+        private static PushButton _gridButton;
+
+        public static void SetButton(PushButton button) => _gridButton = button;
+
+        public static void EnableGrid(bool enable)
+        {
+            if (_gridButton != null)
+                _gridButton.Enabled = enable;
+        }
+    }
+
+    public static class LevelButtonManager
+    {
+        private static PushButton _levelButton;
+
+        public static void SetButton(PushButton button) => _levelButton = button;
+
+        public static void EnableLevel(bool enable)
+        {
+            if (_levelButton != null)
+                _levelButton.Enabled = enable;
+        }
+    }
+
+    public static class ColumnButtonManager
+    {
+        private static PushButton _columnButton;
+
+        public static void SetButton(PushButton button) => _columnButton = button;
+
+        public static void EnableColumn(bool enable)
+        {
+            if (_columnButton != null)
+                _columnButton.Enabled = enable;
+        }
+    }
+
+    public static class ColumnHoopButtonManager
+    {
+        private static PushButton _columnHoopButton;
+
+        public static void SetButton(PushButton button) => _columnHoopButton = button;
+
+        public static void EnableColumnHoop(bool enable)
+        {
+            if (_columnHoopButton != null)
+                _columnHoopButton.Enabled = enable;
+        }
+    }
+
+    public static class ColumnMainRebarButtonManager
+    {
+        private static PushButton _columnMainRebarButton;
+
+        public static void SetButton(PushButton button) => _columnMainRebarButton = button;
+
+        public static void EnableColumnMainRebar(bool enable)
+        {
+            if (_columnMainRebarButton != null)
+                _columnMainRebarButton.Enabled = enable;
+        }
+    }
+
+    public static class ColumnYokoNakagoButtonManager
+    {
+        private static PushButton _columnYokoNakagoButton;
+
+        public static void SetButton(PushButton button) => _columnYokoNakagoButton = button;
+
+        public static void EnableColumnYokoNakago(bool enable)
+        {
+            if (_columnYokoNakagoButton != null)
+                _columnYokoNakagoButton.Enabled = enable;
+        }
+    }
+
+    public static class ColumnTaTeNakagoButtonManager
+    {
+        private static PushButton _columnTaTeNakagoButton;
+
+        public static void SetButton(PushButton button) => _columnTaTeNakagoButton = button;
+
+        public static void EnableColumnTaTeNakago(bool enable)
+        {
+            if (_columnTaTeNakagoButton != null)
+                _columnTaTeNakagoButton.Enabled = enable;
+        }
+    }
+
+    public static class BeamButtonManager
+    {
+        private static PushButton _beamButton;
+
+        public static void SetButton(PushButton button) => _beamButton = button;
+
+        public static void EnableBeam(bool enable)
+        {
+            if (_beamButton != null)
+                _beamButton.Enabled = enable;
+        }
+    }
 }
 

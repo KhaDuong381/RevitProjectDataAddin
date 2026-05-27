@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -17,6 +18,8 @@ namespace RevitProjectDataAddin
     {
         private Document doc;
         private readonly ProjectData _projectData;
+        private readonly HashSet<柱セグメント> _subscribedSegments = new HashSet<柱セグメント>();
+        private bool _isApplyingDefaultOffsets;
         //private Dictionary<(string 階, string 通), ObservableCollection<柱セグメント>> _hoopSegmentsDict = new Dictionary<(string, string), ObservableCollection<柱セグメント>>();
 
         private 柱配置図 _currentHaichiList;
@@ -132,6 +135,7 @@ namespace RevitProjectDataAddin
 
             // 5) Thay ItemsSource mới cho combo
             _currentHaichiList.ColumnNames = new ObservableCollection<string>(柱Names);
+            EnsureSegmentHandlers(_currentHaichiList.BeamSegments);
 
             // 6) Chuẩn hoá selection
             var firstName = _currentHaichiList.ColumnNames.FirstOrDefault() ?? "C0";
@@ -139,12 +143,166 @@ namespace RevitProjectDataAddin
             {
                 if (string.IsNullOrEmpty(s.柱の符号) || !_currentHaichiList.ColumnNames.Contains(s.柱の符号))
                     s.柱の符号 = firstName;
+
+                ApplyDefaultOffsetsIfColumnSizeChanged(s);
             }
 
             SetupTextBoxColors();
 
             // (Tuỳ chọn) Nếu muốn vẽ ngay:
             //ShowSingleSegment("1F Y1-X2");
+        }
+
+        private void EnsureSegmentHandlers(IEnumerable<柱セグメント> segments)
+        {
+            if (segments == null)
+            {
+                return;
+            }
+
+            foreach (柱セグメント segment in segments)
+            {
+                if (segment == null || !_subscribedSegments.Add(segment))
+                {
+                    continue;
+                }
+
+                segment.PropertyChanged += Segment_PropertyChanged;
+            }
+        }
+
+        private void Segment_PropertyChanged(object sender, PropertyChangedEventArgs e)
+        {
+            if (_isApplyingDefaultOffsets || e?.PropertyName != nameof(柱セグメント.柱の符号))
+            {
+                return;
+            }
+
+            if (sender is 柱セグメント segment)
+            {
+                ApplyDefaultOffsetsForColumnCode(segment);
+            }
+        }
+
+        private void ApplyDefaultOffsetsForColumnCode(柱セグメント segment)
+        {
+            if (!TryGetColumnOffsetSource(segment, out string widthText, out string depthText))
+            {
+                return;
+            }
+
+            ApplyDefaultOffsets(segment, widthText, depthText);
+        }
+
+        private void ApplyDefaultOffsetsIfColumnSizeChanged(柱セグメント segment)
+        {
+            if (!TryGetColumnOffsetSource(segment, out string widthText, out string depthText))
+            {
+                return;
+            }
+
+            string columnCode = segment.柱の符号?.Trim();
+            if (string.Equals(segment.AutoOffsetSourceColumnCode, columnCode, System.StringComparison.OrdinalIgnoreCase)
+                && string.Equals(segment.AutoOffsetSourceWidth, widthText, System.StringComparison.Ordinal)
+                && string.Equals(segment.AutoOffsetSourceDepth, depthText, System.StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            ApplyDefaultOffsets(segment, widthText, depthText);
+        }
+
+        private bool TryGetColumnOffsetSource(柱セグメント segment, out string widthText, out string depthText)
+        {
+            widthText = null;
+            depthText = null;
+
+            if (segment == null || string.IsNullOrWhiteSpace(segment.柱の符号))
+            {
+                return false;
+            }
+
+            string kaiName = TryGetKaiName(segment) ?? _currentHaichiList?.階を選択;
+            if (string.IsNullOrWhiteSpace(kaiName))
+            {
+                return false;
+            }
+
+            柱 selectedColumn = _projectData?.リスト?.柱リスト?
+                .FirstOrDefault(list => string.Equals(list?.各階, kaiName, System.StringComparison.OrdinalIgnoreCase))?
+                .柱?
+                .FirstOrDefault(column => string.Equals(column?.Name, segment.柱の符号, System.StringComparison.OrdinalIgnoreCase));
+
+            Z柱の配置 columnLayout = selectedColumn?.柱の配置;
+            if (columnLayout == null)
+            {
+                return false;
+            }
+
+            // Prefer 柱頭 dimensions for this screen; fall back to 柱脚 dimensions only when top data is blank.
+            widthText = string.IsNullOrWhiteSpace(columnLayout.柱幅1) ? columnLayout.柱幅 : columnLayout.柱幅1;
+            depthText = string.IsNullOrWhiteSpace(columnLayout.柱成1) ? columnLayout.柱成 : columnLayout.柱成1;
+
+            return !string.IsNullOrWhiteSpace(widthText) && !string.IsNullOrWhiteSpace(depthText);
+        }
+
+        private void ApplyDefaultOffsets(柱セグメント segment, string widthText, string depthText)
+        {
+            if (!TryParseMillimeters(widthText, out double widthMm)
+                || !TryParseMillimeters(depthText, out double depthMm))
+            {
+                return;
+            }
+
+            string verticalOffset = FormatMillimeters(depthMm / 2.0);
+            string horizontalOffset = FormatMillimeters(widthMm / 2.0);
+
+            _isApplyingDefaultOffsets = true;
+            try
+            {
+                segment.上側のズレ = verticalOffset;
+                segment.下側のズレ = verticalOffset;
+                segment.左側のズレ = horizontalOffset;
+                segment.右側のズレ = horizontalOffset;
+                segment.AutoOffsetSourceColumnCode = segment.柱の符号?.Trim();
+                segment.AutoOffsetSourceWidth = widthText;
+                segment.AutoOffsetSourceDepth = depthText;
+            }
+            finally
+            {
+                _isApplyingDefaultOffsets = false;
+            }
+        }
+
+        private static string TryGetKaiName(柱セグメント segment)
+        {
+            string position = segment?.位置表示;
+            if (string.IsNullOrWhiteSpace(position))
+            {
+                return null;
+            }
+
+            int separatorIndex = position.IndexOf(' ');
+            return separatorIndex > 0 ? position.Substring(0, separatorIndex).Trim() : null;
+        }
+
+        private static bool TryParseMillimeters(string input, out double valueMm)
+        {
+            valueMm = 0.0;
+            if (string.IsNullOrWhiteSpace(input))
+            {
+                return false;
+            }
+
+            string normalized = input.Trim().Replace(",", string.Empty);
+            return double.TryParse(normalized, NumberStyles.Float, CultureInfo.InvariantCulture, out valueMm)
+                || double.TryParse(normalized, NumberStyles.Float, CultureInfo.CurrentCulture, out valueMm);
+        }
+
+        private static string FormatMillimeters(double valueMm)
+        {
+            double rounded = System.Math.Round(valueMm, 3);
+            return rounded.ToString(rounded % 1 == 0 ? "0" : "0.###", CultureInfo.InvariantCulture);
         }
 
         void SyncSegments(ObservableCollection<柱セグメント> segs, List<string> names, string kai, string tsu)

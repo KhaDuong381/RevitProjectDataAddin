@@ -73,6 +73,48 @@ namespace RevitProjectDataAddin
             bvbsButton.Enabled = false;
             BVBSButtonManager.SetButton(bvbsButton);
 
+            RibbonPanel panel3 = application.CreateRibbonPanel(tabName, "3D");
+
+            PushButtonData gridButtonData = new PushButtonData(
+                "GridButton",
+                "Grid",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitProjectDataAddin.GridCommand");
+
+            PushButton gridButton = panel3.AddItem(gridButtonData) as PushButton;
+            gridButton.Enabled = false;
+            GridButtonManager.SetButton(gridButton);
+
+            PushButtonData levelButtonData = new PushButtonData(
+                "LevelButton",
+                "Level",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitProjectDataAddin.LevelCommand");
+
+            PushButton levelButton = panel3.AddItem(levelButtonData) as PushButton;
+            levelButton.Enabled = false;
+            LevelButtonManager.SetButton(levelButton);
+
+            PushButtonData columnButtonData = new PushButtonData(
+                "ColumnButton",
+                "Column",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitProjectDataAddin.ColumnRebarCommand");
+
+            PushButton columnButton = panel3.AddItem(columnButtonData) as PushButton;
+            columnButton.Enabled = false;
+            ColumnButtonManager.SetButton(columnButton);
+
+            PushButtonData beamButtonData = new PushButtonData(
+                "BeamButton",
+                "Beam",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitProjectDataAddin.BeamCommand");
+
+            PushButton beamButton = panel3.AddItem(beamButtonData) as PushButton;
+            beamButton.Enabled = false;
+            BeamButtonManager.SetButton(beamButton);
+
             return Result.Succeeded;
         }
 

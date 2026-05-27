@@ -3,6 +3,7 @@
     public static class ProjectManager
     {
         public static string SelectedProjectName { get; private set; }
+        public static bool SuppressColumnCompletionDialogs { get; set; }
 
         public static bool HasSelectedProject => !string.IsNullOrEmpty(SelectedProjectName);
 
@@ -15,6 +16,10 @@
             リスト入力ButtonManager.Enableリスト(true);
             配置リストButtonManager.Enableリスト(true);
             施工図リストButtonManager.Enableリスト(true);
+            GridButtonManager.EnableGrid(true);
+            LevelButtonManager.EnableLevel(true);
+            ColumnButtonManager.EnableColumn(true);
+            BeamButtonManager.EnableBeam(true);
         }
 
         public static void ClearProject()
@@ -26,6 +31,10 @@
             リスト入力ButtonManager.Enableリスト(false);
             配置リストButtonManager.Enableリスト(false);
             施工図リストButtonManager.Enableリスト(false);
+            GridButtonManager.EnableGrid(false);
+            LevelButtonManager.EnableLevel(false);
+            ColumnButtonManager.EnableColumn(false);
+            BeamButtonManager.EnableBeam(false);
         }
     }
 }

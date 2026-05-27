@@ -1,4 +1,4 @@
-﻿
+
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -30,6 +30,7 @@ using Control = System.Windows.Controls.Control;
 using Ellipse = System.Windows.Shapes.Ellipse;
 using FormattedText = System.Windows.Media.FormattedText;
 using Grid = System.Windows.Controls.Grid;
+using Image = System.Windows.Controls.Image;
 using Line = System.Windows.Shapes.Line;
 using LineSegment = System.Windows.Media.LineSegment;
 using MediaColor = System.Windows.Media.Color;
@@ -60,13 +61,33 @@ namespace RevitProjectDataAddin
         private static (double X, double Y) OffsetLegendColumn { get; set; } = (0, 10000);         // Offset cho ///////////// 5 chổ //////////////
         private static readonly string[] _standardRebarDiameters = { "10", "13", "16", "19", "22", "25", "29", "32", "35", "38" };
         private static readonly string[] _standardRebarDiameters1 = { "10", "13", "16", "19", "22", "25", "29", "32", "35", "38" };
+        private const double UiMarkerDotRadiusMm = 20.0; // marker dot diameter in mm
+        private const double UiTopTextOffsetY = 0.0;
+        private const double UiBottomTextOffsetY = 0.0;
+        private const double DxfTopTextOffsetY = 0;
+        private const double DxfBottomTextOffsetY = 50;
+        private const double PdfTopTextOffsetY = 30;
+        private const double PdfBottomTextOffsetY = 30.0;
+        private const double DefaultPdfInnerFrameOffsetMm = 5.0;
+        private static readonly Brush PopupMenuBorderBrush = CreateFrozenBrush(166, 174, 184);
+        private static readonly Brush PopupMenuDividerBrush = CreateFrozenBrush(218, 223, 229);
+        private static readonly Brush PopupMenuEditorBorderBrush = CreateFrozenBrush(180, 187, 196);
+        private static readonly Thickness PopupMenuBorderThickness = new Thickness(1.0);
 
-
+        // DIM hover/base brushes (class scope to avoid missing-variable compile issues)
+        private readonly Brush dimBaseFg = Brushes.Black;
+        private readonly Brush dimHoverFg = Brushes.Blue;
+        private bool _useApproximateCanvasTextLayout = false;
 
 
         // ===== Anchor enums cho text =====
         enum HAnchor { Left, Center, Right }
         enum VAnchor { Top, Middle, Bottom }
+        enum TextOutputTarget { Ui, Dxf, Pdf }
+        enum PdfFitMode { Width, Height }
+        const TextOutputTarget PlotRenderTextTarget = TextOutputTarget.Ui;
+        const double SharedMmToPx = 96.0 / 25.4;
+        const double SharedPxToMm = 25.4 / 96.0;
 
         // Change the accessibility of WCTransform from private to public
         public struct WCTransform
@@ -93,8 +114,28 @@ namespace RevitProjectDataAddin
             return fallback;
         }
 
+        private static Brush CreateFrozenBrush(byte r, byte g, byte b)
+        {
+            var brush = new SolidColorBrush(Color.FromRgb(r, g, b));
+            if (brush.CanFreeze) brush.Freeze();
+            return brush;
+        }
+
         private static bool Near(double a, double b, double eps = 0.5)
             => Math.Abs(a - b) <= eps;
+
+        private static bool IsDescendantOf(DependencyObject source, DependencyObject ancestor)
+        {
+            while (source != null)
+            {
+                if (ReferenceEquals(source, ancestor))
+                    return true;
+
+                source = VisualTreeHelper.GetParent(source);
+            }
+
+            return false;
+        }
 
         // ===== Helpers: primitives theo tọa độ world (mm) =====
         static Line DrawLineW(Canvas c, WCTransform t,
@@ -145,7 +186,7 @@ namespace RevitProjectDataAddin
             if (rMm <= 0) return;
 
             // --- (A) VẼ WPF ---
-            if (canvas != null)
+            if (canvas != null && !IsLightweightCanvasUi(owner))
             {
                 // helper: chuyển mm (world) -> px (canvas)
                 double s = T.Scale;                             // giả sử WCTransform có Scale
@@ -278,18 +319,30 @@ namespace RevitProjectDataAddin
             return el;
         }
 
-        static TextBlock DrawTextW(Canvas c, WCTransform t,
+        TextBlock DrawTextW(Canvas c, WCTransform t,
             string text, double wx, double wy,
             double fontPx = 12, Brush color = null,
-            HAnchor ha = HAnchor.Center, VAnchor va = VAnchor.Middle)
+            HAnchor ha = HAnchor.Center, VAnchor va = VAnchor.Middle,
+            bool forcePreciseLayout = false)
         {
             double effectiveFont = fontPx;
 
             var tb = new TextBlock { Text = text ?? "", FontSize = effectiveFont, Foreground = color ?? Brushes.Black };
-            tb.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-            var sz = tb.DesiredSize;
+            Size sz;
+            if (_useApproximateCanvasTextLayout && !forcePreciseLayout)
+            {
+                double charCount = Math.Max(1, (text ?? string.Empty).Length);
+                sz = new Size(
+                    Math.Max(effectiveFont * 0.8, charCount * effectiveFont * 0.62),
+                    Math.Max(effectiveFont, effectiveFont * 1.35));
+            }
+            else
+            {
+                tb.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                sz = tb.DesiredSize;
+            }
 
-            var p = t.P(wx, wy);
+            var p = t.P(wx, wy + GetTextOffsetY(va, TextOutputTarget.Ui));
             double left = p.X, top = p.Y;
 
             switch (ha)
@@ -316,6 +369,8 @@ namespace RevitProjectDataAddin
         {
             var strokeColor = ColorFromBrush(stroke ?? Brushes.Black, Colors.Black);
             SceneFor(owner).Add(new SceneLine(x1, y1, x2, y2, layer, thickness, dash, strokeColor));
+            if (IsLightweightCanvasUi(owner))
+                return null;
             return DrawLineW(c, T, x1, y1, x2, y2, stroke, thickness, dash);
         }
 
@@ -323,20 +378,30 @@ namespace RevitProjectDataAddin
                                        string text, double wx, double wy,
                                        double fontPx = 12, Brush color = null,
                                        HAnchor ha = HAnchor.Center, VAnchor va = VAnchor.Bottom,
-                                       double heightMm = 150, string layer = "TEXT")
+                                       double heightMm = 200, string layer = "TEXT",
+                                       bool forceCanvasVisual = false)
         {
             var (h, v) = ToDxfAlign(ha, va);
-            double combinedScale = ResolveTextCombinedScale(T, owner);
-
-            double effectiveFontPx = fontPx * combinedScale;
-            double effectiveHeightMm = heightMm ;
+            double effectiveHeightMm = heightMm;
+            double effectiveFontPx = Math.Max(1.0, effectiveHeightMm * T.Scale);
 
             var textColor = ColorFromBrush(color ?? Brushes.Black, Colors.Black);
             string fontFamily = this.FontFamily?.Source ?? "Yu Mincho";
+            // Scene keeps the source coordinates; exporter-specific offsets are applied later.
             SceneFor(owner).Add(new DxfText(text ?? "", wx, wy, effectiveHeightMm, hAlign: h, vAlign: v, rotDeg: 0,
                                              layer: layer, style: "STANDARD", fontPx: effectiveFontPx,
-                                             fontFamily: fontFamily, color: textColor, hAnchor: ha, vAnchor: va));
-            return DrawTextW(c, T, text, wx, wy, effectiveFontPx, color, ha, va);
+                                             fontFamily: fontFamily, color: textColor, hAnchor: ha, vAnchor: va,
+                                             skipCanvasBitmap: forceCanvasVisual));
+            if (IsLightweightCanvasUi(owner) && !forceCanvasVisual)
+            {
+                return new TextBlock
+                {
+                    Text = text ?? string.Empty,
+                    FontSize = effectiveFontPx,
+                    Foreground = color ?? Brushes.Black
+                };
+            }
+            return DrawTextW(c, T, text, wx, wy, effectiveFontPx, color, ha, va, forceCanvasVisual);
         }
 
         private double ResolveTextCombinedScale(WCTransform T, GridBotsecozu owner)
@@ -379,17 +444,20 @@ namespace RevitProjectDataAddin
                                        Brush fill = null, Brush stroke = null, double strokePx = 0.8,
                                        string layer = "MARK", int solidSegments = 32)
         {
+            double effectiveRadiusMm = UiMarkerDotRadiusMm;
             // (1) DXF: viền tròn (tuỳ chọn) + phần đặc bằng SOLID tam giác
             var strokeColor = ColorFromBrush(stroke ?? Brushes.Black, Colors.Black);
             var fillColor = ColorFromBrush(fill ?? Brushes.Black, Colors.Black);
-            SceneFor(owner).Add(new DxfCircle(wx, wy, rMm, layer, filled: true,
+            SceneFor(owner).Add(new DxfCircle(wx, wy, effectiveRadiusMm, layer, filled: true,
                                               strokeColor: strokeColor, fillColor: fillColor,
                                               strokeThicknessPx: strokePx));        // viền (giữ để nhìn rõ trên CAD)
             //AddCircleSolidFan(owner, wx, wy, rMm, solidSegments, layer);   // phần đặc ruột
 
             // (2) UI: Ellipse tròn có fill
-            double sizePx = Math.Max(3.0, 3.0 * rMm * T.Scale);
-            return DrawDotPx(c, T, wx, wy, sizePx, fill ?? Brushes.Black, stroke, strokePx);
+            if (IsLightweightCanvasUi(owner))
+                return null;
+            double sizePx = Math.Max(3.0, 3.0 * effectiveRadiusMm * T.Scale);
+            return DrawDotPx(c, T, wx, wy, sizePx, Brushes.Black, Brushes.Black, strokePx);
         }
 
 
@@ -507,8 +575,14 @@ namespace RevitProjectDataAddin
                 var p = item.GetType().GetProperty("Span");
                 if (p == null) return false;
 
+                var newValue = newMm.ToString(CultureInfo.InvariantCulture);
+                var currentValue = p.GetValue(item)?.ToString();
+                if (string.Equals(currentValue, newValue, StringComparison.Ordinal))
+                    return false;
+
                 // set "Span" = chuỗi mm invariant
-                p.SetValue(item, newMm.ToString(CultureInfo.InvariantCulture));
+                p.SetValue(item, newValue);
+                PropertyChangeTracker.MarkChanged();
                 return true;
             }
             return false;
@@ -530,13 +604,14 @@ namespace RevitProjectDataAddin
             double fontScale = T.FontScale > 0 ? T.FontScale : 1.0;
             const double baseDimFont = 10.0;
             double labelFontPx = Math.Max(6.0, baseDimFont - 10 * Math.Max(0, previewAxisCount - 2));
-            double effectiveFontPx = labelFontPx * fontScale;
+            double effectiveFontPx = 12;
 
             var p = T.P(cx, cy);
 
             var tb = DrawText_Rec(canvas, T, item, initialText,
                                  cx, cy, labelFontPx, Brushes.Black,
-                                 HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                                 HAnchor.Center, VAnchor.Bottom, 200, "TEXT",
+                                 forceCanvasVisual: true);
             tb.Background = Brushes.Transparent;
             //tb.Padding = new Thickness(6, 2, 6, 2);
             tb.Cursor = Cursors.Hand;
@@ -551,12 +626,267 @@ namespace RevitProjectDataAddin
 
             tb.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
             var sz = tb.DesiredSize;
+            System.Windows.Controls.Primitives.Popup spanPopup = null;
 
-            tb.MouseLeftButtonDown += (s, e) =>
+            tb.MouseLeftButtonUp += (s, e) =>
             {
                 e.Handled = true;
 
                 string originalText = tb.Text ?? string.Empty;
+                try
+                {
+                    if (spanPopup != null)
+                    {
+                        spanPopup.IsOpen = false;
+                        spanPopup = null;
+                    }
+                }
+                catch { }
+
+                Brush normalBg = Brushes.Transparent;
+                Brush selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
+                Brush dividerBrush = PopupMenuDividerBrush;
+
+                UIElement WithRowDivider(UIElement child)
+                {
+                    return new Border
+                    {
+                        BorderBrush = dividerBrush,
+                        BorderThickness = new Thickness(0, 0, 0, 1),
+                        Child = child
+                    };
+                }
+
+                ControlTemplate flatBtnTemplate = null;
+                ControlTemplate GetFlatBtnTemplate()
+                {
+                    if (flatBtnTemplate != null) return flatBtnTemplate;
+
+                    var b = new FrameworkElementFactory(typeof(Border));
+                    b.SetValue(Border.SnapsToDevicePixelsProperty, true);
+                    b.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Button.BackgroundProperty));
+                    b.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Button.BorderBrushProperty));
+                    b.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(Button.BorderThicknessProperty));
+                    b.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Button.PaddingProperty));
+
+                    var cp = new FrameworkElementFactory(typeof(ContentPresenter));
+                    cp.SetValue(ContentPresenter.ContentProperty, new TemplateBindingExtension(Button.ContentProperty));
+                    cp.SetValue(ContentPresenter.HorizontalAlignmentProperty, new TemplateBindingExtension(Button.HorizontalContentAlignmentProperty));
+                    cp.SetValue(ContentPresenter.VerticalAlignmentProperty, new TemplateBindingExtension(Button.VerticalContentAlignmentProperty));
+                    b.AppendChild(cp);
+
+                    flatBtnTemplate = new ControlTemplate(typeof(Button)) { VisualTree = b };
+                    return flatBtnTemplate;
+                }
+
+                Border WrapBox(UIElement child)
+                {
+                    var host = new ContentControl
+                    {
+                        Content = child,
+                        Width = 100,
+                        FontSize = SystemFonts.MessageFontSize,
+                        FontFamily = SystemFonts.MessageFontFamily
+                    };
+
+                    return new Border
+                    {
+                        Background = Brushes.White,
+                        BorderBrush = PopupMenuBorderBrush,
+                        BorderThickness = PopupMenuBorderThickness,
+                        CornerRadius = new CornerRadius(2),
+                        Child = host
+                    };
+                }
+
+                var row = new DockPanel { LastChildFill = true, Width = 90 };
+
+                var lbl = new TextBlock
+                {
+                    Text = "長さ",
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                DockPanel.SetDock(lbl, Dock.Left);
+                lbl.Text = "長さ";
+
+                var popupEditor = new TextBox
+                {
+                    Text = originalText,
+                    FontSize = effectiveFontPx,
+                    Width = 60,
+                    MinWidth = 60,
+                    VerticalContentAlignment = VerticalAlignment.Center,
+                    Background = Brushes.Transparent,
+                    Visibility = System.Windows.Visibility.Visible
+                };
+                DockPanel.SetDock(popupEditor, Dock.Right);
+
+                row.Children.Add(lbl);
+                row.Children.Add(popupEditor);
+
+                var rowButton = new Button
+                {
+                    Content = row,
+                    HorizontalContentAlignment = HorizontalAlignment.Left,
+                    VerticalContentAlignment = VerticalAlignment.Center,
+                    Padding = new Thickness(10, 6, 10, 6),
+                    Background = normalBg,
+                    BorderBrush = Brushes.Transparent,
+                    BorderThickness = new Thickness(0),
+                    MinWidth = 180,
+                    OverridesDefaultStyle = true,
+                    Template = GetFlatBtnTemplate(),
+                    Focusable = false,
+                    IsTabStop = false
+                };
+                rowButton.MouseEnter += (_, __) => rowButton.Background = selectedBg;
+                rowButton.MouseLeave += (_, __) =>
+                {
+                    if (!popupEditor.IsKeyboardFocusWithin)
+                        rowButton.Background = normalBg;
+                };
+
+                var root = new StackPanel { Orientation = Orientation.Vertical };
+                root.Children.Add(WithRowDivider(rowButton));
+
+                spanPopup = new System.Windows.Controls.Primitives.Popup
+                {
+                    PlacementTarget = tb,
+                    Placement = System.Windows.Controls.Primitives.PlacementMode.Right,
+                    HorizontalOffset = 6,
+                    VerticalOffset = -2,
+                    AllowsTransparency = true,
+                    StaysOpen = false,
+                    Child = WrapBox(root)
+                };
+
+                void FocusPopupEditor()
+                {
+                    popupEditor.Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        popupEditor.Focus();
+                        popupEditor.SelectAll();
+                    }), DispatcherPriority.Input);
+                }
+
+                void SyncPopupEditorFromCurrent()
+                {
+                    popupEditor.Text = tb.Text ?? originalText;
+                }
+
+                void SetDisplayMode()
+                {
+                    popupEditor.IsReadOnly = true;
+                    popupEditor.BorderThickness = new Thickness(0);
+                    popupEditor.BorderBrush = Brushes.Transparent;
+                    popupEditor.Background = Brushes.Transparent;
+                }
+
+                void SetEditMode()
+                {
+                    popupEditor.IsReadOnly = false;
+                    popupEditor.BorderThickness = new Thickness(1);
+                    popupEditor.BorderBrush = PopupMenuEditorBorderBrush;
+                    popupEditor.Background = Brushes.White;
+                }
+
+                void BeginPopupEdit()
+                {
+                    SyncPopupEditorFromCurrent();
+                    SetEditMode();
+                    rowButton.Background = selectedBg;
+                    FocusPopupEditor();
+                }
+
+                void EndPopupEdit()
+                {
+                    SyncPopupEditorFromCurrent();
+                    SetDisplayMode();
+                    rowButton.Background = rowButton.IsMouseOver ? selectedBg : normalBg;
+                }
+
+                void CloseSpanPopup()
+                {
+                    try
+                    {
+                        if (spanPopup != null)
+                            spanPopup.IsOpen = false;
+                    }
+                    catch { }
+                    spanPopup = null;
+                }
+
+                void CommitPopupAndRedraw()
+                {
+                    if (double.TryParse(popupEditor.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var mm)
+                     || double.TryParse(popupEditor.Text, out mm))
+                    {
+                        if (mm > 0 && UpdateSpanValue(spanIndex, mm, tsuIsX, tsuIsY))
+                        {
+                            ClearTanbuHookOverridesForSpan(spanIndex);
+                            Redraw(canvas, item);
+                            CloseSpanPopup();
+                            return;
+                        }
+                    }
+
+                    BeginPopupEdit();
+                }
+
+                rowButton.Click += (_, clickArgs) =>
+                {
+                    clickArgs.Handled = true;
+                    if (popupEditor.IsReadOnly)
+                        BeginPopupEdit();
+                    else
+                        FocusPopupEditor();
+                };
+
+                popupEditor.GotKeyboardFocus += (_, __) =>
+                {
+                    rowButton.Background = selectedBg;
+                };
+
+                popupEditor.PreviewMouseLeftButtonDown += (_, clickArgs) =>
+                {
+                    if (!popupEditor.IsReadOnly) return;
+                    BeginPopupEdit();
+                    clickArgs.Handled = true;
+                };
+
+                popupEditor.KeyDown += (_, ke) =>
+                {
+                    if (ke.Key == Key.Enter)
+                    {
+                        CommitPopupAndRedraw();
+                        ke.Handled = true;
+                    }
+                    else if (ke.Key == Key.Escape)
+                    {
+                        EndPopupEdit();
+                        CloseSpanPopup();
+                        ke.Handled = true;
+                    }
+                };
+
+                popupEditor.LostKeyboardFocus += (_, __) =>
+                {
+                    if (!popupEditor.IsReadOnly)
+                        EndPopupEdit();
+                };
+
+                tb.Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (spanPopup != null)
+                    {
+                        SyncPopupEditorFromCurrent();
+                        SetDisplayMode();
+                        spanPopup.IsOpen = true;
+                        rowButton.Background = normalBg;
+                    }
+                }), DispatcherPriority.Input);
+                return;
 
                 var editor = new TextBox
                 {
@@ -780,6 +1110,8 @@ namespace RevitProjectDataAddin
                     var segK = new AnkaSegKey(segKey, side);
                     targetDict[segK] = legacyValue;
                     legacyDict.Remove(legacyKey.Value);
+                    PersistAnkaSegOverride(owner, segK, legacyValue);
+                    PersistAnkaDimOverride(owner, legacyKey.Value, 0.0);
                     signedLen = legacyValue;
                     return true;
                 }
@@ -793,6 +1125,30 @@ namespace RevitProjectDataAddin
             return TryGetAnkaOverrideBySegKey(owner, segKey, side, out var signedLen)
                 ? signedLen
                 : fallbackSigned;
+        }
+
+        private bool SetAnkaOverrideBySegKey(GridBotsecozu owner, OrangeSegKey segKey, AnkaSide side, double signedLen)
+        {
+            if (owner == null) return false;
+
+            if (!_ankaSegOverrides.TryGetValue(owner, out var segDict) || segDict == null)
+            {
+                segDict = new Dictionary<AnkaSegKey, double>();
+                _ankaSegOverrides[owner] = segDict;
+            }
+
+            var segK = new AnkaSegKey(segKey, side);
+
+            if (Math.Abs(signedLen) <= 0.0001)
+            {
+                bool removed = segDict.Remove(segK);
+                return PersistAnkaSegOverride(owner, segK, 0.0) || removed;
+            }
+
+            bool changed = !segDict.TryGetValue(segK, out var old)
+                           || Math.Abs(old - signedLen) > 0.0001;
+            segDict[segK] = signedLen;
+            return PersistAnkaSegOverride(owner, segK, signedLen) || changed;
         }
 
         private double GetAnkaOverride(GridBotsecozu owner, OrangeDimTextKey dimKey, AnkaSide side, double fallbackSigned)
@@ -830,8 +1186,10 @@ namespace RevitProjectDataAddin
 
                 if (Math.Abs(signedLen) <= 0.0001)
                 {
-                    if (segDict.Remove(segK)) return true;
-                    return false;
+                    bool removed = segDict.Remove(segK);
+                    bool persistChanged = PersistAnkaSegOverride(owner, segK, 0.0);
+                    persistChanged = PersistAnkaDimOverride(owner, new AnkaDimKey(dimKey, side), 0.0) || persistChanged;
+                    return persistChanged || removed;
                 }
 
                 bool segChanged = !segDict.TryGetValue(segK, out var segOld)
@@ -843,7 +1201,9 @@ namespace RevitProjectDataAddin
                     legacyDict.Remove(new AnkaDimKey(dimKey, side));
                 }
 
-                return segChanged;
+                bool persistSegChanged = PersistAnkaSegOverride(owner, segK, signedLen);
+                bool persistLegacyChanged = PersistAnkaDimOverride(owner, new AnkaDimKey(dimKey, side), 0.0);
+                return persistLegacyChanged || persistSegChanged || segChanged;
             }
 
             if (!_ankaOverrides.TryGetValue(owner, out var dict) || dict == null)
@@ -860,14 +1220,15 @@ namespace RevitProjectDataAddin
                 if (dict.ContainsKey(k))
                 {
                     dict.Remove(k);
+                    PersistAnkaDimOverride(owner, k, 0.0);
                     return true;
                 }
-                return false;
+                return PersistAnkaDimOverride(owner, k, 0.0);
             }
 
             bool changed = !dict.TryGetValue(k, out var old) || Math.Abs(old - signedLen) > 0.0001;
             dict[k] = signedLen;
-            return changed;
+            return PersistAnkaDimOverride(owner, k, signedLen) || changed;
         }
 
         private bool SetOrangeDimText(GridBotsecozu owner, OrangeDimTextKey key, string newText)
@@ -888,15 +1249,16 @@ namespace RevitProjectDataAddin
                 if (dict.ContainsKey(key))
                 {
                     dict.Remove(key);
+                    PersistOrangeDimTextOverride(owner, key, "");
                     return true;
                 }
-                return false;
+                return PersistOrangeDimTextOverride(owner, key, "");
             }
 
             bool changed = !dict.TryGetValue(key, out var old)
                            || !string.Equals(old, t, StringComparison.Ordinal);
             dict[key] = t;
-            return changed;
+            return PersistOrangeDimTextOverride(owner, key, t) || changed;
         }
         // ===== Helper: tạo vùng preview để vẽ line minh hoa anka
         // =========================
@@ -976,10 +1338,420 @@ namespace RevitProjectDataAddin
             public double BaseX2;
             public double X1;
             public double X2;
+            public bool IsEqualCutChild;
         }
 
         private readonly Dictionary<GridBotsecozu, Dictionary<OrangeSegKey, OrangeSegOverride>> _orangeSegOverrides
             = new Dictionary<GridBotsecozu, Dictionary<OrangeSegKey, OrangeSegOverride>>();
+
+        private readonly Dictionary<GridBotsecozu, Dictionary<OrangeSegKey, List<double>>> _orangeSegEqualCutPoints
+            = new Dictionary<GridBotsecozu, Dictionary<OrangeSegKey, List<double>>>();
+
+        private struct OrangeCutPointKey : IEquatable<OrangeCutPointKey>
+        {
+            public int RowIndex;
+            public int X_10;
+            public int Y_10;
+
+            public OrangeCutPointKey(int rowIndex, double x, double y)
+            {
+                RowIndex = rowIndex;
+                X_10 = (int)Math.Round(x * 10.0);
+                Y_10 = (int)Math.Round(y * 10.0);
+            }
+
+            public bool Equals(OrangeCutPointKey other)
+                => RowIndex == other.RowIndex && X_10 == other.X_10 && Y_10 == other.Y_10;
+
+            public override bool Equals(object obj)
+                => obj is OrangeCutPointKey other && Equals(other);
+
+            public override int GetHashCode()
+            {
+                unchecked
+                {
+                    int h = 17;
+                    h = h * 31 + RowIndex;
+                    h = h * 31 + X_10;
+                    h = h * 31 + Y_10;
+                    return h;
+                }
+            }
+        }
+
+        private readonly Dictionary<GridBotsecozu, HashSet<OrangeCutPointKey>> _orangeSegCutMarkers
+            = new Dictionary<GridBotsecozu, HashSet<OrangeCutPointKey>>();
+        private readonly HashSet<GridBotsecozu> _orangeCutMarkerRedrawInProgress
+            = new HashSet<GridBotsecozu>();
+
+        private static string MakeOrangeDimTextPersistKey(OrangeDimTextKey key)
+            => $"{key.RowIndex}|{(key.IsTop ? 1 : 0)}|{key.Wx10}|{key.Wy10}";
+
+        private static bool TryParseOrangeDimTextPersistKey(string raw, out OrangeDimTextKey key)
+        {
+            key = default;
+            if (string.IsNullOrWhiteSpace(raw)) return false;
+
+            var parts = raw.Split('|');
+            if (parts.Length != 4) return false;
+            if (!int.TryParse(parts[0], out var rowIndex)) return false;
+            if (!int.TryParse(parts[1], out var isTopFlag)) return false;
+            if (!int.TryParse(parts[2], out var wx10)) return false;
+            if (!int.TryParse(parts[3], out var wy10)) return false;
+
+            key = new OrangeDimTextKey
+            {
+                RowIndex = rowIndex,
+                IsTop = isTopFlag != 0,
+                Wx10 = wx10,
+                Wy10 = wy10
+            };
+            return true;
+        }
+
+        private static string MakeOrangeSegPersistKey(OrangeSegKey key)
+            => $"{key.RowIndex}|{key.X1_10}|{key.X2_10}|{key.Y_10}";
+
+        private static bool TryParseOrangeSegPersistKey(string raw, out OrangeSegKey key)
+        {
+            key = default;
+            if (string.IsNullOrWhiteSpace(raw)) return false;
+
+            var parts = raw.Split('|');
+            if (parts.Length != 4) return false;
+            if (!int.TryParse(parts[0], out var rowIndex)) return false;
+            if (!int.TryParse(parts[1], out var x1_10)) return false;
+            if (!int.TryParse(parts[2], out var x2_10)) return false;
+            if (!int.TryParse(parts[3], out var y_10)) return false;
+
+            key = new OrangeSegKey
+            {
+                RowIndex = rowIndex,
+                X1_10 = x1_10,
+                X2_10 = x2_10,
+                Y_10 = y_10
+            };
+            return true;
+        }
+
+        private static string MakeAnkaDimPersistKey(AnkaDimKey key)
+            => $"{MakeOrangeDimTextPersistKey(key.DimKey)}|{(int)key.Side}";
+
+        private static bool TryParseAnkaDimPersistKey(string raw, out AnkaDimKey key)
+        {
+            key = default;
+            if (string.IsNullOrWhiteSpace(raw)) return false;
+
+            var parts = raw.Split('|');
+            if (parts.Length != 5) return false;
+            if (!TryParseOrangeDimTextPersistKey(string.Join("|", parts.Take(4)), out var dimKey)) return false;
+            if (!int.TryParse(parts[4], out var sideValue)) return false;
+            if (sideValue < (int)AnkaSide.Left || sideValue > (int)AnkaSide.Right) return false;
+
+            key = new AnkaDimKey(dimKey, (AnkaSide)sideValue);
+            return true;
+        }
+
+        private static string MakeAnkaSegPersistKey(AnkaSegKey key)
+            => $"{MakeOrangeSegPersistKey(key.SegKey)}|{(int)key.Side}";
+
+        private static bool TryParseAnkaSegPersistKey(string raw, out AnkaSegKey key)
+        {
+            key = default;
+            if (string.IsNullOrWhiteSpace(raw)) return false;
+
+            var parts = raw.Split('|');
+            if (parts.Length != 5) return false;
+            if (!TryParseOrangeSegPersistKey(string.Join("|", parts.Take(4)), out var segKey)) return false;
+            if (!int.TryParse(parts[4], out var sideValue)) return false;
+            if (sideValue < (int)AnkaSide.Left || sideValue > (int)AnkaSide.Right) return false;
+
+            key = new AnkaSegKey(segKey, (AnkaSide)sideValue);
+            return true;
+        }
+
+        private static List<double> NormalizePersistedCutPoints(IEnumerable<double> cuts)
+        {
+            if (cuts == null) return new List<double>();
+
+            return cuts
+                .Where(c => !double.IsNaN(c) && !double.IsInfinity(c))
+                .Distinct()
+                .OrderBy(c => c)
+                .ToList();
+        }
+
+        private bool PersistOrangeDimTextOverride(GridBotsecozu owner, OrangeDimTextKey key, string text)
+        {
+            if (owner == null) return false;
+            string persistedKey = MakeOrangeDimTextPersistKey(key);
+            bool changed;
+
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                if (owner.OrangeDimTextOverrides == null) return false;
+                changed = owner.OrangeDimTextOverrides.Remove(persistedKey);
+            }
+            else
+            {
+                if (owner.OrangeDimTextOverrides == null)
+                    owner.OrangeDimTextOverrides = new Dictionary<string, string>();
+                string normalized = text.Trim();
+                changed = !owner.OrangeDimTextOverrides.TryGetValue(persistedKey, out var existing)
+                          || !string.Equals(existing, normalized, StringComparison.Ordinal);
+                owner.OrangeDimTextOverrides[persistedKey] = normalized;
+            }
+
+            if (changed)
+                PropertyChangeTracker.MarkChanged();
+
+            return changed;
+        }
+
+        private bool PersistAnkaDimOverride(GridBotsecozu owner, AnkaDimKey key, double signedLen)
+        {
+            if (owner == null) return false;
+            string persistedKey = MakeAnkaDimPersistKey(key);
+            bool changed;
+
+            if (Math.Abs(signedLen) <= 0.0001)
+            {
+                if (owner.AnkaOverrides == null) return false;
+                changed = owner.AnkaOverrides.Remove(persistedKey);
+            }
+            else
+            {
+                if (owner.AnkaOverrides == null)
+                    owner.AnkaOverrides = new Dictionary<string, double>();
+                changed = !owner.AnkaOverrides.TryGetValue(persistedKey, out var existing)
+                          || Math.Abs(existing - signedLen) > 0.0001;
+                owner.AnkaOverrides[persistedKey] = signedLen;
+            }
+
+            if (changed)
+                PropertyChangeTracker.MarkChanged();
+
+            return changed;
+        }
+
+        private bool PersistAnkaSegOverride(GridBotsecozu owner, AnkaSegKey key, double signedLen)
+        {
+            if (owner == null) return false;
+            string persistedKey = MakeAnkaSegPersistKey(key);
+            bool changed;
+
+            if (Math.Abs(signedLen) <= 0.0001)
+            {
+                if (owner.AnkaSegOverrides == null) return false;
+                changed = owner.AnkaSegOverrides.Remove(persistedKey);
+            }
+            else
+            {
+                if (owner.AnkaSegOverrides == null)
+                    owner.AnkaSegOverrides = new Dictionary<string, double>();
+                changed = !owner.AnkaSegOverrides.TryGetValue(persistedKey, out var existing)
+                          || Math.Abs(existing - signedLen) > 0.0001;
+                owner.AnkaSegOverrides[persistedKey] = signedLen;
+            }
+
+            if (changed)
+                PropertyChangeTracker.MarkChanged();
+
+            return changed;
+        }
+
+        private bool PersistDeletedOrangeSeg(GridBotsecozu owner, OrangeSegKey key, bool isDeleted)
+        {
+            if (owner == null) return false;
+            string persistedKey = MakeOrangeSegPersistKey(key);
+            bool changed;
+
+            if (isDeleted)
+            {
+                if (owner.DeletedOrangeSegs == null)
+                    owner.DeletedOrangeSegs = new HashSet<string>();
+                changed = owner.DeletedOrangeSegs.Add(persistedKey);
+            }
+            else
+            {
+                if (owner.DeletedOrangeSegs == null) return false;
+                changed = owner.DeletedOrangeSegs.Remove(persistedKey);
+            }
+
+            if (changed)
+                PropertyChangeTracker.MarkChanged();
+
+            return changed;
+        }
+
+        private bool PersistOrangeSegOverride(GridBotsecozu owner, OrangeSegKey key, double x1, double x2)
+        {
+            if (owner == null) return false;
+            double baseX1 = key.X1_10 / 10.0;
+            double baseX2 = key.X2_10 / 10.0;
+            string persistedKey = MakeOrangeSegPersistKey(key);
+            bool isBase = Math.Abs(x1 - baseX1) < 1e-6 && Math.Abs(x2 - baseX2) < 1e-6;
+            bool changed;
+
+            if (isBase)
+            {
+                if (owner.OrangeSegOverrides == null) return false;
+                changed = owner.OrangeSegOverrides.Remove(persistedKey);
+            }
+            else
+            {
+                if (owner.OrangeSegOverrides == null)
+                    owner.OrangeSegOverrides = new Dictionary<string, OrangeSegOverridePersistData>();
+                changed = !owner.OrangeSegOverrides.TryGetValue(persistedKey, out var existing)
+                          || existing == null
+                          || Math.Abs(existing.X1 - x1) > 1e-6
+                          || Math.Abs(existing.X2 - x2) > 1e-6;
+                owner.OrangeSegOverrides[persistedKey] = new OrangeSegOverridePersistData
+                {
+                    X1 = x1,
+                    X2 = x2
+                };
+            }
+
+            if (changed)
+                PropertyChangeTracker.MarkChanged();
+
+            return changed;
+        }
+
+        private bool PersistOrangeSegEqualCutPoints(GridBotsecozu owner, OrangeSegKey key, IEnumerable<double> cuts)
+        {
+            if (owner == null) return false;
+            string persistedKey = MakeOrangeSegPersistKey(key);
+            var normalizedCuts = NormalizePersistedCutPoints(cuts);
+            bool changed;
+
+            if (normalizedCuts.Count == 0)
+            {
+                if (owner.OrangeSegEqualCutPoints == null) return false;
+                changed = owner.OrangeSegEqualCutPoints.Remove(persistedKey);
+            }
+            else
+            {
+                if (owner.OrangeSegEqualCutPoints == null)
+                    owner.OrangeSegEqualCutPoints = new Dictionary<string, List<double>>();
+                changed = !owner.OrangeSegEqualCutPoints.TryGetValue(persistedKey, out var existing)
+                          || existing == null
+                          || existing.Count != normalizedCuts.Count
+                          || existing.Where((value, index) => Math.Abs(value - normalizedCuts[index]) > 1e-6).Any();
+                owner.OrangeSegEqualCutPoints[persistedKey] = normalizedCuts;
+            }
+
+            if (changed)
+                PropertyChangeTracker.MarkChanged();
+
+            return changed;
+        }
+
+        private void SyncRuntimeOverridesFromModel(GridBotsecozu owner)
+        {
+            if (owner == null) return;
+
+            var orangeTextOverrides = new Dictionary<OrangeDimTextKey, string>();
+            if (owner.OrangeDimTextOverrides != null)
+            {
+                foreach (var entry in owner.OrangeDimTextOverrides)
+                {
+                    if (TryParseOrangeDimTextPersistKey(entry.Key, out var key)
+                        && !string.IsNullOrWhiteSpace(entry.Value))
+                    {
+                        orangeTextOverrides[key] = entry.Value.Trim();
+                    }
+                }
+
+            }
+            _orangeDimTextOverrides[owner] = orangeTextOverrides;
+
+            var tanbuDiameterOverrides = new Dictionary<(int spanIndex, bool isRightAbdominal), string>();
+            if (owner.TanbuDiameterOverrides != null)
+            {
+                foreach (var entry in owner.TanbuDiameterOverrides)
+                {
+                    if (TryParseTanbuDiameterKey(entry.Key, out var key)
+                        && !string.IsNullOrWhiteSpace(entry.Value))
+                    {
+                        tanbuDiameterOverrides[key] = entry.Value.Trim();
+                    }
+                }
+            }
+            _tanbuDiameterOverrides[owner] = tanbuDiameterOverrides;
+
+            var ankaOverrides = new Dictionary<AnkaDimKey, double>();
+            if (owner.AnkaOverrides != null)
+            {
+                foreach (var entry in owner.AnkaOverrides)
+                {
+                    if (TryParseAnkaDimPersistKey(entry.Key, out var key)
+                        && Math.Abs(entry.Value) > 0.0001)
+                    {
+                        ankaOverrides[key] = entry.Value;
+                    }
+                }
+            }
+            _ankaOverrides[owner] = ankaOverrides;
+
+            var ankaSegOverrides = new Dictionary<AnkaSegKey, double>();
+            if (owner.AnkaSegOverrides != null)
+            {
+                foreach (var entry in owner.AnkaSegOverrides)
+                {
+                    if (TryParseAnkaSegPersistKey(entry.Key, out var key)
+                        && Math.Abs(entry.Value) > 0.0001)
+                    {
+                        ankaSegOverrides[key] = entry.Value;
+                    }
+                }
+            }
+            _ankaSegOverrides[owner] = ankaSegOverrides;
+
+            var deletedOrangeSegs = new HashSet<OrangeSegKey>();
+            if (owner.DeletedOrangeSegs != null)
+            {
+                foreach (var entry in owner.DeletedOrangeSegs)
+                {
+                    if (TryParseOrangeSegPersistKey(entry, out var key))
+                        deletedOrangeSegs.Add(key);
+                }
+            }
+            _deletedOrangeSegs[owner] = deletedOrangeSegs;
+
+            var orangeSegOverrides = new Dictionary<OrangeSegKey, OrangeSegOverride>();
+            if (owner.OrangeSegOverrides != null)
+            {
+                foreach (var entry in owner.OrangeSegOverrides)
+                {
+                    if (TryParseOrangeSegPersistKey(entry.Key, out var key) && entry.Value != null)
+                    {
+                        orangeSegOverrides[key] = new OrangeSegOverride
+                        {
+                            X1 = entry.Value.X1,
+                            X2 = entry.Value.X2
+                        };
+                    }
+                }
+            }
+            _orangeSegOverrides[owner] = orangeSegOverrides;
+
+            var orangeSegEqualCutPoints = new Dictionary<OrangeSegKey, List<double>>();
+            if (owner.OrangeSegEqualCutPoints != null)
+            {
+                foreach (var entry in owner.OrangeSegEqualCutPoints)
+                {
+                    if (TryParseOrangeSegPersistKey(entry.Key, out var key))
+                    {
+                        var normalizedCuts = NormalizePersistedCutPoints(entry.Value);
+                        if (normalizedCuts.Count > 0)
+                            orangeSegEqualCutPoints[key] = normalizedCuts;
+                    }
+                }
+            }
+            _orangeSegEqualCutPoints[owner] = orangeSegEqualCutPoints;
+        }
 
         private bool TryGetOrangeSegOverride(GridBotsecozu owner, OrangeSegKey key, out OrangeSegOverride val)
         {
@@ -1015,15 +1787,15 @@ namespace RevitProjectDataAddin
 
             if (isBase)
             {
-                if (dict.Remove(key)) return true;
-                return false;
+                bool removed = dict.Remove(key);
+                return PersistOrangeSegOverride(owner, key, x1, x2) || removed;
             }
 
             bool changed = !dict.TryGetValue(key, out var old)
                            || Math.Abs(old.X1 - x1) > 1e-6
                            || Math.Abs(old.X2 - x2) > 1e-6;
             dict[key] = new OrangeSegOverride { X1 = x1, X2 = x2 };
-            return changed;
+            return PersistOrangeSegOverride(owner, key, x1, x2) || changed;
         }
 
         private List<OrangeSegResolved> GetVisibleOrangeSegs(GridBotsecozu owner, int rowIndex, double y, List<(double x1, double x2)> segs)
@@ -1033,17 +1805,385 @@ namespace RevitProjectDataAddin
             {
                 var key = new OrangeSegKey(rowIndex, seg.x1, seg.x2, y);
                 var (x1, x2) = GetOrangeSegOverride(owner, key, seg.x1, seg.x2);
-                resolved.Add(new OrangeSegResolved
+                ExpandOrangeSegByEqualCuts(owner, rowIndex, y, seg.x1, seg.x2, x1, x2, resolved, 0);
+            }
+            return resolved;
+        }
+
+        private List<OrangeSegResolved> ClampVisibleOrangeSegsToBounds(
+            List<OrangeSegResolved> segs,
+            double minX,
+            double maxX)
+        {
+            if (segs == null || segs.Count == 0)
+                return segs ?? new List<OrangeSegResolved>();
+
+            bool hasMin = !double.IsNaN(minX) && !double.IsInfinity(minX);
+            bool hasMax = !double.IsNaN(maxX) && !double.IsInfinity(maxX);
+            if (!hasMin && !hasMax)
+                return segs;
+
+            var clamped = new List<OrangeSegResolved>(segs.Count);
+            foreach (var seg in segs)
+            {
+                double x1 = seg.X1;
+                double x2 = seg.X2;
+
+                if (hasMin) x1 = Math.Max(x1, minX);
+                if (hasMax) x2 = Math.Min(x2, maxX);
+                if (x2 <= x1 + 1e-6) continue;
+
+                clamped.Add(new OrangeSegResolved
                 {
-                    BaseX1 = seg.x1,
-                    BaseX2 = seg.x2,
+                    BaseX1 = seg.BaseX1,
+                    BaseX2 = seg.BaseX2,
                     X1 = x1,
-                    X2 = x2
+                    X2 = x2,
+                    IsEqualCutChild = seg.IsEqualCutChild
                 });
             }
-            return resolved
-                .Where(seg => !IsOrangeSegDeleted(owner, rowIndex, seg.BaseX1, seg.BaseX2, y))
+
+            return clamped;
+        }
+
+        private void ExpandOrangeSegByEqualCuts(
+            GridBotsecozu owner,
+            int rowIndex,
+            double y,
+            double baseX1,
+            double baseX2,
+            double x1,
+            double x2,
+            List<OrangeSegResolved> output,
+            int depth)
+        {
+            if (depth > 16) return;
+            if (x2 <= x1 + 1e-6) return;
+            if (IsOrangeSegDeleted(owner, rowIndex, baseX1, baseX2, y)) return;
+
+            var key = new OrangeSegKey(rowIndex, baseX1, baseX2, y);
+            if (_orangeSegEqualCutPoints.TryGetValue(owner, out var ownerCuts)
+                && ownerCuts != null
+                && ownerCuts.TryGetValue(key, out var cuts)
+                && cuts != null
+                && cuts.Count > 0)
+            {
+                var validCuts = cuts
+                    .Where(c => c > x1 + 1e-6 && c < x2 - 1e-6)
+                    .Distinct()
+                    .OrderBy(c => c)
+                    .ToList();
+
+                if (validCuts.Count > 0)
+                {
+                    double cur = x1;
+                    foreach (var cp in validCuts)
+                    {
+                        var childKey = new OrangeSegKey(rowIndex, cur, cp, y);
+                        var (childX1, childX2) = GetOrangeSegOverride(owner, childKey, cur, cp);
+                        ExpandOrangeSegByEqualCuts(owner, rowIndex, y, cur, cp, childX1, childX2, output, depth + 1);
+                        cur = cp;
+                    }
+
+                    if (x2 > cur + 1e-6)
+                    {
+                        var childKey = new OrangeSegKey(rowIndex, cur, x2, y);
+                        var (childX1, childX2) = GetOrangeSegOverride(owner, childKey, cur, x2);
+                        ExpandOrangeSegByEqualCuts(owner, rowIndex, y, cur, x2, childX1, childX2, output, depth + 1);
+                    }
+                    return;
+                }
+            }
+
+            output.Add(new OrangeSegResolved
+            {
+                BaseX1 = baseX1,
+                BaseX2 = baseX2,
+                X1 = x1,
+                X2 = x2,
+                IsEqualCutChild = depth > 0
+            });
+        }
+
+        private bool ApplyEqualCutToOrangeSegment(GridBotsecozu owner, OrangeDimTextKey dimKey, int segmentCount, bool distributeRemainderFromLeft = false)
+        {
+            if (owner == null || segmentCount < 2) return false;
+            if (!TryGetSegKeyForDimKey(owner, dimKey, out var segKey)) return false;
+
+            double baseX1 = segKey.X1_10 / 10.0;
+            double baseX2 = segKey.X2_10 / 10.0;
+            double y = segKey.Y_10 / 10.0;
+            var (x1, x2) = GetOrangeSegOverride(owner, segKey, baseX1, baseX2);
+            double length = x2 - x1;
+            if (length <= 1e-6) return false;
+
+            int totalLengthInt = (int)Math.Round(length, MidpointRounding.AwayFromZero);
+            if (totalLengthInt < segmentCount) return false;
+
+            bool hasLeftAnka = TryGetAnkaOverrideBySegKey(owner, segKey, AnkaSide.Left, out var leftAnkaSigned);
+            bool hasRightAnka = TryGetAnkaOverrideBySegKey(owner, segKey, AnkaSide.Right, out var rightAnkaSigned);
+
+            if (TryGetOrangeSegInfo(owner, segKey, out var segInfo))
+            {
+                if (!hasLeftAnka && segInfo.HitLeftAnka)
+                {
+                    hasLeftAnka = Math.Abs(segInfo.DefaultLeftAnkaSigned) > 0.0001;
+                    leftAnkaSigned = segInfo.DefaultLeftAnkaSigned;
+                }
+                if (!hasRightAnka && segInfo.HitRightAnka)
+                {
+                    hasRightAnka = Math.Abs(segInfo.DefaultRightAnkaSigned) > 0.0001;
+                    rightAnkaSigned = segInfo.DefaultRightAnkaSigned;
+                }
+            }
+
+            var segmentLengths = new List<int>(segmentCount);
+            int baseSegmentLength = totalLengthInt / segmentCount;
+            int remainder = totalLengthInt % segmentCount;
+
+            for (int i = 0; i < segmentCount; i++)
+                segmentLengths.Add(baseSegmentLength);
+
+            for (int i = 0; i < remainder; i++)
+            {
+                int targetIndex = distributeRemainderFromLeft
+                    ? i
+                    : (segmentCount - remainder + i);
+                segmentLengths[targetIndex] += 1;
+            }
+
+            var cuts = new List<double>(segmentCount - 1);
+            double currentX = x1;
+
+            for (int i = 0; i < segmentCount - 1; i++)
+            {
+                currentX += segmentLengths[i];
+                cuts.Add(currentX);
+            }
+
+            if (!_orangeSegEqualCutPoints.TryGetValue(owner, out var ownerCuts) || ownerCuts == null)
+            {
+                ownerCuts = new Dictionary<OrangeSegKey, List<double>>();
+                _orangeSegEqualCutPoints[owner] = ownerCuts;
+            }
+            ownerCuts[segKey] = cuts;
+            PersistOrangeSegEqualCutPoints(owner, segKey, cuts);
+
+            RebuildOrangeCutMarkersForRow(owner, segKey.RowIndex, y);
+
+            if (cuts.Count > 0)
+            {
+                double firstRight = cuts[0];
+                double lastLeft = cuts[cuts.Count - 1];
+
+                var firstChild = new OrangeSegKey(segKey.RowIndex, x1, firstRight, y);
+                var lastChild = new OrangeSegKey(segKey.RowIndex, lastLeft, x2, y);
+
+                if (hasLeftAnka)
+                {
+                    SetAnkaOverrideBySegKey(owner, firstChild, AnkaSide.Left, leftAnkaSigned);
+                    SetAnkaOverrideBySegKey(owner, segKey, AnkaSide.Left, 0.0);
+                }
+
+                if (hasRightAnka)
+                {
+                    SetAnkaOverrideBySegKey(owner, lastChild, AnkaSide.Right, rightAnkaSigned);
+                    SetAnkaOverrideBySegKey(owner, segKey, AnkaSide.Right, 0.0);
+                }
+            }
+
+            return true;
+        }
+
+        private bool ApplyCustomCutToOrangeSegment(
+            GridBotsecozu owner,
+            OrangeDimTextKey dimKey,
+            List<double> userLengths,
+            bool applyFromLeft)
+        {
+            if (owner == null || userLengths == null || userLengths.Count < 2) return false;
+            if (!TryGetSegKeyForDimKey(owner, dimKey, out var segKey)) return false;
+
+            double baseX1 = segKey.X1_10 / 10.0;
+            double baseX2 = segKey.X2_10 / 10.0;
+            double y = segKey.Y_10 / 10.0;
+            var (x1, x2) = GetOrangeSegOverride(owner, segKey, baseX1, baseX2);
+            double totalLen = x2 - x1;
+            if (totalLen <= 1e-6) return false;
+
+            double sum = 0.0;
+            for (int i = 0; i < userLengths.Count; i++)
+            {
+                if (!(userLengths[i] > 1e-6)) return false;
+                sum += userLengths[i];
+            }
+            if (Math.Abs(sum - totalLen) > 1.0) return false;
+
+            bool hasLeftAnka = TryGetAnkaOverrideBySegKey(owner, segKey, AnkaSide.Left, out var leftAnkaSigned);
+            bool hasRightAnka = TryGetAnkaOverrideBySegKey(owner, segKey, AnkaSide.Right, out var rightAnkaSigned);
+
+            if (TryGetOrangeSegInfo(owner, segKey, out var segInfo))
+            {
+                if (!hasLeftAnka && segInfo.HitLeftAnka)
+                {
+                    hasLeftAnka = Math.Abs(segInfo.DefaultLeftAnkaSigned) > 0.0001;
+                    leftAnkaSigned = segInfo.DefaultLeftAnkaSigned;
+                }
+                if (!hasRightAnka && segInfo.HitRightAnka)
+                {
+                    hasRightAnka = Math.Abs(segInfo.DefaultRightAnkaSigned) > 0.0001;
+                    rightAnkaSigned = segInfo.DefaultRightAnkaSigned;
+                }
+            }
+
+            var cuts = new List<double>(Math.Max(0, userLengths.Count - 1));
+            if (applyFromLeft)
+            {
+                double cur = x1;
+                for (int i = 0; i < userLengths.Count - 1; i++)
+                {
+                    cur += userLengths[i];
+                    if (cur > x1 + 1e-6 && cur < x2 - 1e-6)
+                        cuts.Add(cur);
+                }
+            }
+            else
+            {
+                double cur = x2;
+                for (int i = 0; i < userLengths.Count - 1; i++)
+                {
+                    cur -= userLengths[i];
+                    if (cur > x1 + 1e-6 && cur < x2 - 1e-6)
+                        cuts.Add(cur);
+                }
+                cuts.Sort();
+            }
+
+            if (!_orangeSegEqualCutPoints.TryGetValue(owner, out var ownerCuts) || ownerCuts == null)
+            {
+                ownerCuts = new Dictionary<OrangeSegKey, List<double>>();
+                _orangeSegEqualCutPoints[owner] = ownerCuts;
+            }
+            ownerCuts[segKey] = cuts;
+            PersistOrangeSegEqualCutPoints(owner, segKey, cuts);
+
+            RebuildOrangeCutMarkersForRow(owner, segKey.RowIndex, y);
+
+            if (cuts.Count > 0)
+            {
+                double firstRight = cuts[0];
+                double lastLeft = cuts[cuts.Count - 1];
+
+                var firstChild = new OrangeSegKey(segKey.RowIndex, x1, firstRight, y);
+                var lastChild = new OrangeSegKey(segKey.RowIndex, lastLeft, x2, y);
+
+                if (hasLeftAnka)
+                {
+                    SetAnkaOverrideBySegKey(owner, firstChild, AnkaSide.Left, leftAnkaSigned);
+                    SetAnkaOverrideBySegKey(owner, segKey, AnkaSide.Left, 0.0);
+                }
+
+                if (hasRightAnka)
+                {
+                    SetAnkaOverrideBySegKey(owner, lastChild, AnkaSide.Right, rightAnkaSigned);
+                    SetAnkaOverrideBySegKey(owner, segKey, AnkaSide.Right, 0.0);
+                }
+            }
+
+            return true;
+        }
+
+        private bool IsEqualCutMarker(GridBotsecozu owner, int rowIndex, double x, double y)
+        {
+            if (owner == null) return false;
+            return _orangeSegCutMarkers.TryGetValue(owner, out var markers)
+                   && markers != null
+                   && markers.Contains(new OrangeCutPointKey(rowIndex, x, y));
+        }
+
+        private void RebuildOrangeCutMarkersForRow(GridBotsecozu owner, int rowIndex, double y)
+        {
+            if (owner == null) return;
+            if (!_orangeSegToInfo.TryGetValue(owner, out var segDict) || segDict == null) return;
+
+            var baseSegs = segDict.Keys
+                .Where(k => k.RowIndex == rowIndex && k.Y_10 == (int)Math.Round(y * 10.0))
+                .Select(k => (x1: k.X1_10 / 10.0, x2: k.X2_10 / 10.0))
+                .Where(seg => seg.x2 > seg.x1 + 1e-6)
+                .Distinct()
+                .OrderBy(seg => seg.x1)
                 .ToList();
+
+            if (baseSegs.Count == 0) return;
+
+            var visibleSegs = GetVisibleOrangeSegs(owner, rowIndex, y, baseSegs)
+                .OrderBy(seg => seg.X1)
+                .ToList();
+
+            if (!_orangeSegCutMarkers.TryGetValue(owner, out var markers) || markers == null)
+            {
+                markers = new HashSet<OrangeCutPointKey>();
+                _orangeSegCutMarkers[owner] = markers;
+            }
+
+            markers.RemoveWhere(m => m.RowIndex == rowIndex && m.Y_10 == (int)Math.Round(y * 10.0));
+
+            for (int i = 0; i < visibleSegs.Count - 1; i++)
+            {
+                double boundary = 0.5 * (visibleSegs[i].X2 + visibleSegs[i + 1].X1);
+                markers.Add(new OrangeCutPointKey(rowIndex, boundary, y));
+            }
+        }
+
+        private bool RebuildAllOrangeCutMarkers(GridBotsecozu owner)
+        {
+            if (owner == null) return false;
+
+            var before = _orangeSegCutMarkers.TryGetValue(owner, out var existingMarkers) && existingMarkers != null
+                ? new HashSet<OrangeCutPointKey>(existingMarkers)
+                : new HashSet<OrangeCutPointKey>();
+
+            if (!_orangeSegToInfo.TryGetValue(owner, out var segDict) || segDict == null || segDict.Count == 0)
+            {
+                if (existingMarkers == null || existingMarkers.Count == 0)
+                    return false;
+
+                existingMarkers.Clear();
+                return true;
+            }
+
+            if (existingMarkers == null)
+            {
+                existingMarkers = new HashSet<OrangeCutPointKey>();
+                _orangeSegCutMarkers[owner] = existingMarkers;
+            }
+            else
+            {
+                existingMarkers.Clear();
+            }
+
+            foreach (var row in segDict.Keys
+                .Select(k => new { k.RowIndex, k.Y_10 })
+                .Distinct()
+                .OrderBy(k => k.RowIndex)
+                .ThenBy(k => k.Y_10))
+            {
+                RebuildOrangeCutMarkersForRow(owner, row.RowIndex, row.Y_10 / 10.0);
+            }
+
+            return !before.SetEquals(existingMarkers);
+        }
+
+        private void ResetOrangeSegmentRuntimeState(GridBotsecozu owner)
+        {
+            if (owner == null) return;
+
+            // Segment geometry is rebuilt on every redraw. Only the runtime
+            // registration maps are reset here; cut markers must stay alive until the
+            // next rebuild finishes, otherwise the redraw pass that should render them
+            // will always see an empty marker set.
+            _orangeDimToSegInfo[owner] = new Dictionary<OrangeDimTextKey, OrangeSegInfo>();
+            _orangeSegToInfo[owner] = new Dictionary<OrangeSegKey, OrangeSegInfo>();
         }
 
         private bool ApplyOrangeSegLengthDelta(GridBotsecozu owner, OrangeDimTextKey dimKey, bool isLeftMenu, bool pullLeft, double delta)
@@ -1065,6 +2205,12 @@ namespace RevitProjectDataAddin
             double newX1 = curX1;
             double newX2 = curX2;
             double deltaVal = Math.Abs(delta);
+
+            if (TryGetOrangeSegLengthDeltaLimit(owner, segKey, isLeftMenu, pullLeft, out var maxAllowed)
+                && deltaVal > maxAllowed + 1e-6)
+            {
+                return false;
+            }
 
             if (isLeftMenu)
             {
@@ -1106,7 +2252,78 @@ namespace RevitProjectDataAddin
             if (!adjustedNeighbor && newX2 < newX1)
                 newX2 = newX1;
 
-            return SetOrangeSegOverride(owner, segKey, newX1, newX2);
+            bool changed = SetOrangeSegOverride(owner, segKey, newX1, newX2);
+            if (changed)
+                RebuildOrangeCutMarkersForRow(owner, segKey.RowIndex, segKey.Y_10 / 10.0);
+            return changed;
+        }
+
+        private bool TryGetOrangeSegLengthDeltaLimit(
+            GridBotsecozu owner,
+            OrangeDimTextKey dimKey,
+            bool isLeftMenu,
+            bool pullLeft,
+            out double maxAllowed)
+        {
+            maxAllowed = 0.0;
+            if (owner == null) return false;
+
+            if (!_orangeDimToSegInfo.TryGetValue(owner, out var dict) || dict == null
+                || !dict.TryGetValue(dimKey, out var info))
+            {
+                return false;
+            }
+
+            return TryGetOrangeSegLengthDeltaLimit(owner, info.SegKey, isLeftMenu, pullLeft, out maxAllowed);
+        }
+
+        private bool TryGetOrangeSegLengthDeltaLimit(
+            GridBotsecozu owner,
+            OrangeSegKey segKey,
+            bool isLeftMenu,
+            bool pullLeft,
+            out double maxAllowed)
+        {
+            maxAllowed = 0.0;
+            if (owner == null) return false;
+
+            double baseX1 = segKey.X1_10 / 10.0;
+            double baseX2 = segKey.X2_10 / 10.0;
+            var (curX1, curX2) = GetOrangeSegOverride(owner, segKey, baseX1, baseX2);
+            double curLength = Math.Max(0.0, curX2 - curX1);
+
+            if (isLeftMenu)
+            {
+                if (pullLeft)
+                {
+                    if (!TryGetNeighborSegKey(owner, segKey, findLeft: true, out var leftKey))
+                        return false;
+
+                    double leftBaseX1 = leftKey.X1_10 / 10.0;
+                    double leftBaseX2 = leftKey.X2_10 / 10.0;
+                    var (leftX1, _) = GetOrangeSegOverride(owner, leftKey, leftBaseX1, leftBaseX2);
+                    maxAllowed = Math.Max(0.0, curX1 - leftX1);
+                    return true;
+                }
+
+                maxAllowed = curLength;
+                return true;
+            }
+
+            if (pullLeft)
+            {
+                maxAllowed = curLength;
+                return true;
+            }
+
+            if (!TryGetNeighborSegKey(owner, segKey, findLeft: false, out var rightKey))
+                return false;
+
+            double rightBaseX1 = rightKey.X1_10 / 10.0;
+            double rightBaseX2 = rightKey.X2_10 / 10.0;
+            var (_, rightX2) = GetOrangeSegOverride(owner, rightKey, rightBaseX1, rightBaseX2);
+            maxAllowed = Math.Max(0.0, rightX2 - curX2);
+            return true;
         }
 
 
@@ -1240,7 +2457,10 @@ namespace RevitProjectDataAddin
                 if (newX1 > x2) newX1 = x2;
             }
 
-            return SetOrangeSegOverride(owner, segKey, newX1, newX2);
+            bool changed = SetOrangeSegOverride(owner, segKey, newX1, newX2);
+            if (changed)
+                RebuildOrangeCutMarkersForRow(owner, segKey.RowIndex, segKey.Y_10 / 10.0);
+            return changed;
         }
 
         private void ResolveAnkaDefaults(
@@ -1264,17 +2484,19 @@ namespace RevitProjectDataAddin
             defaultLeftSigned = 0.0;
             defaultRightSigned = 0.0;
 
-            if (TryGetOrangeSegInfo(owner, segKey, out var segInfo))
-            {
-                hitLeft = segInfo.HitLeftAnka;
-                hitRight = segInfo.HitRightAnka;
-                defaultLeftSigned = segInfo.DefaultLeftAnkaSigned;
-                defaultRightSigned = segInfo.DefaultRightAnkaSigned;
-                return;
-            }
+            // NOTE:
+            // segX1/segX2 có thể đã bị dịch nhẹ (rounding / tonari shift) sau khi 等分切断,
+            // nhưng baseX1/baseX2 (segKey) cũng có thể đã là tọa độ sau dịch trong một số luồng merge.
+            // Vì vậy cần chấp nhận trúng biên theo CẢ base và seg thực tế để tránh mất ANKA biên.
+            double baseX1 = segKey.X1_10 / 10.0;
+            double baseX2 = segKey.X2_10 / 10.0;
+            bool nearLeftBase = !double.IsNaN(baseX1) && !double.IsInfinity(baseX1) && Near(baseX1, leftAnkaX, 0.5);
+            bool nearRightBase = !double.IsNaN(baseX2) && !double.IsInfinity(baseX2) && Near(baseX2, rightAnkaX, 0.5);
+            bool nearLeftSeg = !double.IsNaN(segX1) && !double.IsInfinity(segX1) && Near(segX1, leftAnkaX, 0.5);
+            bool nearRightSeg = !double.IsNaN(segX2) && !double.IsInfinity(segX2) && Near(segX2, rightAnkaX, 0.5);
 
-            hitLeft = hasLeftAnka && Near(segX1, leftAnkaX, 0.5);
-            hitRight = hasRightAnka && Near(segX2, rightAnkaX, 0.5);
+            hitLeft = hasLeftAnka && (nearLeftBase || nearLeftSeg);
+            hitRight = hasRightAnka && (nearRightBase || nearRightSeg);
             defaultLeftSigned = hitLeft ? fallbackLeftSigned : 0.0;
             defaultRightSigned = hitRight ? fallbackRightSigned : 0.0;
         }
@@ -1310,6 +2532,10 @@ namespace RevitProjectDataAddin
                     _deletedOrangeSegs[owner] = set;
                 }
                 if (set.Add(info.SegKey)) changed = true;
+                changed = PersistDeletedOrangeSeg(owner, info.SegKey, true) || changed;
+
+                // 2a-2) Rebuild cut markers for the row so deleted-segment dots are fully synchronized
+                RebuildOrangeCutMarkersForRow(owner, info.SegKey.RowIndex, info.SegKey.Y_10 / 10.0);
 
                 // 2b) clear TOP/BOTTOM override (nếu có)
                 if (!clickedKey.Equals(info.TopKey))
@@ -1322,25 +2548,45 @@ namespace RevitProjectDataAddin
             return changed;
         }
         //hình minh họa anka
-        private FrameworkElement CreateAnkaPreviewCanvas(int verticalOffset)
+        private FrameworkElement CreateAnkaPreviewCanvas(int verticalOffset, AnkaSide side)
         {
+            const double previewWidth = 96;
+            const double logicalPreviewWidth = 60;
+            const double dimGap = 6;
+
+            // chỉnh riêng vị trí hình minh họa trái / phải
+            const double leftShapeOffsetX = -5;
+            const double rightShapeOffsetX = -10;
+
+            // chỉnh riêng vị trí DIM đỏ trái / phải
+            const double leftDimOffsetX = 5;
+            const double rightDimOffsetX = -5;
+            const double leftDimOffsetY = 0;
+            const double rightDimOffsetY = 0;
+
             var canvas = new Canvas
             {
-                Width = 60,
+                Width = previewWidth,
                 Height = 20,
                 Background = Brushes.Transparent,
                 SnapsToDevicePixels = true
             };
 
             bool isUp = (verticalOffset == -10);
+            bool isLeft = side == AnkaSide.Left;
+
+            double shapeOffsetX = (canvas.Width - logicalPreviewWidth) / 2.0
+                                + (isLeft ? leftShapeOffsetX : rightShapeOffsetX);
 
             // =========================
             // CONFIG RIÊNG CHO UP / DOWN
             // =========================
-            double startX;
+            double hookX;
             double r;
             double yH;
             double yVEnd;
+            double horizontalStartX;
+            double horizontalEndX;
 
             // Ký hiệu kích thước "|-|"
             double dimX;
@@ -1350,40 +2596,49 @@ namespace RevitProjectDataAddin
 
             if (isUp)
             {
-                // -------- UP (上) --------
-                startX = 5;
+                hookX = (isLeft ? 5 : 55) + shapeOffsetX;
                 r = 4.0;
 
                 yH = 17;
                 yVEnd = -2;
 
-                dimX = 0;
-                dimTop = -2;
-                dimBottom = 17;
+                dimX = isLeft
+                    ? (shapeOffsetX - dimGap + leftDimOffsetX)
+                    : (shapeOffsetX + logicalPreviewWidth + dimGap + rightDimOffsetX);
+
+                dimTop = -2 + (isLeft ? leftDimOffsetY : rightDimOffsetY);
+                dimBottom = 17 + (isLeft ? leftDimOffsetY : rightDimOffsetY);
+
                 capLen = 6;
             }
             else
             {
-                // -------- DOWN (下) --------
-                startX = 5;
+                hookX = (isLeft ? 5 : 55) + shapeOffsetX;
                 r = 4.0;
 
                 yH = 1;
                 yVEnd = 19;
 
-                dimX = 0;
-                dimTop = 1;
-                dimBottom = 19;
+                dimX = isLeft
+                    ? (shapeOffsetX - dimGap + leftDimOffsetX)
+                    : (shapeOffsetX + logicalPreviewWidth + dimGap + rightDimOffsetX);
+
+                dimTop = 1 + (isLeft ? leftDimOffsetY : rightDimOffsetY);
+                dimBottom = 19 + (isLeft ? leftDimOffsetY : rightDimOffsetY);
+
                 capLen = 6;
             }
 
             // ==========================================================
-            // 1) VẼ ANKA (PATH có ARC) - để mặc định để cung mượt (anti-alias)
+            // 1) VẼ ANKA
             // ==========================================================
-            Point pHStart = new Point(56, yH);
-            Point pHToArc = new Point(startX + r, yH);
-            Point pArcToV = isUp ? new Point(startX, yH - r) : new Point(startX, yH + r);
-            Point pVEnd = new Point(startX, yVEnd);
+            horizontalStartX = (isLeft ? 56 : 4) + shapeOffsetX;
+            horizontalEndX = isLeft ? (hookX + r) : (hookX - r);
+
+            Point pHStart = new Point(horizontalStartX, yH);
+            Point pHToArc = new Point(horizontalEndX, yH);
+            Point pArcToV = isUp ? new Point(hookX, yH - r) : new Point(hookX, yH + r);
+            Point pVEnd = new Point(hookX, yVEnd);
 
             var fig = new PathFigure
             {
@@ -1400,7 +2655,9 @@ namespace RevitProjectDataAddin
                 Size = new Size(r, r),
                 RotationAngle = 0,
                 IsLargeArc = false,
-                SweepDirection = isUp ? SweepDirection.Clockwise : SweepDirection.Counterclockwise
+                SweepDirection = isUp
+                    ? (isLeft ? SweepDirection.Clockwise : SweepDirection.Counterclockwise)
+                    : (isLeft ? SweepDirection.Counterclockwise : SweepDirection.Clockwise)
             });
 
             fig.Segments.Add(new LineSegment(pVEnd, true));
@@ -1413,18 +2670,17 @@ namespace RevitProjectDataAddin
                 SnapsToDevicePixels = true,
                 StrokeLineJoin = PenLineJoin.Round,
                 StrokeStartLineCap = PenLineCap.Round,
-                StrokeEndLineCap = PenLineCap.Round
+                StrokeEndLineCap = PenLineCap.Round,
+
             };
 
-            // quan trọng: KHÔNG aliased cho path (để cung tròn mượt)
             RenderOptions.SetEdgeMode(path, EdgeMode.Unspecified);
-
             canvas.Children.Add(path);
 
             // ==========================================================
-            // 2) VẼ "|-|" (LINE 1px) - dùng aliased + pixel align để sắc
+            // 2) VẼ DIM "|-|"
             // ==========================================================
-            double px = 0.5; // 1px hairline: +0.5 để tránh blur
+            double px = 0.5;
             double x0 = dimX + px;
             double y0 = dimTop + px;
             double y1 = dimBottom + px;
@@ -1443,17 +2699,16 @@ namespace RevitProjectDataAddin
                     StrokeThickness = 1,
                     SnapsToDevicePixels = true
                 };
-                RenderOptions.SetEdgeMode(ln, EdgeMode.Aliased); // sắc nét cho line 1px
+                RenderOptions.SetEdgeMode(ln, EdgeMode.Aliased);
                 return ln;
             }
 
-            canvas.Children.Add(MakeRedLine(x0 - 1, y0 - 1, x0 - 1, y1 - 1));    // dọc
-            canvas.Children.Add(MakeRedLine(xL - 1, y0 - 1, xR - 1, y0 - 1));    // ngang trên
-            canvas.Children.Add(MakeRedLine(xL - 1, y1 - 1, xR - 1, y1 - 1));    // ngang dưới
+            canvas.Children.Add(MakeRedLine(x0 - 1, y0 - 1, x0 - 1, y1 - 1));
+            canvas.Children.Add(MakeRedLine(xL - 1, y0 - 1, xR - 1, y0 - 1));
+            canvas.Children.Add(MakeRedLine(xL - 1, y1 - 1, xR - 1, y1 - 1));
 
             return canvas;
         }
-
         private FrameworkElement CreateLengthPreviewCanvas(bool pullLeft)
         {
             var canvas = new Canvas
@@ -1534,6 +2789,183 @@ namespace RevitProjectDataAddin
             tb.IsHitTestVisible = true;
             Panel.SetZIndex(tb, 1500);
 
+            bool IsDigitOnlyText(string text, bool allowEmpty = true)
+            {
+                if (string.IsNullOrEmpty(text))
+                    return allowEmpty;
+
+                return text.All(char.IsDigit);
+            }
+
+            string BuildCandidateText(TextBox box, string incomingText)
+            {
+                if (box == null)
+                    return incomingText ?? string.Empty;
+
+                string currentText = box.Text ?? string.Empty;
+                int selectionStart = Math.Max(0, Math.Min(box.SelectionStart, currentText.Length));
+                int selectionLength = Math.Max(0, Math.Min(box.SelectionLength, currentText.Length - selectionStart));
+
+                return currentText.Remove(selectionStart, selectionLength)
+                    .Insert(selectionStart, incomingText ?? string.Empty);
+            }
+
+            ControlTemplate _dimNumericTextBoxTemplate = null;
+            ControlTemplate GetDimNumericTextBoxTemplate()
+            {
+                if (_dimNumericTextBoxTemplate != null)
+                    return _dimNumericTextBoxTemplate;
+
+                var border = new FrameworkElementFactory(typeof(Border));
+                border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
+                border.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Control.BorderBrushProperty));
+                border.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(Control.BorderThicknessProperty));
+                border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
+                border.SetValue(Border.SnapsToDevicePixelsProperty, true);
+
+                var contentHost = new FrameworkElementFactory(typeof(ScrollViewer), "PART_ContentHost");
+                contentHost.SetValue(FrameworkElement.SnapsToDevicePixelsProperty, true);
+                border.AppendChild(contentHost);
+
+                _dimNumericTextBoxTemplate = new ControlTemplate(typeof(TextBox))
+                {
+                    VisualTree = border
+                };
+                return _dimNumericTextBoxTemplate;
+            }
+
+            void ApplyDimNumericTextBoxChrome(TextBox box)
+            {
+                if (box == null)
+                    return;
+
+                if (box.ReadLocalValue(Control.BorderBrushProperty) == DependencyProperty.UnsetValue)
+                    box.BorderBrush = PopupMenuEditorBorderBrush;
+
+                if (box.ReadLocalValue(Control.BorderThicknessProperty) == DependencyProperty.UnsetValue)
+                    box.BorderThickness = new Thickness(1);
+
+                if (box.ReadLocalValue(Control.BackgroundProperty) == DependencyProperty.UnsetValue)
+                    box.Background = Brushes.White;
+
+                box.FocusVisualStyle = null;
+                box.Template = GetDimNumericTextBoxTemplate();
+            }
+
+            void AttachDimIntegerValidation(
+                TextBox box,
+                Func<Brush> getValidBackground = null,
+                Func<Brush> getValidBorderBrush = null,
+                Func<Thickness> getValidBorderThickness = null)
+            {
+                if (box == null)
+                    return;
+
+                ApplyDimNumericTextBoxChrome(box);
+
+                Brush initialBackground = box.Background ?? Brushes.White;
+                Brush initialBorderBrush = box.BorderBrush ?? Brushes.Black;
+                Thickness initialBorderThickness = box.BorderThickness;
+
+                Brush ResolveValidBackground()
+                    => getValidBackground?.Invoke() ?? initialBackground;
+
+                Brush ResolveValidBorderBrush()
+                    => getValidBorderBrush?.Invoke() ?? initialBorderBrush;
+
+                Thickness ResolveValidBorderThickness()
+                    => getValidBorderThickness?.Invoke() ?? initialBorderThickness;
+
+                Thickness EnsureVisibleBorder(Thickness thickness)
+                {
+                    if (thickness.Left <= 0 && thickness.Top <= 0 && thickness.Right <= 0 && thickness.Bottom <= 0)
+                        return new Thickness(1);
+
+                    return thickness;
+                }
+
+                bool hasRejectedInput = false;
+
+                void SetValidityState(bool isValid)
+                {
+                    box.Background = ResolveValidBackground();
+                    box.BorderBrush = isValid ? ResolveValidBorderBrush() : Brushes.Red;
+                    box.BorderThickness = isValid
+                        ? ResolveValidBorderThickness()
+                        : EnsureVisibleBorder(ResolveValidBorderThickness());
+                }
+
+                void ShowRejectedInputState()
+                {
+                    hasRejectedInput = true;
+
+                    // Apply after the input event so the template does not immediately paint over the border.
+                    box.Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        if (hasRejectedInput)
+                            SetValidityState(false);
+                    }), DispatcherPriority.Input);
+                }
+
+                void ClearRejectedInputState()
+                {
+                    hasRejectedInput = false;
+                    SetValidityState(IsDigitOnlyText(box.Text));
+                }
+
+                box.TextChanged += (_, __) =>
+                {
+                    hasRejectedInput = false;
+                    SetValidityState(IsDigitOnlyText(box.Text));
+                };
+
+                box.PreviewTextInput += (_, e) =>
+                {
+                    string candidate = BuildCandidateText(box, e.Text);
+                    bool isValid = IsDigitOnlyText(candidate, allowEmpty: true);
+                    if (!isValid)
+                    {
+                        ShowRejectedInputState();
+                        e.Handled = true;
+                        return;
+                    }
+
+                    ClearRejectedInputState();
+                };
+
+                DataObject.AddPastingHandler(box, new DataObjectPastingEventHandler((_, e) =>
+                {
+                    string pastedText = null;
+
+                    if (e.SourceDataObject != null)
+                    {
+                        if (e.SourceDataObject.GetDataPresent(DataFormats.UnicodeText))
+                            pastedText = e.SourceDataObject.GetData(DataFormats.UnicodeText) as string;
+                        else if (e.SourceDataObject.GetDataPresent(DataFormats.Text))
+                            pastedText = e.SourceDataObject.GetData(DataFormats.Text) as string;
+                    }
+
+                    string candidate = BuildCandidateText(box, pastedText ?? string.Empty);
+                    bool isValid = IsDigitOnlyText(candidate, allowEmpty: true);
+                    if (!isValid)
+                    {
+                        ShowRejectedInputState();
+                        e.CancelCommand();
+                        return;
+                    }
+
+                    ClearRejectedInputState();
+                }));
+
+                box.LostKeyboardFocus += (_, __) =>
+                {
+                    hasRejectedInput = false;
+                    SetValidityState(IsDigitOnlyText(box.Text));
+                };
+
+                SetValidityState(IsDigitOnlyText(box.Text));
+            }
+
             bool TrySplitTopParts(string text, out string dPart, out string lenPart)
             {
                 dPart = ""; lenPart = "";
@@ -1606,6 +3038,7 @@ namespace RevitProjectDataAddin
                     Height = Math.Max(26, sz.Height + 10),
                     Background = Brushes.White
                 };
+                AttachDimIntegerValidation(editor);
 
                 Canvas.SetLeft(editor, left);
                 Canvas.SetTop(editor, top);
@@ -1664,10 +3097,25 @@ namespace RevitProjectDataAddin
                 };
             }
 
-            // ===== On click =====
-            tb.MouseLeftButtonDown += (s, e) =>
+            if (tb.Foreground == null)
+                tb.Foreground = dimBaseFg;
+
+            EnableEditableHoverWithBox(tb, canvas,
+                hoverForeground: dimBaseFg,
+                hoverFill: new SolidColorBrush(Color.FromArgb(100, 30, 144, 255)),
+                hoverStroke: Brushes.Blue);
+
+            // Hover chỉ để highlight, không mở popup.
+            tb.MouseEnter += (s, e) =>
             {
-                e.Handled = true;
+                // Nếu còn popup cũ của DIM này, đóng lại để tránh cảm giác "hover là mở menu".
+                if (Mouse.LeftButton != MouseButtonState.Pressed)
+                    CloseExistingPopups();
+            };
+
+            // ===== On click =====
+            tb.MouseLeftButtonUp += (s, e) =>
+            {
                 CloseExistingPopups();
 
                 double GetCurrentFor(AnkaSide side, bool wantTop)
@@ -1704,7 +3152,7 @@ namespace RevitProjectDataAddin
 
                 Brush normalBg = Brushes.Transparent;
                 Brush selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-                Brush dividerBrush = Brushes.LightGray;
+                Brush dividerBrush = PopupMenuDividerBrush;
 
                 const double MENU1_MIN_WIDTH = 100;
                 const double MENU2_MIN_WIDTH = 80;
@@ -1720,10 +3168,19 @@ namespace RevitProjectDataAddin
                     };
                 }
 
+                double anchorX = tb.ActualWidth;
+                if (anchorX <= 0)
+                {
+                    tb.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                    anchorX = tb.DesiredSize.Width;
+                }
+
                 var mainPop = new System.Windows.Controls.Primitives.Popup
                 {
                     PlacementTarget = tb,
-                    Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint,
+                    Placement = System.Windows.Controls.Primitives.PlacementMode.Relative,
+                    HorizontalOffset = Math.Max(1.0, anchorX + 1.0),
+                    VerticalOffset = 0,
                     AllowsTransparency = true,
                     StaysOpen = true
                 };
@@ -1732,13 +3189,36 @@ namespace RevitProjectDataAddin
                 System.Windows.Controls.Primitives.Popup sidePop = null;
                 System.Windows.Controls.Primitives.Popup lenPop = null;
                 System.Windows.Controls.Primitives.Popup lenDirPop = null;
+                System.Windows.Controls.Primitives.Popup cutModePop = null;
+                System.Windows.Controls.Primitives.Popup cutInputPop = null;
+                System.Windows.Controls.Primitives.Popup cutDetailPop = null;
+                System.Windows.Controls.Primitives.Popup dDiaPop = null;
 
                 void CloseSubMenus()
                 {
                     if (lenDirPop != null) lenDirPop.IsOpen = false;
                     if (lenPop != null) lenPop.IsOpen = false;
+                    if (cutDetailPop != null) cutDetailPop.IsOpen = false;
+                    if (cutInputPop != null) cutInputPop.IsOpen = false;
+                    if (cutModePop != null) cutModePop.IsOpen = false;
                     if (sidePop != null) sidePop.IsOpen = false;
                     if (ankaPop != null) ankaPop.IsOpen = false;
+                    if (dDiaPop != null) dDiaPop.IsOpen = false;
+                }
+
+                void CloseSubMenusExcept(params System.Windows.Controls.Primitives.Popup[] keepOpen)
+                {
+                    bool Keep(System.Windows.Controls.Primitives.Popup p)
+                        => p != null && keepOpen != null && keepOpen.Any(k => ReferenceEquals(k, p));
+
+                    if (!Keep(lenDirPop) && lenDirPop != null) lenDirPop.IsOpen = false;
+                    if (!Keep(lenPop) && lenPop != null) lenPop.IsOpen = false;
+                    if (!Keep(cutDetailPop) && cutDetailPop != null) cutDetailPop.IsOpen = false;
+                    if (!Keep(cutInputPop) && cutInputPop != null) cutInputPop.IsOpen = false;
+                    if (!Keep(cutModePop) && cutModePop != null) cutModePop.IsOpen = false;
+                    if (!Keep(sidePop) && sidePop != null) sidePop.IsOpen = false;
+                    if (!Keep(ankaPop) && ankaPop != null) ankaPop.IsOpen = false;
+                    if (!Keep(dDiaPop) && dDiaPop != null) dDiaPop.IsOpen = false;
                 }
 
                 var win = Window.GetWindow(canvas);
@@ -1751,6 +3231,7 @@ namespace RevitProjectDataAddin
                 HwndSource _hwndSrc = null;
                 HwndSourceHook _hwndHook = null;
                 bool _isClosing = false;
+                int mainPopupOpenRequestId = 0;
 
                 const int WM_NCLBUTTONDOWN = 0x00A1;
                 const int WM_NCRBUTTONDOWN = 0x00A4;
@@ -1808,13 +3289,18 @@ namespace RevitProjectDataAddin
                 {
                     if (_isClosing) return;
                     _isClosing = true;
+                    InvalidatePendingMainPopupOpen();
 
                     try
                     {
                         if (lenDirPop != null) lenDirPop.IsOpen = false;
                         if (lenPop != null) lenPop.IsOpen = false;
+                        if (cutDetailPop != null) cutDetailPop.IsOpen = false;
+                        if (cutInputPop != null) cutInputPop.IsOpen = false;
+                        if (cutModePop != null) cutModePop.IsOpen = false;
                         if (sidePop != null) sidePop.IsOpen = false;
                         if (ankaPop != null) ankaPop.IsOpen = false;
+                        if (dDiaPop != null) dDiaPop.IsOpen = false;
                         if (mainPop != null) mainPop.IsOpen = false;
                     }
                     catch { }
@@ -1872,7 +3358,13 @@ namespace RevitProjectDataAddin
                         IsPointInside(tb, screenPt)
                         || (mainPop?.Child is FrameworkElement m && IsPointInside(m, screenPt))
                         || (ankaPop?.Child is FrameworkElement a && IsPointInside(a, screenPt))
-                        || (sidePop?.Child is FrameworkElement r && IsPointInside(r, screenPt));
+                        || (sidePop?.Child is FrameworkElement r && IsPointInside(r, screenPt))
+                        || (lenPop?.Child is FrameworkElement l && IsPointInside(l, screenPt))
+                        || (lenDirPop?.Child is FrameworkElement ld && IsPointInside(ld, screenPt))
+                        || (cutModePop?.Child is FrameworkElement cm && IsPointInside(cm, screenPt))
+                        || (cutInputPop?.Child is FrameworkElement ci && IsPointInside(ci, screenPt))
+                        || (cutDetailPop?.Child is FrameworkElement cd && IsPointInside(cd, screenPt))
+                        || (dDiaPop?.Child is FrameworkElement dd && IsPointInside(dd, screenPt));
 
                     if (!inside)
                     {
@@ -1936,14 +3428,15 @@ namespace RevitProjectDataAddin
                     {
                         Content = child,
                         FontSize = SystemFonts.MessageFontSize,
-                        FontFamily = SystemFonts.MessageFontFamily
+                        FontFamily = SystemFonts.MessageFontFamily,
+                        Foreground = SystemColors.ControlTextBrush
                     };
 
                     var box = new Border
                     {
                         Background = Brushes.White,
-                        BorderBrush = Brushes.DimGray,
-                        BorderThickness = new Thickness(1.5),
+                        BorderBrush = PopupMenuBorderBrush,
+                        BorderThickness = PopupMenuBorderThickness,
                         CornerRadius = new CornerRadius(2),
                         Child = host
                     };
@@ -1953,7 +3446,16 @@ namespace RevitProjectDataAddin
 
                 Button selectedMainBtn = null;
                 Button selectedAnkaBtn = null;
+                Button selectedCutBtn = null;
                 FrameworkElement selectedSideRow = null;
+                Border selectedDRow = null;
+
+                void SelectDRow(Border row)
+                {
+                    if (selectedDRow != null) selectedDRow.Background = normalBg;
+                    selectedDRow = row;
+                    if (selectedDRow != null) selectedDRow.Background = selectedBg;
+                }
 
                 void SelectMain(Button btn)
                 {
@@ -1962,11 +3464,23 @@ namespace RevitProjectDataAddin
                     if (selectedMainBtn != null) selectedMainBtn.Background = selectedBg;
                 }
 
+                void InvalidatePendingMainPopupOpen()
+                {
+                    unchecked { mainPopupOpenRequestId++; }
+                }
+
                 void SelectAnka(Button btn)
                 {
                     if (selectedAnkaBtn != null) selectedAnkaBtn.Background = normalBg;
                     selectedAnkaBtn = btn;
                     if (selectedAnkaBtn != null) selectedAnkaBtn.Background = selectedBg;
+                }
+
+                void SelectCut(Button btn)
+                {
+                    if (selectedCutBtn != null) selectedCutBtn.Background = normalBg;
+                    selectedCutBtn = btn;
+                    if (selectedCutBtn != null) selectedCutBtn.Background = selectedBg;
                 }
 
                 void SelectSideRow(FrameworkElement row)
@@ -2063,6 +3577,7 @@ namespace RevitProjectDataAddin
 
                 void OpenSidePopup(Button placementBtn, AnkaSide side)
                 {
+                    CloseSubMenusExcept(ankaPop);
                     if (sidePop != null) sidePop.IsOpen = false;
 
                     sidePop = new System.Windows.Controls.Primitives.Popup
@@ -2084,7 +3599,7 @@ namespace RevitProjectDataAddin
                     var root = new StackPanel { Orientation = Orientation.Vertical };
 
                     TextBox activeBox = null;
-
+                    // Anka
                     Border MakeRow(int previewOffset, bool isTop)
                     {
                         var rowHost = new Border
@@ -2092,32 +3607,46 @@ namespace RevitProjectDataAddin
                             Background = normalBg,
                             Padding = new Thickness(10, 6, 10, 6),
                             HorizontalAlignment = HorizontalAlignment.Stretch,
-                            MinWidth = MENU3_MIN_WIDTH,
+                            MinWidth = Math.Max(MENU3_MIN_WIDTH, 180), // chiều dài của popup anka
                             Cursor = Cursors.Hand
                         };
 
-                        var row = new DockPanel { LastChildFill = true };
+                        var row = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch };
+                        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-                        var preview = CreateAnkaPreviewCanvas(previewOffset);
-                        DockPanel.SetDock(preview, Dock.Right);
+                        var preview = CreateAnkaPreviewCanvas(previewOffset, side);
+                        preview.HorizontalAlignment = HorizontalAlignment.Center;
+                        preview.VerticalAlignment = VerticalAlignment.Center;
+                        Grid.SetColumn(preview, 1);
 
                         var box = new TextBox
                         {
-                            Width = 60,
-                            MinWidth = 60,
+                            Width = 40,
+                            MinWidth = 40,
                             VerticalContentAlignment = VerticalAlignment.Center,
-                            Margin = new Thickness(0, 0, 8, 0),
+                            VerticalAlignment = VerticalAlignment.Center,
+                            HorizontalAlignment = side == AnkaSide.Left ? HorizontalAlignment.Right : HorizontalAlignment.Left,
+                            TextAlignment = side == AnkaSide.Left ? TextAlignment.Right : TextAlignment.Left,
+                            Margin = side == AnkaSide.Left
+                                ? new Thickness(0, 0, 5, 0)
+                                : new Thickness(-15, 0, 0, 0),
                             Padding = new Thickness(2, 0, 2, 0),
-
-                            // mặc định như label
                             IsReadOnly = true,
                             BorderThickness = new Thickness(0),
-                            Background = Brushes.Transparent
+                            Background = Brushes.Transparent,
+                            FontSize = 15
                         };
-                        DockPanel.SetDock(box, Dock.Left);
+                        AttachDimIntegerValidation(
+                            box,
+                            () => box.IsReadOnly ? Brushes.Transparent : Brushes.White,
+                            () => box.IsReadOnly ? Brushes.Transparent : Brushes.Black,
+                            () => box.IsReadOnly ? new Thickness(0) : new Thickness(1));
+                        Grid.SetColumn(box, side == AnkaSide.Left ? 0 : 2);
 
-                        row.Children.Add(box);
                         row.Children.Add(preview);
+                        row.Children.Add(box);
                         rowHost.Child = row;
 
                         void FocusBoxSelectAll()
@@ -2146,7 +3675,7 @@ namespace RevitProjectDataAddin
                         {
                             box.IsReadOnly = false;
                             box.BorderThickness = new Thickness(1);
-                            box.BorderBrush = Brushes.Gray;
+                            box.BorderBrush = PopupMenuEditorBorderBrush;
                             box.Background = Brushes.White;
                         }
 
@@ -2183,15 +3712,35 @@ namespace RevitProjectDataAddin
 
                             // sau commit: về display mode + bỏ focus để caret tắt
                             SetDisplayMode();
+                            if (activeBox == box) activeBox = null;
+                            if (_activeAnkaBox == box)
+                            {
+                                _activeAnkaBox = null;
+                                _activeAnkaTryCommitOrRefocus = null;
+                            }
                             Keyboard.ClearFocus();
 
                             if (closeAllAfterValid) CloseAll();
                             return true;
                         }
 
+                        bool CancelEditWithoutCommit()
+                        {
+                            RefreshBoxFromCurrent();
+                            SetDisplayMode();
+                            if (activeBox == box) activeBox = null;
+                            if (_activeAnkaBox == box)
+                            {
+                                _activeAnkaBox = null;
+                                _activeAnkaTryCommitOrRefocus = null;
+                            }
+                            Keyboard.ClearFocus();
+                            return true;
+                        }
+
                         void ActivateEdit()
                         {
-                            // Nếu đang có box khác active, commit nó trước (nếu OK)
+                            // Nếu đang có box khác active, đóng edit cũ mà không commit
                             if (activeBox != null && activeBox != box)
                             {
                                 if (_activeAnkaTryCommitOrRefocus != null)
@@ -2205,9 +3754,8 @@ namespace RevitProjectDataAddin
 
                             _activeAnkaBox = box;
 
-                            // callback dùng cho hover/click-outside: KHÔNG tự đóng menu ở đây
-                            // (Enter sẽ đóng menu trực tiếp)
-                            _activeAnkaTryCommitOrRefocus = () => TryCommitOrRefocus(closeAllAfterValid: false);
+                            // Hover/click-outside chỉ hủy edit chưa xác nhận, không commit.
+                            _activeAnkaTryCommitOrRefocus = CancelEditWithoutCommit;
 
                             SetEditMode();
                             FocusBoxSelectAll();
@@ -2258,9 +3806,7 @@ namespace RevitProjectDataAddin
                             else if (ee.Key == Key.Escape)
                             {
                                 // Esc: revert và tắt caret (không đóng menu)
-                                RefreshBoxFromCurrent();
-                                SetDisplayMode();
-                                Keyboard.ClearFocus();
+                                CancelEditWithoutCommit();
                                 ee.Handled = true;
                             }
                         };
@@ -2273,9 +3819,8 @@ namespace RevitProjectDataAddin
                                 return;
                             }
 
-                            // mất focus: commit nếu hợp lệ (không đóng menu)
                             if (!box.IsReadOnly)
-                                TryCommitOrRefocus(closeAllAfterValid: false);
+                                CancelEditWithoutCommit();
                         };
 
                         return rowHost;
@@ -2315,6 +3860,7 @@ namespace RevitProjectDataAddin
 
                 void OpenLenDirPopup(Button placementBtn, bool isLeftMenu)
                 {
+                    CloseSubMenusExcept(lenPop);
                     if (lenDirPop != null) lenDirPop.IsOpen = false;
 
                     lenDirPop = new System.Windows.Controls.Primitives.Popup
@@ -2336,14 +3882,13 @@ namespace RevitProjectDataAddin
                     var root = new StackPanel { Orientation = Orientation.Vertical };
 
                     TextBox activeLenBox = null;
+                    Border activeLenRow = null;
+                    Action activeLenHide = null;
 
                     void CancelActiveLenEdit()
                     {
                         if (activeLenBox == null) return;
-                        if (activeLenBox.Tag is FrameworkElement prev)
-                            prev.Visibility = System.Windows.Visibility.Visible;
-                        activeLenBox.Visibility = System.Windows.Visibility.Collapsed;
-                        activeLenBox = null;
+                        activeLenHide?.Invoke();
                     }
 
                     Border MakeLenDirRow(string label, bool pullLeft)
@@ -2368,14 +3913,17 @@ namespace RevitProjectDataAddin
 
                         var preview = CreateLengthPreviewCanvas(pullLeft);
                         DockPanel.SetDock(preview, Dock.Right);
-
+                        // ô text chiều dài
                         var box = new TextBox
                         {
-                            Width = 60,
-                            MinWidth = 60,
+                            Width = 50,
+                            MinWidth = 50,
                             VerticalContentAlignment = VerticalAlignment.Center,
                             Visibility = System.Windows.Visibility.Collapsed
                         };
+                        AttachDimIntegerValidation(box);
+                        Brush normalBorderBrush = box.BorderBrush ?? Brushes.Black;
+                        Thickness normalBorderThickness = box.BorderThickness;
                         DockPanel.SetDock(box, Dock.Right);
 
                         row.Children.Add(lbl);
@@ -2392,6 +3940,59 @@ namespace RevitProjectDataAddin
                             }), DispatcherPriority.Input);
                         }
 
+                        Thickness GetInvalidBorderThickness()
+                        {
+                            if (normalBorderThickness.Left <= 0 && normalBorderThickness.Top <= 0
+                                && normalBorderThickness.Right <= 0 && normalBorderThickness.Bottom <= 0)
+                            {
+                                return new Thickness(1);
+                            }
+
+                            return normalBorderThickness;
+                        }
+
+                        void ApplyDeltaLimitValidationVisual()
+                        {
+                            if (!IsDigitOnlyText(box.Text))
+                                return;
+
+                            string now = (box.Text ?? string.Empty).Trim();
+                            if (!TryParseNumber(now, out var val) || val <= 0)
+                            {
+                                box.BorderBrush = normalBorderBrush;
+                                box.BorderThickness = normalBorderThickness;
+                                return;
+                            }
+
+                            bool exceedsLimit = TryGetOrangeSegLengthDeltaLimit(owner, key, isLeftMenu, pullLeft, out var maxAllowed)
+                                                && val > maxAllowed + 1e-6;
+
+                            box.BorderBrush = exceedsLimit ? Brushes.Red : normalBorderBrush;
+                            box.BorderThickness = exceedsLimit ? GetInvalidBorderThickness() : normalBorderThickness;
+                        }
+
+                        void ShowDeltaLimitRejectedState()
+                        {
+                            box.Dispatcher.BeginInvoke(new Action(() =>
+                            {
+                                box.BorderBrush = Brushes.Red;
+                                box.BorderThickness = GetInvalidBorderThickness();
+                            }), DispatcherPriority.Input);
+                        }
+
+                        bool WouldExceedDeltaLimit(string candidateText)
+                        {
+                            if (!IsDigitOnlyText(candidateText, allowEmpty: true))
+                                return false;
+
+                            string now = (candidateText ?? string.Empty).Trim();
+                            if (!TryParseNumber(now, out var val) || val <= 0)
+                                return false;
+
+                            return TryGetOrangeSegLengthDeltaLimit(owner, key, isLeftMenu, pullLeft, out var maxAllowed)
+                                   && val > maxAllowed + 1e-6;
+                        }
+
                         void EndEditShowPreview()
                         {
                             box.Visibility = System.Windows.Visibility.Collapsed;
@@ -2401,6 +4002,8 @@ namespace RevitProjectDataAddin
                                 preview.Visibility = System.Windows.Visibility.Visible;
 
                             if (activeLenBox == box) activeLenBox = null;
+                            if (activeLenRow == rowHost) activeLenRow = null;
+                            if (activeLenHide != null && activeLenBox == null) activeLenHide = null;
                         }
 
                         void BeginEdit()
@@ -2412,26 +4015,48 @@ namespace RevitProjectDataAddin
                                 activeLenBox.Visibility = System.Windows.Visibility.Collapsed;
                             }
                             activeLenBox = box;
+                            activeLenRow = rowHost;
+                            activeLenHide = EndEditShowPreview;
 
                             box.Text = (box.Text ?? string.Empty).Trim();
                             box.Tag = preview;
                             preview.Visibility = System.Windows.Visibility.Collapsed;
                             box.Visibility = System.Windows.Visibility.Visible;
+                            ApplyDeltaLimitValidationVisual();
                             FocusBox();
                         }
 
-                        void TryCommitOrRefocus()
+                        bool TryCommitOrRefocus(bool closeAllAfterValid)
                         {
                             string now = (box.Text ?? string.Empty).Trim();
-                            if (!TryParseNumber(now, out var val))
+                            if (!TryParseNumber(now, out var val) || val <= 0)
                             {
+                                ApplyDeltaLimitValidationVisual();
                                 FocusBox();
-                                return;
+                                return false;
                             }
+
+                            if (TryGetOrangeSegLengthDeltaLimit(owner, key, isLeftMenu, pullLeft, out var maxAllowed)
+                                && val > maxAllowed + 1e-6)
+                            {
+                                ApplyDeltaLimitValidationVisual();
+                                FocusBox();
+                                return false;
+                            }
+
                             bool changed = ApplyOrangeSegLengthDelta(owner, key, isLeftMenu, pullLeft, val);
+                            if (!changed)
+                            {
+                                ApplyDeltaLimitValidationVisual();
+                                FocusBox();
+                                return false;
+                            }
+
                             if (changed)
                                 Redraw(canvas, owner);
                             EndEditShowPreview();
+                            if (closeAllAfterValid) CloseAll();
+                            return true;
                         }
 
                         rowHost.MouseLeftButtonDown += (ss, ee) =>
@@ -2439,10 +4064,7 @@ namespace RevitProjectDataAddin
                             ee.Handled = true;
                             SelectLenDir(rowHost);
 
-                            if (box.Visibility != System.Windows.Visibility.Visible)
-                                BeginEdit();
-                            else
-                                FocusBox();
+                            BeginEdit();
                         };
 
                         rowHost.MouseEnter += (_, __) =>
@@ -2453,11 +4075,54 @@ namespace RevitProjectDataAddin
                             SelectLenDir(rowHost);
                         };
 
+                        box.TextChanged += (_, __) => ApplyDeltaLimitValidationVisual();
+
+                        box.PreviewTextInput += (_, ee) =>
+                        {
+                            if (ee.Handled)
+                                return;
+
+                            string candidate = BuildCandidateText(box, ee.Text);
+                            if (!WouldExceedDeltaLimit(candidate))
+                                return;
+
+                            ShowDeltaLimitRejectedState();
+                            ee.Handled = true;
+                        };
+
+                        DataObject.AddPastingHandler(box, new DataObjectPastingEventHandler((_, ee) =>
+                        {
+                            string pastedText = null;
+
+                            if (ee.SourceDataObject != null)
+                            {
+                                if (ee.SourceDataObject.GetDataPresent(DataFormats.UnicodeText))
+                                    pastedText = ee.SourceDataObject.GetData(DataFormats.UnicodeText) as string;
+                                else if (ee.SourceDataObject.GetDataPresent(DataFormats.Text))
+                                    pastedText = ee.SourceDataObject.GetData(DataFormats.Text) as string;
+                            }
+
+                            string candidate = BuildCandidateText(box, pastedText ?? string.Empty);
+                            if (!WouldExceedDeltaLimit(candidate))
+                                return;
+
+                            ShowDeltaLimitRejectedState();
+                            ee.CancelCommand();
+                        }));
+                        rowHost.MouseLeave += (_, __) =>
+                        {
+                            rowHost.Dispatcher.BeginInvoke(new Action(() =>
+                            {
+                                if (rowHost.IsMouseOver) return;
+                                EndEditShowPreview();
+                            }), DispatcherPriority.Background);
+                        };
+
                         box.KeyDown += (ss, ee) =>
                         {
                             if (ee.Key == Key.Enter)
                             {
-                                TryCommitOrRefocus();
+                                TryCommitOrRefocus(closeAllAfterValid: true);
                                 ee.Handled = true;
                             }
                             else if (ee.Key == Key.Escape)
@@ -2470,13 +4135,13 @@ namespace RevitProjectDataAddin
                         box.LostKeyboardFocus += (_, __) =>
                         {
                             if (box.Visibility == System.Windows.Visibility.Visible)
-                                TryCommitOrRefocus();
+                                EndEditShowPreview();
                         };
 
                         return rowHost;
                     }
 
-                    // ✅ NEW: dòng “chiều dài tổng” (không preview, click mới hiện textbox)
+                    // ✅ NEW: dòng “chiều dài tổng” dùng cùng cơ chế preview/edit như 2 dòng còn lại
                     Border MakeTotalLenRow(string label)
                     {
                         var rowHost = new Border
@@ -2497,18 +4162,63 @@ namespace RevitProjectDataAddin
                         };
                         DockPanel.SetDock(lbl, Dock.Left);
 
+                        var preview = new TextBlock
+                        {
+                            MinWidth = 50,
+                            Margin = new Thickness(30, 0, 0, 0),
+                            VerticalAlignment = VerticalAlignment.Center,
+                            TextAlignment = TextAlignment.Left
+                        };
+                        DockPanel.SetDock(preview, Dock.Right);
+
                         var box = new TextBox
                         {
-                            Width = 60,
-                            MinWidth = 60,
+                            Width = 50,
+                            MinWidth = 50,
                             VerticalContentAlignment = VerticalAlignment.Center,
+                            TextAlignment = TextAlignment.Left,
+                            Margin = new Thickness(30, 0, 0, 0),
                             Visibility = System.Windows.Visibility.Collapsed
                         };
+                        AttachDimIntegerValidation(box);
                         DockPanel.SetDock(box, Dock.Right);
+                        box.Tag = preview;
 
                         row.Children.Add(lbl);
                         row.Children.Add(box);
+                        row.Children.Add(preview);
                         rowHost.Child = row;
+
+                        void RefreshDisplayFromCurrent()
+                        {
+                            if (TryGetSegKeyForDimKey(owner, key, out var segKey)
+                                && TryGetSegLength(owner, segKey, out var segLength))
+                            {
+                                string text = segLength.ToString(CultureInfo.InvariantCulture);
+                                box.Text = text;
+                                preview.Text = text;
+                            }
+                            else
+                            {
+                                box.Text = string.Empty;
+                                preview.Text = string.Empty;
+                            }
+                        }
+
+                        void SetDisplayMode()
+                        {
+                            box.IsReadOnly = true;
+                            box.BorderThickness = new Thickness(0);
+                            box.Background = Brushes.Transparent;
+                        }
+
+                        void SetEditMode()
+                        {
+                            box.IsReadOnly = false;
+                            box.BorderThickness = new Thickness(1);
+                            box.BorderBrush = PopupMenuEditorBorderBrush;
+                            box.Background = Brushes.White;
+                        }
 
                         void FocusBox()
                         {
@@ -2519,29 +4229,38 @@ namespace RevitProjectDataAddin
                             }), DispatcherPriority.Input);
                         }
 
-                        void EndEdit()
+                        void CancelEditWithoutCommit()
                         {
+                            RefreshDisplayFromCurrent();
+                            SetDisplayMode();
+                            Keyboard.ClearFocus();
+                            if (box.Tag is FrameworkElement prev)
+                                prev.Visibility = System.Windows.Visibility.Visible;
+                            else
+                                preview.Visibility = System.Windows.Visibility.Visible;
                             box.Visibility = System.Windows.Visibility.Collapsed;
                             if (activeLenBox == box) activeLenBox = null;
+                            if (activeLenRow == rowHost) activeLenRow = null;
+                            if (activeLenHide != null && activeLenBox == null) activeLenHide = null;
+                        }
+
+                        void EndEdit()
+                        {
+                            CancelEditWithoutCommit();
                         }
 
                         void BeginEdit()
                         {
+                            CancelActiveLenEdit();
+                            RefreshDisplayFromCurrent();
+                            SetEditMode();
                             if (activeLenBox != null && activeLenBox != box)
                                 CancelActiveLenEdit();
 
                             activeLenBox = box;
-
-                            if (TryGetSegKeyForDimKey(owner, key, out var segKey)
-                                && TryGetSegLength(owner, segKey, out var segLength))
-                            {
-                                box.Text = segLength.ToString(CultureInfo.InvariantCulture);
-                            }
-                            else
-                            {
-                                box.Text = string.Empty;
-                            }
-
+                            activeLenRow = rowHost;
+                            activeLenHide = EndEdit;
+                            preview.Visibility = System.Windows.Visibility.Collapsed;
                             box.Visibility = System.Windows.Visibility.Visible;
                             FocusBox();
                         }
@@ -2549,39 +4268,67 @@ namespace RevitProjectDataAddin
                         bool TryCommitOrRefocus(bool closeAllAfterValid)
                         {
                             string now = (box.Text ?? string.Empty).Trim();
-                            if (!TryParseNumber(now, out var val))
+                            if (!TryParseNumber(now, out var val) || val <= 0)
                             {
                                 FocusBox();
                                 return false;
                             }
 
+                            bool changed = false;
                             if (owner != null && TryGetSegKeyForDimKey(owner, key, out var segKey))
                             {
                                 double newTotal = Math.Max(0, val);
-                                if (ApplyOrangeSegTotalLength(owner, segKey, anchorLeft: !isLeftMenu, newLength: newTotal))
-                                    Redraw(canvas, owner);
+                                changed = ApplyOrangeSegTotalLength(owner, segKey, anchorLeft: !isLeftMenu, newLength: newTotal);
                             }
 
-                            EndEdit();
+                            if (changed)
+                            {
+                                if (closeAllAfterValid) CloseAll();
+                                Redraw(canvas, owner);
+                                return true;
+                            }
+
+                            CancelEditWithoutCommit();
                             if (closeAllAfterValid) CloseAll();
                             return true;
                         }
+
+                        RefreshDisplayFromCurrent();
+                        SetDisplayMode();
 
                         rowHost.MouseLeftButtonDown += (ss, ee) =>
                         {
                             ee.Handled = true;
                             SelectLenDir(rowHost);
 
-                            if (box.Visibility != System.Windows.Visibility.Visible)
-                                BeginEdit();
-                            else
-                                FocusBox();
+                            BeginEdit();
                         };
 
                         rowHost.MouseEnter += (_, __) =>
                         {
                             CancelActiveAnkaEdit();
+                            if (activeLenBox != box)
+                                CancelActiveLenEdit();
                             SelectLenDir(rowHost);
+                        };
+
+                        box.PreviewMouseLeftButtonDown += (ss, ee) =>
+                        {
+                            SelectLenDir(rowHost);
+                            if (box.IsReadOnly)
+                            {
+                                BeginEdit();
+                                ee.Handled = true;
+                            }
+                        };
+
+                        rowHost.MouseLeave += (_, __) =>
+                        {
+                            rowHost.Dispatcher.BeginInvoke(new Action(() =>
+                            {
+                                if (rowHost.IsMouseOver) return;
+                                EndEdit();
+                            }), DispatcherPriority.Background);
                         };
 
                         box.KeyDown += (ss, ee) =>
@@ -2594,19 +4341,26 @@ namespace RevitProjectDataAddin
                             }
                             else if (ee.Key == Key.Escape)
                             {
-                                EndEdit();
+                                CancelEditWithoutCommit();
                                 ee.Handled = true;
                             }
                         };
 
                         box.LostKeyboardFocus += (_, __) =>
                         {
-                            if (box.Visibility == System.Windows.Visibility.Visible)
-                                TryCommitOrRefocus(closeAllAfterValid: false);
+                            if (!box.IsReadOnly)
+                                CancelEditWithoutCommit();
                         };
 
                         return rowHost;
                     }
+
+                    root.MouseMove += (_, __) =>
+                    {
+                        if (activeLenRow == null) return;
+                        if (activeLenRow.IsMouseOver) return;
+                        activeLenHide?.Invoke();
+                    };
 
                     var rowPullLeft = MakeLenDirRow("左へ引く", pullLeft: true);
                     var rowPullRight = MakeLenDirRow("右へ引く", pullLeft: false);
@@ -2629,10 +4383,9 @@ namespace RevitProjectDataAddin
 
                 void OpenLenPopup(Button placementBtn)
                 {
-                    if (lenDirPop != null) lenDirPop.IsOpen = false;
+                    int openRequestId = unchecked(++mainPopupOpenRequestId);
+                    CloseSubMenus();
                     if (lenPop != null) lenPop.IsOpen = false;
-                    if (sidePop != null) sidePop.IsOpen = false;
-                    if (ankaPop != null) ankaPop.IsOpen = false;
 
                     lenPop = new System.Windows.Controls.Primitives.Popup
                     {
@@ -2687,15 +4440,496 @@ namespace RevitProjectDataAddin
 
                     placementBtn.Dispatcher.BeginInvoke(new Action(() =>
                     {
+                        if (openRequestId != mainPopupOpenRequestId) return;
+                        if (!ReferenceEquals(selectedMainBtn, placementBtn)) return;
                         lenPop.IsOpen = true;
                         SelectLen(null);
                     }), DispatcherPriority.Input);
                 }
 
+                bool TryParsePositiveInt(string text, out int n)
+                {
+                    n = 0;
+                    if (!int.TryParse((text ?? string.Empty).Trim(), out n)) return false;
+                    return n > 0;
+                }
+
+                void OpenCutDetailPopup(FrameworkElement placementTarget, int segments)
+                {
+                    CloseSubMenusExcept(cutModePop, cutInputPop);
+                    if (cutDetailPop != null) cutDetailPop.IsOpen = false;
+
+                    if (segments < 2) return;
+                    if (!TryGetSegKeyForDimKey(owner, key, out var segKey)) return;
+
+                    double baseX1 = segKey.X1_10 / 10.0;
+                    double baseX2 = segKey.X2_10 / 10.0;
+                    var (segX1, segX2) = GetOrangeSegOverride(owner, segKey, baseX1, baseX2);
+                    double totalLength = segX2 - segX1;
+                    if (totalLength <= 1e-6) return;
+
+                    cutDetailPop = new System.Windows.Controls.Primitives.Popup
+                    {
+                        PlacementTarget = placementTarget,
+                        Placement = System.Windows.Controls.Primitives.PlacementMode.Right,
+                        HorizontalOffset = 16,
+                        VerticalOffset = -7.5,
+                        AllowsTransparency = true,
+                        StaysOpen = true
+                    };
+
+                    // =========================
+                    // POPUP WIDTH CHÍNH
+                    // =========================
+                    var root = new StackPanel
+                    {
+                        Orientation = Orientation.Vertical,
+                        Margin = new Thickness(10, 6, 10, 6),
+                        MinWidth = 10   // <<< chỉnh chiều ngang popup tại đây
+                    };
+
+                    // ===== direction row =====
+                    var dirRow = new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal,
+                        Margin = new Thickness(10, 6, 10, 6)
+                    };
+
+                    dirRow.Children.Add(new TextBlock
+                    {
+                        Text = "方向",
+                        Width = 50,
+                        VerticalAlignment = VerticalAlignment.Center
+                    });
+
+                    var cmbDirection = new ComboBox
+                    {
+                        Width = 65,
+                        ItemsSource = new[] { "左→右", "右→左" },
+                        SelectedIndex = 0
+                    };
+
+                    dirRow.Children.Add(cmbDirection);
+                    root.Children.Add(WithRowDivider(dirRow));
+
+                    var inputBoxes = new List<TextBox>();
+                    var autoBoxes = new List<TextBox>();
+                    var autoPreviewBackground = new SolidColorBrush(Color.FromRgb(255, 248, 214));
+                    var autoPreviewBorderBrush = new SolidColorBrush(Color.FromRgb(214, 190, 122));
+                    var inputBoxBorderBrushes = new Dictionary<TextBox, Brush>();
+                    var inputBoxBorderThicknesses = new Dictionary<TextBox, Thickness>();
+
+                    for (int i = 1; i <= segments; i++)
+                    {
+                        var row = new StackPanel
+                        {
+                            Orientation = Orientation.Horizontal,
+                            Margin = new Thickness(10, 6, 10, 6),
+                            MinWidth = 50
+                        };
+
+                        row.Children.Add(new TextBlock
+                        {
+                            Text = $"{i}:",
+                            Width = 24,
+                            VerticalAlignment = VerticalAlignment.Center
+                        });
+
+                        var box = new TextBox
+                        {
+                            Width = 100,
+                            VerticalContentAlignment = VerticalAlignment.Center,
+                            Padding = new Thickness(2, 0, 2, 0)
+                        };
+
+                        if (i < segments)
+                        {
+                            AttachDimIntegerValidation(box);
+                            inputBoxBorderBrushes[box] = box.BorderBrush;
+                            inputBoxBorderThicknesses[box] = box.BorderThickness;
+                            inputBoxes.Add(box);
+                        }
+                        else
+                        {
+                            box.IsReadOnly = true;
+                            box.IsTabStop = false;
+                            box.Background = autoPreviewBackground;
+                            box.BorderBrush = autoPreviewBorderBrush;
+                            box.Foreground = Brushes.DarkSlateGray;
+                            box.FontWeight = FontWeights.SemiBold;
+                            box.ToolTip = "Automatically calculated remaining length";
+                            autoBoxes.Add(box);
+                        }
+
+                        row.Children.Add(box);
+                        root.Children.Add(WithRowDivider(row));
+                    }
+
+                    var txtError = new TextBlock
+                    {
+                        Margin = new Thickness(10, -17, 10, -17),
+                        Foreground = Brushes.Red,
+                        TextWrapping = TextWrapping.Wrap
+                    };
+                    var manualInputBackground = Brushes.White;
+                    var invalidInputBorderBrush = Brushes.Red;
+
+                    //root.Children.Add(WithRowDivider(txtError));
+
+                    void SetAutoBoxes(double remaining)
+                    {
+                        double safeRemaining = Math.Max(0.0, remaining);
+                        string previewText = Math.Round(safeRemaining, MidpointRounding.AwayFromZero).ToString("0");
+                        foreach (var autoBox in autoBoxes)
+                            autoBox.Text = previewText;
+                    }
+
+                    void ResetInputBoxStates()
+                    {
+                        foreach (var inputBox in inputBoxes)
+                        {
+                            inputBox.Background = manualInputBackground;
+
+                            if (inputBoxBorderBrushes.TryGetValue(inputBox, out var normalBorderBrush))
+                                inputBox.BorderBrush = normalBorderBrush;
+
+                            if (inputBoxBorderThicknesses.TryGetValue(inputBox, out var normalBorderThickness))
+                                inputBox.BorderThickness = normalBorderThickness;
+                        }
+                    }
+
+                    void MarkInputBoxInvalid(TextBox box)
+                    {
+                        if (box == null)
+                            return;
+
+                        box.Background = manualInputBackground;
+                        box.BorderBrush = invalidInputBorderBrush;
+
+                        if (inputBoxBorderThicknesses.TryGetValue(box, out var normalBorderThickness))
+                        {
+                            if (normalBorderThickness.Left <= 0 && normalBorderThickness.Top <= 0
+                                && normalBorderThickness.Right <= 0 && normalBorderThickness.Bottom <= 0)
+                            {
+                                box.BorderThickness = new Thickness(1);
+                            }
+                            else
+                            {
+                                box.BorderThickness = normalBorderThickness;
+                            }
+                        }
+                    }
+
+                    bool TryPreviewCurrentState(out double enteredSum, out TextBox invalidBox, out string validationMessage)
+                    {
+                        enteredSum = 0.0;
+                        invalidBox = null;
+                        validationMessage = string.Empty;
+
+                        foreach (var box in inputBoxes)
+                        {
+                            string raw = (box.Text ?? string.Empty).Trim();
+                            if (string.IsNullOrWhiteSpace(raw))
+                                continue;
+
+                            if (!int.TryParse(raw, out var value) || value <= 0)
+                            {
+                                invalidBox = box;
+                                validationMessage = "Please enter positive integers.";
+                                return false;
+                            }
+
+                            enteredSum += value;
+                            if (totalLength - enteredSum <= 0.0)
+                            {
+                                invalidBox = box;
+                                validationMessage = "Remaining length must stay positive.";
+                                return false;
+                            }
+                        }
+
+                        return true;
+                    }
+
+                    bool ValidateAndPreview(out List<double> lengths)
+                    {
+                        lengths = new List<double>();
+                        ResetInputBoxStates();
+                        txtError.Text = string.Empty;
+
+                        double enteredSum = 0.0;
+                        foreach (var box in inputBoxes)
+                        {
+                            string raw = (box.Text ?? string.Empty).Trim();
+                            if (string.IsNullOrWhiteSpace(raw))
+                            {
+                                RefreshValidation();
+                                return false;
+                            }
+
+                            if (!int.TryParse(raw, out var value) || value <= 0)
+                            {
+                                MarkInputBoxInvalid(box);
+                                SetAutoBoxes(totalLength - enteredSum);
+                                txtError.Text = "Please enter positive integers.";
+                                return false;
+                            }
+
+                            lengths.Add(value);
+                            enteredSum += value;
+                            if (totalLength - enteredSum <= 0.0)
+                            {
+                                MarkInputBoxInvalid(box);
+                                SetAutoBoxes(0.0);
+                                txtError.Text = "Remaining length must stay positive.";
+                                return false;
+                            }
+                        }
+
+                        double remaining = totalLength - enteredSum;
+                        double roundedRemaining = Math.Round(remaining, MidpointRounding.AwayFromZero);
+
+                        SetAutoBoxes(remaining);
+
+                        if (roundedRemaining <= 0)
+                        {
+                            txtError.Text = "Remaining length must stay positive.";
+                            return false;
+                        }
+
+                        lengths.Add(roundedRemaining);
+
+                        if (Math.Abs(lengths.Sum() - totalLength) > 1.0)
+                        {
+                            txtError.Text = "Entered lengths do not match the segment length.";
+                            return false;
+                        }
+
+                        return true;
+                    }
+
+                    void RefreshValidation()
+                    {
+                        ResetInputBoxStates();
+                        txtError.Text = string.Empty;
+
+                        if (!TryPreviewCurrentState(out var enteredSum, out var invalidBox, out var validationMessage))
+                        {
+                            if (invalidBox != null)
+                                MarkInputBoxInvalid(invalidBox);
+
+                            SetAutoBoxes(totalLength - enteredSum);
+                            txtError.Text = validationMessage;
+                            return;
+                        }
+
+                        double remaining = totalLength - enteredSum;
+                        SetAutoBoxes(remaining);
+                    }
+
+                    foreach (var box in inputBoxes)
+                    {
+                        box.TextChanged += (_, __) => RefreshValidation();
+                        box.KeyDown += (_, ee) =>
+                        {
+                            if (ee.Key == Key.Enter)
+                            {
+                                if (ValidateAndPreview(out var lengths))
+                                {
+                                    bool leftToRight = cmbDirection.SelectedIndex != 1;
+                                    if (ApplyCustomCutToOrangeSegment(owner, key, lengths, leftToRight))
+                                    {
+                                        CloseAll();
+                                        Redraw(canvas, owner);
+                                    }
+                                }
+                                ee.Handled = true;
+                            }
+                        };
+                    }
+
+                    RefreshValidation();
+
+                    cutDetailPop.Child = WrapBox(root);
+
+                    var focusOwner = placementTarget as TextBox;
+                    int focusOwnerSelectionStart = focusOwner?.SelectionStart ?? 0;
+                    int focusOwnerSelectionLength = focusOwner?.SelectionLength ?? 0;
+
+                    placementTarget.Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        cutDetailPop.IsOpen = true;
+
+                        if (focusOwner == null)
+                            return;
+
+                        if (!focusOwner.IsKeyboardFocusWithin)
+                        {
+                            focusOwner.Focus();
+                        }
+
+                        string currentText = focusOwner.Text ?? string.Empty;
+                        int selectionStart = Math.Max(0, Math.Min(focusOwnerSelectionStart, currentText.Length));
+                        int selectionLength = Math.Max(0, Math.Min(focusOwnerSelectionLength, currentText.Length - selectionStart));
+                        focusOwner.Select(selectionStart, selectionLength);
+                    }), DispatcherPriority.Input);
+                }
+                void OpenCutInputPopup(Button placementBtn, bool isCustom)
+                {
+                    CloseSubMenusExcept(cutModePop);
+                    if (cutDetailPop != null) cutDetailPop.IsOpen = false;
+                    if (cutInputPop != null) cutInputPop.IsOpen = false;
+
+                    cutInputPop = new System.Windows.Controls.Primitives.Popup
+                    {
+                        PlacementTarget = placementBtn,
+                        Placement = System.Windows.Controls.Primitives.PlacementMode.Right,
+                        HorizontalOffset = 1,
+                        VerticalOffset = -1.5,
+                        AllowsTransparency = true,
+                        StaysOpen = true
+                    };
+
+                    var root = new StackPanel { Orientation = Orientation.Vertical };
+                    var row = new Grid
+                    {
+                        Margin = new Thickness(10, 6, 10, 6),
+                        MinWidth = 90
+                    };
+                    row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                    row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+                    var lblSegments = new TextBlock
+                    {
+                        Text = "数段",
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Margin = new Thickness(0, 0, 10, 0)
+                    };
+                    Grid.SetColumn(lblSegments, 0);
+
+                    var txtSegments = new TextBox
+                    {
+                        Width = 50,
+                        VerticalContentAlignment = VerticalAlignment.Center,
+                        Padding = new Thickness(2, 0, 2, 0),
+                        HorizontalAlignment = HorizontalAlignment.Left
+                    };
+                    AttachDimIntegerValidation(txtSegments);
+                    Grid.SetColumn(txtSegments, 1);
+
+                    row.Children.Add(lblSegments);
+                    row.Children.Add(txtSegments);
+
+                    void TryOpenCustomDetail()
+                    {
+                        if (!isCustom) return;
+                        if (TryParsePositiveInt(txtSegments.Text, out int n) && n >= 2)
+                            OpenCutDetailPopup(txtSegments, n);
+                        else if (cutDetailPop != null)
+                            cutDetailPop.IsOpen = false;
+                    }
+
+                    void TryApplyEqualCutAndClose()
+                    {
+                        if (isCustom) return;
+                        if (!TryParsePositiveInt(txtSegments.Text, out int n) || n < 2) return;
+
+                        if (ApplyEqualCutToOrangeSegment(owner, key, n))
+                        {
+                            CloseAll();
+                            Redraw(canvas, owner);
+                        }
+                    }
+
+                    txtSegments.TextChanged += (_, __) =>
+                    {
+                        if (!isCustom)
+                            return;
+
+                        TryOpenCustomDetail();
+                    };
+                    txtSegments.KeyDown += (_, ee) =>
+                    {
+                        if (ee.Key == Key.Enter)
+                        {
+                            TryOpenCustomDetail();
+                            TryApplyEqualCutAndClose();
+                            ee.Handled = true;
+                        }
+                    };
+
+                    root.Children.Add(WithRowDivider(row));
+
+                    cutInputPop.Child = WrapBox(root);
+
+                    placementBtn.Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        cutInputPop.IsOpen = true;
+                        txtSegments.Focus();
+                        txtSegments.SelectAll();
+                    }), DispatcherPriority.Input);
+                }
+
+                void OpenCutModePopup(Button placementBtn)
+                {
+                    int openRequestId = unchecked(++mainPopupOpenRequestId);
+                    CloseSubMenus();
+                    if (cutModePop != null) cutModePop.IsOpen = false;
+
+                    cutModePop = new System.Windows.Controls.Primitives.Popup
+                    {
+                        PlacementTarget = placementBtn,
+                        Placement = System.Windows.Controls.Primitives.PlacementMode.Right,
+                        HorizontalOffset = 1,
+                        VerticalOffset = -1.5,
+                        AllowsTransparency = true,
+                        StaysOpen = true
+                    };
+
+                    var root = new StackPanel { Orientation = Orientation.Vertical };
+                    var btnEqual = MakeMenuButton("等分切断", hasNext: true, minWidth: MENU2_MIN_WIDTH);
+                    var btnCustom = MakeMenuButton("任意切断", hasNext: true, minWidth: MENU2_MIN_WIDTH);
+
+                    btnEqual.MouseEnter += (_, __) =>
+                    {
+                        SelectCut(btnEqual);
+                        OpenCutInputPopup(btnEqual, isCustom: false);
+                    };
+                    btnEqual.Click += (_, __) =>
+                    {
+                        SelectCut(btnEqual);
+                        OpenCutInputPopup(btnEqual, isCustom: false);
+                    };
+
+                    btnCustom.MouseEnter += (_, __) =>
+                    {
+                        SelectCut(btnCustom);
+                        OpenCutInputPopup(btnCustom, isCustom: true);
+                    };
+                    btnCustom.Click += (_, __) =>
+                    {
+                        SelectCut(btnCustom);
+                        OpenCutInputPopup(btnCustom, isCustom: true);
+                    };
+
+                    root.Children.Add(WithRowDivider(btnEqual));
+                    root.Children.Add(WithRowDivider(btnCustom));
+                    cutModePop.Child = WrapBox(root);
+
+                    placementBtn.Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        if (openRequestId != mainPopupOpenRequestId) return;
+                        if (!ReferenceEquals(selectedMainBtn, placementBtn)) return;
+                        cutModePop.IsOpen = true;
+                        SelectCut(null);
+                    }), DispatcherPriority.Input);
+                }
+
                 void OpenAnkaPopup(Button placementBtn)
                 {
+                    int openRequestId = unchecked(++mainPopupOpenRequestId);
+                    CloseSubMenus();
                     if (ankaPop != null) ankaPop.IsOpen = false;
-                    if (sidePop != null) sidePop.IsOpen = false;
 
                     ankaPop = new System.Windows.Controls.Primitives.Popup
                     {
@@ -2750,6 +4984,8 @@ namespace RevitProjectDataAddin
 
                     placementBtn.Dispatcher.BeginInvoke(new Action(() =>
                     {
+                        if (openRequestId != mainPopupOpenRequestId) return;
+                        if (!ReferenceEquals(selectedMainBtn, placementBtn)) return;
                         ankaPop.IsOpen = true;
                         SelectAnka(null);
                     }), DispatcherPriority.Input);
@@ -2771,31 +5007,103 @@ namespace RevitProjectDataAddin
                     OpenAnkaPopup(btnAnka);
                 };
 
-                var btnD = MakeMenuButton("D", hasNext: false, minWidth: MENU1_MIN_WIDTH);
+                void OpenDDiaPopup(Button placementBtn)
+                {
+                    int openRequestId = unchecked(++mainPopupOpenRequestId);
+                    CloseSubMenus();
+                    if (dDiaPop != null) dDiaPop.IsOpen = false;
+
+                    dDiaPop = new System.Windows.Controls.Primitives.Popup
+                    {
+                        PlacementTarget = placementBtn,
+                        Placement = System.Windows.Controls.Primitives.PlacementMode.Right,
+                        HorizontalOffset = 1,
+                        VerticalOffset = -1.5,
+                        AllowsTransparency = true,
+                        StaysOpen = true
+                    };
+
+                    TrySplitTopParts(tb.Text, out var curD, out var curLen);
+                    var root = new StackPanel { Orientation = Orientation.Vertical };
+
+                    foreach (var dia in _standardRebarDiameters)
+                    {
+                        var d = dia;
+                        bool isChecked = string.Equals(d, curD, StringComparison.Ordinal);
+
+                        var rowPanel = new DockPanel { LastChildFill = true };
+                        var check = new TextBlock
+                        {
+                            Text = isChecked ? "✓" : "",
+                            Width = 20,
+                            Margin = new Thickness(0, 0, 0, 0),
+                            VerticalAlignment = VerticalAlignment.Center,
+                            HorizontalAlignment = HorizontalAlignment.Left
+                        };
+                        DockPanel.SetDock(check, Dock.Left);
+
+                        var label = new TextBlock
+                        {
+                            Text = d,
+                            VerticalAlignment = VerticalAlignment.Center
+                        };
+
+                        rowPanel.Children.Add(check);
+                        rowPanel.Children.Add(label);
+
+                        var rowBtn = new Button
+                        {
+                            Content = rowPanel,
+                            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                            VerticalContentAlignment = VerticalAlignment.Center,
+                            Padding = new Thickness(12, 6, 12, 6),
+                            Background = normalBg,
+                            BorderBrush = Brushes.Transparent,
+                            BorderThickness = new Thickness(0),
+                            MinWidth = MENU2_MIN_WIDTH,
+                            OverridesDefaultStyle = true,
+                            Template = GetFlatBtnTemplate(),
+                            Focusable = false,
+                            IsTabStop = false
+                        };
+
+                        var rowHost = new Border { Child = rowBtn, Background = normalBg };
+
+                        rowBtn.MouseEnter += (_, __) => SelectDRow(rowHost);
+                        rowBtn.Click += (_, __) =>
+                        {
+                            SelectDRow(rowHost);
+                            string newWhole = $"D{d}-{curLen}";
+                            if (SetOrangeDimText(owner, key, newWhole))
+                                Redraw(canvas, owner);
+                            CloseAll();
+                        };
+
+                        root.Children.Add(WithRowDivider(rowHost));
+                    }
+
+                    dDiaPop.Child = WrapBox(root);
+                    placementBtn.Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        if (openRequestId != mainPopupOpenRequestId) return;
+                        if (!ReferenceEquals(selectedMainBtn, placementBtn)) return;
+                        dDiaPop.IsOpen = true;
+                        SelectDRow(null);
+                    }), DispatcherPriority.Input);
+                }
+
+                var btnD = MakeMenuButton("D", hasNext: true, minWidth: MENU1_MIN_WIDTH);
                 btnD.MouseEnter += (_, __) =>
                 {
                     CancelActiveAnkaEdit();
-                    CloseSubMenus();
                     SelectMain(btnD);
+                    OpenDDiaPopup(btnD);
                 };
                 btnD.Click += (_, __) =>
                 {
                     CancelActiveAnkaEdit();
-                    CloseSubMenus();
                     SelectMain(btnD);
-                    CloseAll();
-
-                    TrySplitTopParts(tb.Text, out var curD, out var curLen);
-                    ShowComboEditor(canvas, tb, T, wx, wy, HAnchor.Center, VAnchor.Bottom,
-                        () => _standardRebarDiameters,
-                        () => curD,
-                        newDia =>
-                        {
-                            string dia = (newDia ?? string.Empty).Trim();
-                            string newWhole = $"D{dia}-{curLen}";
-                            if (SetOrangeDimText(owner, key, newWhole))
-                                Redraw(canvas, owner);
-                        });
+                    OpenDDiaPopup(btnD);
                 };
 
                 var btnLen = MakeMenuButton("長さ", hasNext: true, minWidth: MENU1_MIN_WIDTH);
@@ -2812,32 +5120,32 @@ namespace RevitProjectDataAddin
                     OpenLenPopup(btnLen);
                 };
 
-                var btnCut = MakeMenuButton("鉄筋を切る", hasNext: false, minWidth: MENU1_MIN_WIDTH);
+                var btnCut = MakeMenuButton("鉄筋を切る", hasNext: true, minWidth: MENU1_MIN_WIDTH);
                 btnCut.MouseEnter += (_, __) =>
                 {
                     CancelActiveAnkaEdit();
-                    CloseSubMenus();
                     SelectMain(btnCut);
+                    OpenCutModePopup(btnCut);
                 };
                 btnCut.Click += (_, __) =>
                 {
                     CancelActiveAnkaEdit();
-                    CloseSubMenus();
                     SelectMain(btnCut);
-                    CloseAll();
-                    MessageBox.Show("Thực hiện hành động CẮT đoạn DIM này");
+                    OpenCutModePopup(btnCut);
                 };
 
                 var btnDel = MakeMenuButton("鉄筋を削除", hasNext: false, minWidth: MENU1_MIN_WIDTH);
                 btnDel.MouseEnter += (_, __) =>
                 {
                     CancelActiveAnkaEdit();
+                    InvalidatePendingMainPopupOpen();
                     CloseSubMenus();
                     SelectMain(btnDel);
                 };
                 btnDel.Click += (_, __) =>
                 {
                     CancelActiveAnkaEdit();
+                    InvalidatePendingMainPopupOpen();
                     CloseSubMenus();
                     SelectMain(btnDel);
                     CloseAll();
@@ -2852,29 +5160,29 @@ namespace RevitProjectDataAddin
                     }
                 };
 
-                var btnReset = MakeMenuButton("リセット", hasNext: false, minWidth: MENU1_MIN_WIDTH);
-                btnReset.MouseEnter += (_, __) =>
-                {
-                    CancelActiveAnkaEdit();
-                    CloseSubMenus();
-                    SelectMain(btnReset);
-                };
-                btnReset.Click += (_, __) =>
-                {
-                    CancelActiveAnkaEdit();
-                    CloseSubMenus();
-                    SelectMain(btnReset);
-                    CloseAll();
-                    if (SetOrangeDimText(owner, key, ""))
-                        Redraw(canvas, owner);
-                };
+                //var btnReset = MakeMenuButton("リセット", hasNext: false, minWidth: MENU1_MIN_WIDTH);
+                //btnReset.MouseEnter += (_, __) =>
+                //{
+                //    CancelActiveAnkaEdit();
+                //    CloseSubMenus();
+                //    SelectMain(btnReset);
+                //};
+                //btnReset.Click += (_, __) =>
+                //{
+                //    CancelActiveAnkaEdit();
+                //    CloseSubMenus();
+                //    SelectMain(btnReset);
+                //    CloseAll();
+                //    if (SetOrangeDimText(owner, key, ""))
+                //        Redraw(canvas, owner);
+                //};
 
                 mainRoot.Children.Add(WithRowDivider(btnAnka));
                 mainRoot.Children.Add(WithRowDivider(btnD));
                 mainRoot.Children.Add(WithRowDivider(btnLen));
                 mainRoot.Children.Add(WithRowDivider(btnCut));
                 mainRoot.Children.Add(WithRowDivider(btnDel));
-                mainRoot.Children.Add(WithRowDivider(btnReset));
+                //mainRoot.Children.Add(WithRowDivider(btnReset));
 
                 mainPop.Child = WrapBox(mainRoot);
 
@@ -2899,9 +5207,45 @@ namespace RevitProjectDataAddin
         //    = new Dictionary<GridBotsecozu, Dictionary<int, double>>();
         private readonly Dictionary<GridBotsecozu, Dictionary<(int spanIndex, bool isRightAbdominal, bool isRightEnd), double>>
         _tanbuHookOverrides = new Dictionary<GridBotsecozu, Dictionary<(int spanIndex, bool isRightAbdominal, bool isRightEnd), double>>();
+        private readonly Dictionary<GridBotsecozu, Dictionary<(int spanIndex, bool isRightAbdominal), string>>
+        _tanbuDiameterOverrides = new Dictionary<GridBotsecozu, Dictionary<(int spanIndex, bool isRightAbdominal), string>>();
 
-        private static string BuildTanbuHookKey(int spanIndex, bool isRightAbdominal, bool isRightEnd)
-            => $"{spanIndex}:{(isRightAbdominal ? 1 : 0)}:{(isRightEnd ? 1 : 0)}";
+        private static string MakeTanbuHookKey(int spanIndex, bool isRightAbdominal, bool isRightEnd)
+            => $"{spanIndex}|{(isRightAbdominal ? 1 : 0)}|{(isRightEnd ? 1 : 0)}";
+
+        private static string MakeTanbuDiameterKey(int spanIndex, bool isRightAbdominal)
+            => $"{spanIndex}|{(isRightAbdominal ? 1 : 0)}";
+
+        private static bool TryParseTanbuHookKey(string key, out (int spanIndex, bool isRightAbdominal, bool isRightEnd) parsed)
+        {
+            parsed = default;
+            if (string.IsNullOrWhiteSpace(key)) return false;
+
+            var parts = key.Split('|');
+            if (parts.Length != 3) return false;
+
+            if (!int.TryParse(parts[0], out var spanIndex)) return false;
+            if (!int.TryParse(parts[1], out var abdominalFlag)) return false;
+            if (!int.TryParse(parts[2], out var endFlag)) return false;
+
+            parsed = (spanIndex, abdominalFlag != 0, endFlag != 0);
+            return true;
+        }
+
+        private static bool TryParseTanbuDiameterKey(string key, out (int spanIndex, bool isRightAbdominal) parsed)
+        {
+            parsed = default;
+            if (string.IsNullOrWhiteSpace(key)) return false;
+
+            var parts = key.Split('|');
+            if (parts.Length != 2) return false;
+
+            if (!int.TryParse(parts[0], out var spanIndex)) return false;
+            if (!int.TryParse(parts[1], out var abdominalFlag)) return false;
+
+            parsed = (spanIndex, abdominalFlag != 0);
+            return true;
+        }
 
         private string FormatTanbuLabel(string dia, double hookLength)
         {
@@ -2909,30 +5253,82 @@ namespace RevitProjectDataAddin
             return $"D{dia}- {hookLength}";
         }
 
+        private string GetTanbuDiameter(GridBotsecozu item, int spanIndex, bool isRightAbdominal, string fallback)
+        {
+            if (item != null
+                && _tanbuDiameterOverrides.TryGetValue(item, out var spanDict)
+                && spanDict != null
+                && spanDict.TryGetValue((spanIndex, isRightAbdominal), out var val)
+                && !string.IsNullOrWhiteSpace(val))
+            {
+                return val;
+            }
+
+            if (item?.TanbuDiameterOverrides != null
+                && item.TanbuDiameterOverrides.TryGetValue(MakeTanbuDiameterKey(spanIndex, isRightAbdominal), out var persisted)
+                && !string.IsNullOrWhiteSpace(persisted))
+            {
+                return persisted.Trim();
+            }
+
+            return string.IsNullOrWhiteSpace(fallback) ? string.Empty : fallback.Trim();
+        }
+
+        private bool SetTanbuDiameter(GridBotsecozu item, int spanIndex, bool isRightAbdominal, string newDiameter)
+        {
+            if (item == null || spanIndex < 0 || string.IsNullOrWhiteSpace(newDiameter))
+                return false;
+
+            string normalized = newDiameter.Trim();
+
+            if (!_tanbuDiameterOverrides.TryGetValue(item, out var spanDict) || spanDict == null)
+            {
+                spanDict = new Dictionary<(int spanIndex, bool isRightAbdominal), string>();
+                _tanbuDiameterOverrides[item] = spanDict;
+            }
+
+            bool changed = !spanDict.TryGetValue((spanIndex, isRightAbdominal), out var existing)
+                           || !string.Equals(existing, normalized, StringComparison.Ordinal);
+            spanDict[(spanIndex, isRightAbdominal)] = normalized;
+
+            if (item.TanbuDiameterOverrides == null)
+                item.TanbuDiameterOverrides = new Dictionary<string, string>();
+
+            var persistedKey = MakeTanbuDiameterKey(spanIndex, isRightAbdominal);
+            changed = changed
+                      || !item.TanbuDiameterOverrides.TryGetValue(persistedKey, out var persistedExisting)
+                      || !string.Equals(persistedExisting, normalized, StringComparison.Ordinal);
+            item.TanbuDiameterOverrides[persistedKey] = normalized;
+
+            if (changed)
+                PropertyChangeTracker.MarkChanged();
+
+            return changed;
+        }
+
         //private double GetTanbuHookLength(GridBotsecozu item, int spanIndex, double fallback)
         private double GetTanbuHookLength(GridBotsecozu item, int spanIndex, bool isRightAbdominal, bool isRightEnd, double fallback)
         {
+            if (item != null
+                && _tanbuHookOverrides.TryGetValue(item, out var spanDict)
+                && spanDict.TryGetValue((spanIndex, isRightAbdominal, isRightEnd), out var val))
+            {
+                return val;
+            }
+
             if (item?.TanbuHookOverrides != null
-                && item.TanbuHookOverrides.TryGetValue(BuildTanbuHookKey(spanIndex, isRightAbdominal, isRightEnd), out var persisted)
-                && persisted > 0)
+                && item.TanbuHookOverrides.TryGetValue(MakeTanbuHookKey(spanIndex, isRightAbdominal, isRightEnd), out var persisted))
             {
                 return persisted;
             }
 
-            if (item != null
-                && _tanbuHookOverrides.TryGetValue(item, out var spanDict)
-                && spanDict.TryGetValue((spanIndex, isRightAbdominal, isRightEnd), out var val)
-                && val > 0)
-            {
-                return val;
-            }
             return fallback;
         }
 
         //private void SetTanbuHookLength(GridBotsecozu item, int spanIndex, double newLength)
         private bool SetTanbuHookLength(GridBotsecozu item, int spanIndex, bool isRightAbdominal, bool isRightEnd, double newLength)
         {
-            if (item == null || spanIndex < 0 || newLength <= 0)
+            if (item == null || spanIndex < 0 || double.IsNaN(newLength) || double.IsInfinity(newLength))
                 return false;
 
             if (!_tanbuHookOverrides.TryGetValue(item, out var spanDict))
@@ -2946,14 +5342,17 @@ namespace RevitProjectDataAddin
 
             spanDict[(spanIndex, isRightAbdominal, isRightEnd)] = newLength;
 
-            var hookOverrides = item.TanbuHookOverrides ?? new Dictionary<string, double>();
-            var key = BuildTanbuHookKey(spanIndex, isRightAbdominal, isRightEnd);
-            if (!hookOverrides.TryGetValue(key, out var persisted) || Math.Abs(persisted - newLength) > 1e-6)
-            {
-                hookOverrides[key] = newLength;
-                item.TanbuHookOverrides = new Dictionary<string, double>(hookOverrides);
-                changed = true;
-            }
+            if (item.TanbuHookOverrides == null)
+                item.TanbuHookOverrides = new Dictionary<string, double>();
+
+            var persistedKey = MakeTanbuHookKey(spanIndex, isRightAbdominal, isRightEnd);
+            changed = changed
+                      || !item.TanbuHookOverrides.TryGetValue(persistedKey, out var persistedExisting)
+                      || Math.Abs(persistedExisting - newLength) > 1e-6;
+            item.TanbuHookOverrides[persistedKey] = newLength;
+
+            if (changed)
+                PropertyChangeTracker.MarkChanged();
 
             return changed;
         }
@@ -3252,6 +5651,368 @@ namespace RevitProjectDataAddin
                 && height > 0;
         }
 
+        private static string MakeSpanSizeKey(int spanIndex)
+            => spanIndex.ToString(CultureInfo.InvariantCulture);
+
+        private (string width, string height) GetSpanBeamDimensions(
+            GridBotsecozu item,
+            int spanIndex,
+            string initialWidth,
+            string initialHeight)
+        {
+            if (item == null || spanIndex < 0)
+                return (initialWidth, initialHeight);
+
+            string key = MakeSpanSizeKey(spanIndex);
+            string width = initialWidth;
+            string height = initialHeight;
+
+            var widthDict = item.SpanWidthOverrides ?? new Dictionary<string, string>();
+            if (widthDict.TryGetValue(key, out var savedWidth) && !string.IsNullOrWhiteSpace(savedWidth))
+            {
+                width = savedWidth;
+            }
+            else if (!string.IsNullOrWhiteSpace(initialWidth))
+            {
+                item.SpanWidthOverrides = new Dictionary<string, string>(widthDict)
+                {
+                    [key] = initialWidth
+                };
+            }
+
+            var heightDict = item.SpanHeightOverrides ?? new Dictionary<string, string>();
+            if (heightDict.TryGetValue(key, out var savedHeight) && !string.IsNullOrWhiteSpace(savedHeight))
+            {
+                height = savedHeight;
+            }
+            else if (!string.IsNullOrWhiteSpace(initialHeight))
+            {
+                item.SpanHeightOverrides = new Dictionary<string, string>(heightDict)
+                {
+                    [key] = initialHeight
+                };
+            }
+
+            return (width, height);
+        }
+
+        private bool ApplySpanBeamDimensions(GridBotsecozu item, int spanIndex, double width, double height)
+        {
+            if (item == null || spanIndex < 0)
+                return false;
+
+            string key = MakeSpanSizeKey(spanIndex);
+            string widthStr = width.ToString(CultureInfo.InvariantCulture);
+            string heightStr = height.ToString(CultureInfo.InvariantCulture);
+            bool changed = false;
+
+            var widthDict = new Dictionary<string, string>(item.SpanWidthOverrides ?? new Dictionary<string, string>());
+            if (!widthDict.TryGetValue(key, out var existingWidth) || existingWidth != widthStr)
+            {
+                widthDict[key] = widthStr;
+                item.SpanWidthOverrides = widthDict;
+                changed = true;
+            }
+
+            var heightDict = new Dictionary<string, string>(item.SpanHeightOverrides ?? new Dictionary<string, string>());
+            if (!heightDict.TryGetValue(key, out var existingHeight) || existingHeight != heightStr)
+            {
+                heightDict[key] = heightStr;
+                item.SpanHeightOverrides = heightDict;
+                changed = true;
+            }
+
+            return changed;
+        }
+
+        private static string GetSpanStringOverride(
+            Dictionary<string, string> source,
+            string key,
+            string fallback)
+        {
+            if (source != null
+                && source.TryGetValue(key, out var saved)
+                && !string.IsNullOrWhiteSpace(saved))
+            {
+                return saved;
+            }
+
+            return fallback;
+        }
+
+        private static bool SetSpanStringOverride(
+            GridBotsecozu item,
+            Func<GridBotsecozu, Dictionary<string, string>> getter,
+            Action<GridBotsecozu, Dictionary<string, string>> setter,
+            string key,
+            string value)
+        {
+            if (item == null || string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(value))
+                return false;
+
+            string normalized = value.Trim();
+            var dict = new Dictionary<string, string>(getter(item) ?? new Dictionary<string, string>());
+            if (dict.TryGetValue(key, out var existing)
+                && string.Equals(existing, normalized, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            dict[key] = normalized;
+            setter(item, dict);
+            return true;
+        }
+
+        private (string diameter, string pitch, string material) GetSpanCentralStirrupValues(
+            GridBotsecozu item,
+            int spanIndex,
+            string initialDiameter,
+            string initialPitch,
+            string initialMaterial)
+        {
+            if (item == null || spanIndex < 0)
+                return (initialDiameter, initialPitch, initialMaterial);
+
+            string key = MakeSpanSizeKey(spanIndex);
+
+            string diameter = GetSpanStringOverride(item.SpanCentralStirrupDiameterOverrides, key, initialDiameter);
+            string pitch = GetSpanStringOverride(item.SpanCentralStirrupPitchOverrides, key, initialPitch);
+            string material = GetSpanStringOverride(item.SpanCentralStirrupMaterialOverrides, key, initialMaterial);
+
+            if (!string.IsNullOrWhiteSpace(initialDiameter)
+                && (item.SpanCentralStirrupDiameterOverrides == null || !item.SpanCentralStirrupDiameterOverrides.ContainsKey(key)))
+            {
+                SetSpanStringOverride(item, x => x.SpanCentralStirrupDiameterOverrides, (x, d) => x.SpanCentralStirrupDiameterOverrides = d, key, initialDiameter);
+            }
+
+            if (!string.IsNullOrWhiteSpace(initialPitch)
+                && (item.SpanCentralStirrupPitchOverrides == null || !item.SpanCentralStirrupPitchOverrides.ContainsKey(key)))
+            {
+                SetSpanStringOverride(item, x => x.SpanCentralStirrupPitchOverrides, (x, d) => x.SpanCentralStirrupPitchOverrides = d, key, initialPitch);
+            }
+
+            if (!string.IsNullOrWhiteSpace(initialMaterial)
+                && (item.SpanCentralStirrupMaterialOverrides == null || !item.SpanCentralStirrupMaterialOverrides.ContainsKey(key)))
+            {
+                SetSpanStringOverride(item, x => x.SpanCentralStirrupMaterialOverrides, (x, d) => x.SpanCentralStirrupMaterialOverrides = d, key, initialMaterial);
+            }
+
+            return (diameter, pitch, material);
+        }
+
+        private bool ApplySpanCentralStirrupValues(
+            GridBotsecozu item,
+            int spanIndex,
+            string diameter,
+            string pitch,
+            string material)
+        {
+            if (item == null || spanIndex < 0)
+                return false;
+
+            string key = MakeSpanSizeKey(spanIndex);
+            bool changed = false;
+
+            if (!string.IsNullOrWhiteSpace(diameter))
+                changed = SetSpanStringOverride(item, x => x.SpanCentralStirrupDiameterOverrides, (x, d) => x.SpanCentralStirrupDiameterOverrides = d, key, diameter) || changed;
+            if (!string.IsNullOrWhiteSpace(pitch))
+                changed = SetSpanStringOverride(item, x => x.SpanCentralStirrupPitchOverrides, (x, d) => x.SpanCentralStirrupPitchOverrides = d, key, pitch) || changed;
+            if (!string.IsNullOrWhiteSpace(material))
+                changed = SetSpanStringOverride(item, x => x.SpanCentralStirrupMaterialOverrides, (x, d) => x.SpanCentralStirrupMaterialOverrides = d, key, material) || changed;
+
+            return changed;
+        }
+
+        private int GetSpanCentralStirrupShape(
+            GridBotsecozu item,
+            int spanIndex,
+            int initialShape)
+        {
+            if (item == null || spanIndex < 0)
+                return initialShape;
+
+            string key = MakeSpanSizeKey(spanIndex);
+            string initialValue = initialShape.ToString(CultureInfo.InvariantCulture);
+            string value = GetSpanStringOverride(item.SpanCentralStirrupShapeOverrides, key, initialValue);
+
+            if (item.SpanCentralStirrupShapeOverrides == null || !item.SpanCentralStirrupShapeOverrides.ContainsKey(key))
+            {
+                SetSpanStringOverride(item, x => x.SpanCentralStirrupShapeOverrides, (x, d) => x.SpanCentralStirrupShapeOverrides = d, key, initialValue);
+            }
+
+            int parsedShape;
+            if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out parsedShape) || parsedShape < 1 || parsedShape > 9)
+                return initialShape;
+
+            return parsedShape;
+        }
+
+        private bool ApplySpanCentralStirrupShape(
+            GridBotsecozu item,
+            int spanIndex,
+            int shape)
+        {
+            if (item == null || spanIndex < 0 || shape < 1 || shape > 9)
+                return false;
+
+            string key = MakeSpanSizeKey(spanIndex);
+            return SetSpanStringOverride(
+                item,
+                x => x.SpanCentralStirrupShapeOverrides,
+                (x, d) => x.SpanCentralStirrupShapeOverrides = d,
+                key,
+                shape.ToString(CultureInfo.InvariantCulture));
+        }
+
+        private (string diameter, string pitch) GetSpanEndWidthStopValues(
+            GridBotsecozu item,
+            int spanIndex,
+            string initialDiameter,
+            string initialPitch)
+        {
+            if (item == null || spanIndex < 0)
+                return (initialDiameter, initialPitch);
+
+            string key = MakeSpanSizeKey(spanIndex);
+            string diameter = GetSpanStringOverride(item.SpanEndWidthStopDiameterOverrides, key, initialDiameter);
+            string pitch = GetSpanStringOverride(item.SpanEndWidthStopPitchOverrides, key, initialPitch);
+
+            if (!string.IsNullOrWhiteSpace(initialDiameter)
+                && (item.SpanEndWidthStopDiameterOverrides == null || !item.SpanEndWidthStopDiameterOverrides.ContainsKey(key)))
+            {
+                SetSpanStringOverride(item, x => x.SpanEndWidthStopDiameterOverrides, (x, d) => x.SpanEndWidthStopDiameterOverrides = d, key, initialDiameter);
+            }
+
+            if (!string.IsNullOrWhiteSpace(initialPitch)
+                && (item.SpanEndWidthStopPitchOverrides == null || !item.SpanEndWidthStopPitchOverrides.ContainsKey(key)))
+            {
+                SetSpanStringOverride(item, x => x.SpanEndWidthStopPitchOverrides, (x, d) => x.SpanEndWidthStopPitchOverrides = d, key, initialPitch);
+            }
+
+            return (diameter, pitch);
+        }
+
+        private bool ApplySpanEndWidthStopValues(
+            GridBotsecozu item,
+            int spanIndex,
+            string diameter,
+            string pitch)
+        {
+            if (item == null || spanIndex < 0)
+                return false;
+
+            string key = MakeSpanSizeKey(spanIndex);
+            bool changed = false;
+
+            if (!string.IsNullOrWhiteSpace(diameter))
+                changed = SetSpanStringOverride(item, x => x.SpanEndWidthStopDiameterOverrides, (x, d) => x.SpanEndWidthStopDiameterOverrides = d, key, diameter) || changed;
+            if (!string.IsNullOrWhiteSpace(pitch))
+                changed = SetSpanStringOverride(item, x => x.SpanEndWidthStopPitchOverrides, (x, d) => x.SpanEndWidthStopPitchOverrides = d, key, pitch) || changed;
+
+            return changed;
+        }
+
+        private (string diameter, string pitch, string material) GetSpanCentralIntermediateValues(
+            GridBotsecozu item,
+            int spanIndex,
+            string initialDiameter,
+            string initialPitch,
+            string initialMaterial)
+        {
+            if (item == null || spanIndex < 0)
+                return (initialDiameter, initialPitch, initialMaterial);
+
+            string key = MakeSpanSizeKey(spanIndex);
+
+            string diameter = GetSpanStringOverride(item.SpanCentralIntermediateDiameterOverrides, key, initialDiameter);
+            string pitch = GetSpanStringOverride(item.SpanCentralIntermediatePitchOverrides, key, initialPitch);
+            string material = GetSpanStringOverride(item.SpanCentralIntermediateMaterialOverrides, key, initialMaterial);
+
+            if (!string.IsNullOrWhiteSpace(initialDiameter)
+                && (item.SpanCentralIntermediateDiameterOverrides == null || !item.SpanCentralIntermediateDiameterOverrides.ContainsKey(key)))
+            {
+                SetSpanStringOverride(item, x => x.SpanCentralIntermediateDiameterOverrides, (x, d) => x.SpanCentralIntermediateDiameterOverrides = d, key, initialDiameter);
+            }
+
+            if (!string.IsNullOrWhiteSpace(initialPitch)
+                && (item.SpanCentralIntermediatePitchOverrides == null || !item.SpanCentralIntermediatePitchOverrides.ContainsKey(key)))
+            {
+                SetSpanStringOverride(item, x => x.SpanCentralIntermediatePitchOverrides, (x, d) => x.SpanCentralIntermediatePitchOverrides = d, key, initialPitch);
+            }
+
+            if (!string.IsNullOrWhiteSpace(initialMaterial)
+                && (item.SpanCentralIntermediateMaterialOverrides == null || !item.SpanCentralIntermediateMaterialOverrides.ContainsKey(key)))
+            {
+                SetSpanStringOverride(item, x => x.SpanCentralIntermediateMaterialOverrides, (x, d) => x.SpanCentralIntermediateMaterialOverrides = d, key, initialMaterial);
+            }
+
+            return (diameter, pitch, material);
+        }
+
+        private bool ApplySpanCentralIntermediateValues(
+            GridBotsecozu item,
+            int spanIndex,
+            string diameter,
+            string pitch,
+            string material)
+        {
+            if (item == null || spanIndex < 0)
+                return false;
+
+            string key = MakeSpanSizeKey(spanIndex);
+            bool changed = false;
+
+            if (!string.IsNullOrWhiteSpace(diameter))
+                changed = SetSpanStringOverride(item, x => x.SpanCentralIntermediateDiameterOverrides, (x, d) => x.SpanCentralIntermediateDiameterOverrides = d, key, diameter) || changed;
+            if (!string.IsNullOrWhiteSpace(pitch))
+                changed = SetSpanStringOverride(item, x => x.SpanCentralIntermediatePitchOverrides, (x, d) => x.SpanCentralIntermediatePitchOverrides = d, key, pitch) || changed;
+            if (!string.IsNullOrWhiteSpace(material))
+                changed = SetSpanStringOverride(item, x => x.SpanCentralIntermediateMaterialOverrides, (x, d) => x.SpanCentralIntermediateMaterialOverrides = d, key, material) || changed;
+
+            return changed;
+        }
+
+        private int GetSpanCentralIntermediateShape(
+            GridBotsecozu item,
+            int spanIndex,
+            int initialShape)
+        {
+            if (item == null || spanIndex < 0)
+                return initialShape;
+
+            string key = MakeSpanSizeKey(spanIndex);
+            string initialValue = initialShape.ToString(CultureInfo.InvariantCulture);
+            string value = GetSpanStringOverride(item.SpanCentralIntermediateShapeOverrides, key, initialValue);
+
+            if (item.SpanCentralIntermediateShapeOverrides == null || !item.SpanCentralIntermediateShapeOverrides.ContainsKey(key))
+            {
+                SetSpanStringOverride(item, x => x.SpanCentralIntermediateShapeOverrides, (x, d) => x.SpanCentralIntermediateShapeOverrides = d, key, initialValue);
+            }
+
+            int parsedShape;
+            if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out parsedShape) || parsedShape < 1 || parsedShape > 8)
+                return initialShape;
+
+            return parsedShape;
+        }
+
+        private bool ApplySpanCentralIntermediateShape(
+            GridBotsecozu item,
+            int spanIndex,
+            int shape)
+        {
+            if (item == null || spanIndex < 0 || shape < 1 || shape > 8)
+                return false;
+
+            string key = MakeSpanSizeKey(spanIndex);
+            return SetSpanStringOverride(
+                item,
+                x => x.SpanCentralIntermediateShapeOverrides,
+                (x, d) => x.SpanCentralIntermediateShapeOverrides = d,
+                key,
+                shape.ToString(CultureInfo.InvariantCulture));
+        }
+
         private bool ApplyBeamDimensions(string kai, string gSym, double width, double height)
         {
             var beam = FindBeamBySymbol(kai, gSym);
@@ -3282,7 +6043,8 @@ namespace RevitProjectDataAddin
         private void MakeBeamSizeEditable(TextBlock tb, Canvas canvas, WCTransform T,
                                            double wx, double wy,
                                            string kai, string gSym,
-                                           GridBotsecozu item)
+                                           GridBotsecozu item,
+                                           int spanIndex)
         {
             if (tb == null || canvas == null)
                 return;
@@ -3299,13 +6061,15 @@ namespace RevitProjectDataAddin
                 hoverFill: new SolidColorBrush(Color.FromArgb(100, 30, 144, 255)),
                 hoverStroke: Brushes.Blue);
 
+            System.Windows.Controls.Primitives.Popup beamSizePopup = null;
 
-            tb.MouseLeftButtonDown += (s, e) =>
+            tb.MouseLeftButtonUp += (s, e) =>
             {
                 e.Handled = true;
 
                 tb.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
                 var sz = tb.DesiredSize;
+                double popupFontSize = SystemFonts.MessageFontSize;
 
                 double initW = 0;
                 double initH = 0;
@@ -3326,123 +6090,307 @@ namespace RevitProjectDataAddin
                     return new TextBox
                     {
                         Text = value,
-                        FontSize = tb.FontSize,
+                        FontSize = popupFontSize,
                         Width = Math.Max(60, sz.Width / 3.0),
-                        Height = Math.Max(26, sz.Height + 6),
+                        MinWidth = 60,
+                        VerticalContentAlignment = VerticalAlignment.Center,
                         Margin = new Thickness(2, 0, 2, 0),
-                        Background = Brushes.White
+                        Background = Brushes.Transparent,
+                        Foreground = Brushes.Black,
+                        Visibility = System.Windows.Visibility.Visible,
+                        IsReadOnly = true,
+                        BorderThickness = new Thickness(0),
+                        BorderBrush = Brushes.Transparent
                     };
                 }
 
                 var widthBox = CreateNumericBox(initW > 0 ? initW.ToString(CultureInfo.InvariantCulture) : string.Empty);
                 var heightBox = CreateNumericBox(initH > 0 ? initH.ToString(CultureInfo.InvariantCulture) : string.Empty);
-
-                var container = new StackPanel
+                try
                 {
-                    Orientation = Orientation.Horizontal,
-                    Background = Brushes.White,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Margin = new Thickness(0),
-                };
+                    if (beamSizePopup != null)
+                    {
+                        beamSizePopup.IsOpen = false;
+                        beamSizePopup = null;
+                    }
+                }
+                catch { }
 
-                var openParen = new TextBlock { Text = "(", FontSize = tb.FontSize, VerticalAlignment = VerticalAlignment.Center };
-                var cross = new TextBlock { Text = "x", FontSize = tb.FontSize, VerticalAlignment = VerticalAlignment.Center };
-                var closeParen = new TextBlock { Text = ")", FontSize = tb.FontSize, VerticalAlignment = VerticalAlignment.Center };
+                Brush normalBg = Brushes.Transparent;
+                Brush selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
+                Brush dividerBrush = PopupMenuDividerBrush;
 
-                container.Children.Add(openParen);
-                container.Children.Add(widthBox);
-                container.Children.Add(cross);
-                container.Children.Add(heightBox);
-                container.Children.Add(closeParen);
-
-                var p = T.P(wx, wy);
-                container.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-                var desired = container.DesiredSize;
-                Canvas.SetLeft(container, p.X - desired.Width / 2.0);
-                Canvas.SetTop(container, p.Y - desired.Height);
-                Panel.SetZIndex(container, 2200);
-                canvas.Children.Add(container);
-
-
-                bool isClosing = false;
-
-                void RemoveEditor()
+                UIElement WithRowDivider(UIElement child)
                 {
-                    if (isClosing) return;
-                    isClosing = true;
-                    canvas.Children.Remove(container);
+                    return new Border
+                    {
+                        BorderBrush = dividerBrush,
+                        BorderThickness = new Thickness(0, 0, 0, 1),
+                        Child = child
+                    };
                 }
 
-                void CommitAndRedraw()
+                ControlTemplate flatBtnTemplate = null;
+                ControlTemplate GetFlatBtnTemplate()
                 {
-                    if (isClosing) return;
+                    if (flatBtnTemplate != null) return flatBtnTemplate;
 
+                    var border = new FrameworkElementFactory(typeof(Border));
+                    border.SetValue(Border.SnapsToDevicePixelsProperty, true);
+                    border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Button.BackgroundProperty));
+                    border.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Button.BorderBrushProperty));
+                    border.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(Button.BorderThicknessProperty));
+                    border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Button.PaddingProperty));
+
+                    var cp = new FrameworkElementFactory(typeof(ContentPresenter));
+                    cp.SetValue(ContentPresenter.ContentProperty, new TemplateBindingExtension(Button.ContentProperty));
+                    cp.SetValue(ContentPresenter.HorizontalAlignmentProperty, new TemplateBindingExtension(Button.HorizontalContentAlignmentProperty));
+                    cp.SetValue(ContentPresenter.VerticalAlignmentProperty, new TemplateBindingExtension(Button.VerticalContentAlignmentProperty));
+                    border.AppendChild(cp);
+
+                    flatBtnTemplate = new ControlTemplate(typeof(Button)) { VisualTree = border };
+                    return flatBtnTemplate;
+                }
+
+                Border WrapBox(UIElement child)
+                {
+                    var host = new ContentControl
+                    {
+                        Content = child,
+                        Width = 100,
+                        FontSize = SystemFonts.MessageFontSize,
+                        FontFamily = SystemFonts.MessageFontFamily
+                    };
+
+                    return new Border
+                    {
+                        Background = Brushes.White,
+                        BorderBrush = PopupMenuBorderBrush,
+                        BorderThickness = PopupMenuBorderThickness,
+                        CornerRadius = new CornerRadius(2),
+                        Child = host
+                    };
+                }
+
+                Button CreateRowButton(string label, TextBox editor)
+                {
+                    var row = new DockPanel { LastChildFill = true, Width = 90 };
+
+                    var lbl = new TextBlock
+                    {
+                        Text = label,
+                        FontSize = popupFontSize,
+                        Foreground = Brushes.Black,
+                        HorizontalAlignment = HorizontalAlignment.Left,
+                        VerticalAlignment = VerticalAlignment.Center
+                    };
+                    DockPanel.SetDock(lbl, Dock.Left);
+                    DockPanel.SetDock(editor, Dock.Right);
+
+                    row.Children.Add(lbl);
+                    row.Children.Add(editor);
+
+                    var rowButton = new Button
+                    {
+                        Content = row,
+                        HorizontalContentAlignment = HorizontalAlignment.Left,
+                        VerticalContentAlignment = VerticalAlignment.Center,
+                        Padding = new Thickness(10, 6, 10, 6),
+                        Background = normalBg,
+                        BorderBrush = Brushes.Transparent,
+                        BorderThickness = new Thickness(0),
+                        MinWidth = 150,
+                        OverridesDefaultStyle = true,
+                        Template = GetFlatBtnTemplate(),
+                        Focusable = false,
+                        IsTabStop = false
+                    };
+
+                    rowButton.MouseEnter += (_, __) => rowButton.Background = selectedBg;
+                    rowButton.MouseLeave += (_, __) =>
+                    {
+                        SetDisplayMode(editor);
+                        rowButton.Background = normalBg;
+                    };
+
+                    return rowButton;
+                }
+
+                Button rowWidth = null;
+                Button rowHeight = null;
+
+                void SetDisplayMode(TextBox editor)
+                {
+                    editor.IsReadOnly = true;
+                    editor.BorderThickness = new Thickness(0);
+                    editor.BorderBrush = Brushes.Transparent;
+                    editor.Background = Brushes.Transparent;
+                }
+
+                void SetEditMode(TextBox editor)
+                {
+                    editor.IsReadOnly = false;
+                    editor.BorderThickness = new Thickness(1);
+                    editor.BorderBrush = PopupMenuEditorBorderBrush;
+                    editor.Background = Brushes.White;
+                }
+
+                void HideEditors()
+                {
+                    SetDisplayMode(widthBox);
+                    SetDisplayMode(heightBox);
+                    widthBox.Select(widthBox.Text?.Length ?? 0, 0);
+                    heightBox.Select(heightBox.Text?.Length ?? 0, 0);
+                    Keyboard.ClearFocus();
+                    canvas.Focus();
+                    if (rowWidth != null) rowWidth.Background = normalBg;
+                    if (rowHeight != null) rowHeight.Background = normalBg;
+                }
+
+                void FocusEditor(TextBox editor)
+                {
+                    editor.Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        editor.Focus();
+                        editor.SelectAll();
+                    }), DispatcherPriority.Input);
+                }
+
+                void BeginPopupEdit(TextBox editor, Button rowButton)
+                {
+                    HideEditors();
+                    SetEditMode(editor);
+                    rowButton.Background = selectedBg;
+                    FocusEditor(editor);
+                }
+
+                void CloseBeamSizePopup()
+                {
+                    try
+                    {
+                        if (beamSizePopup != null)
+                            beamSizePopup.IsOpen = false;
+                    }
+                    catch { }
+                    beamSizePopup = null;
+                }
+
+                bool TryCommitAndRedraw()
+                {
                     double newW = 0;
                     double newH = 0;
 
                     bool okW = ParseNumber(widthBox.Text, out newW);
                     bool okH = ParseNumber(heightBox.Text, out newH);
-                    bool ok = okW && okH;
+                    if (!okW || !okH)
+                        return false;
 
-                    RemoveEditor();
+                    if (!ApplySpanBeamDimensions(item, spanIndex, newW, newH))
+                        return false;
 
-                    if (ok && ApplyBeamDimensions(kai, gSym, newW, newH))
-                        Redraw(canvas, item);
+                    Redraw(canvas, item);
+                    CloseBeamSizePopup();
+                    return true;
                 }
 
+                rowWidth = CreateRowButton("\u5E45", widthBox);
+                rowHeight = CreateRowButton("\u6210", heightBox);
+
+                rowWidth.Click += (_, clickArgs) =>
+                {
+                    clickArgs.Handled = true;
+                    BeginPopupEdit(widthBox, rowWidth);
+                };
+                rowHeight.Click += (_, clickArgs) =>
+                {
+                    clickArgs.Handled = true;
+                    BeginPopupEdit(heightBox, rowHeight);
+                };
 
                 void HandleKeyDown(object ks, KeyEventArgs ke)
                 {
                     if (ke.Key == Key.Enter)
                     {
-                        CommitAndRedraw();
+                        if (!TryCommitAndRedraw())
+                            FocusEditor((TextBox)ks);
                         ke.Handled = true;
                     }
                     else if (ke.Key == Key.Escape)
                     {
-                        RemoveEditor();
+                        HideEditors();
+                        CloseBeamSizePopup();
                         ke.Handled = true;
                     }
                     else if (ke.Key == Key.Tab)
                     {
-                        // cho Tab qua lại 2 ô
                         if (ReferenceEquals(ks, widthBox))
-                        {
-                            heightBox.Focus();
-                            heightBox.SelectAll();
-                            ke.Handled = true;
-                        }
+                            BeginPopupEdit(heightBox, rowHeight);
                         else if (ReferenceEquals(ks, heightBox))
-                        {
-                            widthBox.Focus();
-                            widthBox.SelectAll();
-                            ke.Handled = true;
-                        }
+                            BeginPopupEdit(widthBox, rowWidth);
+                        ke.Handled = true;
                     }
                 }
 
                 widthBox.KeyDown += HandleKeyDown;
                 heightBox.KeyDown += HandleKeyDown;
 
-                void HandleLostFocus(object ls, RoutedEventArgs le)
+                widthBox.PreviewMouseLeftButtonDown += (_, clickArgs) =>
                 {
-                    if (isClosing) return;
+                    if (!widthBox.IsReadOnly) return;
+                    BeginPopupEdit(widthBox, rowWidth);
+                    clickArgs.Handled = true;
+                };
+                heightBox.PreviewMouseLeftButtonDown += (_, clickArgs) =>
+                {
+                    if (!heightBox.IsReadOnly) return;
+                    BeginPopupEdit(heightBox, rowHeight);
+                    clickArgs.Handled = true;
+                };
 
-                    // Defer: đợi focus chuyển xong rồi mới quyết định commit
-                    Dispatcher.BeginInvoke(new Action(() =>
+                widthBox.LostKeyboardFocus += (_, __) =>
+                {
+                    if (!widthBox.IsReadOnly)
+                        HideEditors();
+                };
+                widthBox.MouseLeave += (_, __) =>
+                {
+                    if (!widthBox.IsReadOnly)
+                        HideEditors();
+                };
+                heightBox.LostKeyboardFocus += (_, __) =>
+                {
+                    if (!heightBox.IsReadOnly)
+                        HideEditors();
+                };
+                heightBox.MouseLeave += (_, __) =>
+                {
+                    if (!heightBox.IsReadOnly)
+                        HideEditors();
+                };
+
+                var root = new StackPanel { Orientation = Orientation.Vertical };
+                root.Children.Add(WithRowDivider(rowWidth));
+                root.Children.Add(WithRowDivider(rowHeight));
+
+                beamSizePopup = new System.Windows.Controls.Primitives.Popup
+                {
+                    PlacementTarget = tb,
+                    Placement = System.Windows.Controls.Primitives.PlacementMode.Right,
+                    HorizontalOffset = 6,
+                    VerticalOffset = -2,
+                    AllowsTransparency = true,
+                    StaysOpen = false,
+                    Child = WrapBox(root)
+                };
+
+                tb.Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (beamSizePopup != null)
                     {
-                        if (isClosing) return;
-                        if (!container.IsKeyboardFocusWithin)
-                            CommitAndRedraw();
-                    }), DispatcherPriority.Background);
-                }
-
-                widthBox.LostKeyboardFocus += HandleLostFocus;
-                heightBox.LostKeyboardFocus += HandleLostFocus;
-
-                // vẫn focus width trước như cũ
-                widthBox.Focus();
-                widthBox.SelectAll();
+                        HideEditors();
+                        beamSizePopup.IsOpen = true;
+                    }
+                }), DispatcherPriority.Input);
 
             };
         }
@@ -3649,7 +6597,36 @@ namespace RevitProjectDataAddin
             public double PanYmm = 0.0;
         }
 
+        private sealed class InteractiveViewportState
+        {
+            public Canvas Canvas;
+            public GridBotsecozu Item;
+            public Image Overlay;
+            public MatrixTransform OverlayTransform = new MatrixTransform();
+            public WCTransform SnapshotTransform;
+            public DispatcherTimer CommitTimer;
+            public DispatcherTimer SnapshotTimer;
+            public BitmapSource CachedSnapshot;
+            public WCTransform CachedSnapshotTransform;
+            public GridBotsecozu CachedSnapshotItem;
+            public double CachedCanvasWidth;
+            public double CachedCanvasHeight;
+            public bool IsActive;
+        }
+
         private readonly Dictionary<GridBotsecozu, ViewState> _viewByItem = new Dictionary<GridBotsecozu, ViewState>();
+        private readonly Dictionary<Canvas, InteractiveViewportState> _interactiveViewportByCanvas
+            = new Dictionary<Canvas, InteractiveViewportState>();
+        private const int InteractiveViewportCommitDelayMs = 220;
+        private const int InteractiveViewportSnapshotRefreshDelayMs = 1;
+        private const double InteractiveViewportSnapshotScale = 0.70;
+        private const double InteractiveViewportWheelDeltaUnit = 120.0;
+        private const double InteractiveViewportWheelStep = 1.10;
+        private const double InteractiveViewportCtrlWheelStep = 1.21;
+        private const int InteractiveViewportTextlessSceneThreshold = 1800;
+        private const int LightweightCanvasUiSpanThreshold = 8;
+        private const int DeferredInteractiveCanvasDelayMs = 320;
+
         private ViewState VS(GridBotsecozu item)
         {
             if (!_viewByItem.TryGetValue(item, out var vs))
@@ -3658,6 +6635,641 @@ namespace RevitProjectDataAddin
                 _viewByItem[item] = vs;
             }
             return vs;
+        }
+
+        private readonly Dictionary<GridBotsecozu, bool> _lightweightCanvasUiByItem
+            = new Dictionary<GridBotsecozu, bool>();
+        private readonly Dictionary<GridBotsecozu, bool> _forceInteractiveCanvasUiByItem
+            = new Dictionary<GridBotsecozu, bool>();
+
+        private sealed class DeferredInteractiveCanvasState
+        {
+            public Canvas Canvas;
+            public GridBotsecozu Item;
+            public DispatcherTimer Timer;
+        }
+
+        private readonly Dictionary<Canvas, DeferredInteractiveCanvasState> _deferredInteractiveCanvasByCanvas
+            = new Dictionary<Canvas, DeferredInteractiveCanvasState>();
+        private readonly Dictionary<Canvas, Image> _sceneBitmapLayerByCanvas
+            = new Dictionary<Canvas, Image>();
+
+        private bool IsLightweightCanvasUi(GridBotsecozu item)
+        {
+            return item != null &&
+                   _lightweightCanvasUiByItem.TryGetValue(item, out var enabled) &&
+                   enabled &&
+                   !(_forceInteractiveCanvasUiByItem.TryGetValue(item, out var forced) && forced);
+        }
+
+        private void SetLightweightCanvasUi(GridBotsecozu item, bool enabled)
+        {
+            if (item == null)
+                return;
+
+            _lightweightCanvasUiByItem[item] = enabled;
+        }
+
+        private void SetForceInteractiveCanvasUi(GridBotsecozu item, bool enabled)
+        {
+            if (item == null)
+                return;
+
+            _forceInteractiveCanvasUiByItem[item] = enabled;
+        }
+
+        private DeferredInteractiveCanvasState GetOrCreateDeferredInteractiveCanvasState(Canvas canvas)
+        {
+            if (canvas == null)
+                return null;
+
+            if (!_deferredInteractiveCanvasByCanvas.TryGetValue(canvas, out var state))
+            {
+                state = new DeferredInteractiveCanvasState
+                {
+                    Canvas = canvas
+                };
+
+                state.Timer = new DispatcherTimer(DispatcherPriority.Background, canvas.Dispatcher)
+                {
+                    Interval = TimeSpan.FromMilliseconds(DeferredInteractiveCanvasDelayMs)
+                };
+                state.Timer.Tick += (s, e) =>
+                {
+                    state.Timer.Stop();
+                    if (state.Canvas == null || state.Item == null)
+                        return;
+
+                    if (_isPanning ||
+                        (_interactiveViewportByCanvas.TryGetValue(state.Canvas, out var viewportState) &&
+                         viewportState != null &&
+                         viewportState.IsActive))
+                    {
+                        state.Timer.Start();
+                        return;
+                    }
+
+                    SetForceInteractiveCanvasUi(state.Item, true);
+                    try
+                    {
+                        Redraw(state.Canvas, state.Item);
+                    }
+                    finally
+                    {
+                        SetForceInteractiveCanvasUi(state.Item, false);
+                    }
+                };
+
+                _deferredInteractiveCanvasByCanvas[canvas] = state;
+            }
+
+            return state;
+        }
+
+        private void CancelDeferredInteractiveCanvasRedraw(Canvas canvas)
+        {
+            if (canvas == null)
+                return;
+
+            if (_deferredInteractiveCanvasByCanvas.TryGetValue(canvas, out var state))
+                state.Timer?.Stop();
+        }
+
+        private InteractiveViewportState GetOrCreateInteractiveViewportState(Canvas canvas)
+        {
+            if (canvas == null) return null;
+
+            if (!_interactiveViewportByCanvas.TryGetValue(canvas, out var state))
+            {
+                state = new InteractiveViewportState
+                {
+                    Canvas = canvas
+                };
+
+                state.CommitTimer = new DispatcherTimer(DispatcherPriority.Background, canvas.Dispatcher)
+                {
+                    Interval = TimeSpan.FromMilliseconds(InteractiveViewportCommitDelayMs)
+                };
+                state.CommitTimer.Tick += (s, e) =>
+                {
+                    state.CommitTimer.Stop();
+                    if (state.Canvas == null || state.Item == null)
+                        return;
+
+                    CommitInteractiveViewport(state.Canvas, state.Item);
+                };
+
+                state.SnapshotTimer = new DispatcherTimer(DispatcherPriority.Background, canvas.Dispatcher)
+                {
+                    Interval = TimeSpan.FromMilliseconds(InteractiveViewportSnapshotRefreshDelayMs)
+                };
+                state.SnapshotTimer.Tick += (s, e) =>
+                {
+                    state.SnapshotTimer.Stop();
+                    if (state.Canvas == null || state.Item == null || state.IsActive)
+                        return;
+
+                    if (!TryMakeTransform(state.Canvas, state.Item, out var snapshotTransform, out _, out _, out _))
+                        return;
+
+                    var bitmap = CreateInteractiveViewportSnapshot(state.Canvas, state.Item, snapshotTransform);
+                    if (bitmap == null)
+                        return;
+
+                    state.CachedSnapshot = bitmap;
+                    state.CachedSnapshotTransform = snapshotTransform;
+                    state.CachedSnapshotItem = state.Item;
+                    state.CachedCanvasWidth = state.Canvas.ActualWidth;
+                    state.CachedCanvasHeight = state.Canvas.ActualHeight;
+                };
+
+                _interactiveViewportByCanvas[canvas] = state;
+            }
+
+            return state;
+        }
+
+        private static void CopyOverlayPlacement(FrameworkElement source, FrameworkElement overlay)
+        {
+            if (source == null || overlay == null) return;
+
+            overlay.HorizontalAlignment = source.HorizontalAlignment;
+            overlay.VerticalAlignment = source.VerticalAlignment;
+            overlay.Margin = source.Margin;
+            overlay.Width = source.ActualWidth > 0 ? source.ActualWidth : source.Width;
+            overlay.Height = source.ActualHeight > 0 ? source.ActualHeight : source.Height;
+            overlay.MinWidth = source.MinWidth;
+            overlay.MinHeight = source.MinHeight;
+            overlay.MaxWidth = source.MaxWidth;
+            overlay.MaxHeight = source.MaxHeight;
+
+            Grid.SetRow(overlay, Grid.GetRow(source));
+            Grid.SetColumn(overlay, Grid.GetColumn(source));
+            Grid.SetRowSpan(overlay, Grid.GetRowSpan(source));
+            Grid.SetColumnSpan(overlay, Grid.GetColumnSpan(source));
+        }
+
+        private bool TryGetCachedInteractiveViewportSnapshot(
+            Canvas canvas,
+            GridBotsecozu item,
+            WCTransform currentTransform,
+            out BitmapSource bitmap,
+            out WCTransform snapshotTransform)
+        {
+            bitmap = null;
+            snapshotTransform = currentTransform;
+
+            if (canvas == null || item == null)
+                return false;
+
+            if (!_interactiveViewportByCanvas.TryGetValue(canvas, out var state) || state == null)
+                return false;
+
+            if (state.CachedSnapshot == null || !ReferenceEquals(state.CachedSnapshotItem, item))
+                return false;
+
+            if (Math.Abs(state.CachedCanvasWidth - canvas.ActualWidth) > 0.5 ||
+                Math.Abs(state.CachedCanvasHeight - canvas.ActualHeight) > 0.5)
+            {
+                return false;
+            }
+
+            var cachedTransform = state.CachedSnapshotTransform;
+            if (cachedTransform.YDown != currentTransform.YDown ||
+                Math.Abs(cachedTransform.Ox - currentTransform.Ox) > 0.5 ||
+                Math.Abs(cachedTransform.Oy - currentTransform.Oy) > 0.5 ||
+                Math.Abs(cachedTransform.Scale - currentTransform.Scale) > 1e-6 ||
+                Math.Abs(cachedTransform.FontScale - currentTransform.FontScale) > 1e-6)
+            {
+                return false;
+            }
+
+            bitmap = state.CachedSnapshot;
+            snapshotTransform = cachedTransform;
+            return true;
+        }
+
+        private static double GetInteractiveViewportSnapshotScale(Canvas canvas)
+        {
+            if (canvas == null)
+                return InteractiveViewportSnapshotScale;
+
+            int childCount = canvas.Children != null ? canvas.Children.Count : 0;
+            if (childCount > 2500)
+                return 0.45;
+            if (childCount > 1200)
+                return 0.55;
+            return InteractiveViewportSnapshotScale;
+        }
+
+        private static BitmapSource CaptureCanvasSnapshot(Canvas canvas)
+        {
+            if (canvas == null) return null;
+
+            double width = canvas.ActualWidth;
+            double height = canvas.ActualHeight;
+            if (width < 1 || height < 1)
+                return null;
+
+            var dpi = VisualTreeHelper.GetDpi(canvas);
+            double snapshotScale = GetInteractiveViewportSnapshotScale(canvas);
+            int pixelWidth = Math.Max(1, (int)Math.Ceiling(width * dpi.DpiScaleX * snapshotScale));
+            int pixelHeight = Math.Max(1, (int)Math.Ceiling(height * dpi.DpiScaleY * snapshotScale));
+            var bitmap = new RenderTargetBitmap(
+                pixelWidth,
+                pixelHeight,
+                96.0,
+                96.0,
+                PixelFormats.Pbgra32);
+
+            bitmap.Render(canvas);
+            if (bitmap.CanFreeze) bitmap.Freeze();
+            return bitmap;
+        }
+
+        private BitmapSource CreateInteractiveViewportSnapshot(Canvas canvas, GridBotsecozu item, WCTransform snapshotTransform)
+        {
+            if (canvas == null)
+                return null;
+
+            if (item != null &&
+                _sceneByItem.TryGetValue(item, out var scene) &&
+                scene != null &&
+                scene.Count > 0)
+            {
+                var sceneBitmap = CreateSceneInteractiveViewportSnapshot(canvas, scene, snapshotTransform);
+                if (sceneBitmap != null)
+                    return sceneBitmap;
+            }
+
+            return CaptureCanvasSnapshot(canvas);
+        }
+
+        private void RenderSceneBitmapToCanvas(Canvas canvas, GridBotsecozu item, WCTransform transform)
+        {
+            if (canvas == null || item == null)
+                return;
+
+            if (!_sceneByItem.TryGetValue(item, out var scene) || scene == null || scene.Count == 0)
+                return;
+
+            var bitmap = CreateSceneCanvasBitmap(canvas, scene, transform, renderText: true, scaleFactor: 1.0);
+            if (bitmap == null)
+                return;
+
+            if (_sceneBitmapLayerByCanvas.TryGetValue(canvas, out var oldImage) && oldImage != null)
+            {
+                canvas.Children.Remove(oldImage);
+            }
+
+            var image = oldImage ?? new Image
+            {
+                Stretch = Stretch.Fill,
+                IsHitTestVisible = false,
+                SnapsToDevicePixels = true
+            };
+            image.Source = bitmap;
+            image.Width = canvas.ActualWidth;
+            image.Height = canvas.ActualHeight;
+            RenderOptions.SetBitmapScalingMode(image, BitmapScalingMode.HighQuality);
+            Canvas.SetLeft(image, 0);
+            Canvas.SetTop(image, 0);
+            Panel.SetZIndex(image, -10000);
+            canvas.Children.Insert(0, image);
+            _sceneBitmapLayerByCanvas[canvas] = image;
+        }
+
+        private BitmapSource CreateSceneCanvasBitmap(Canvas canvas, List<object> scene, WCTransform transform, bool renderText, double scaleFactor)
+        {
+            if (canvas == null || scene == null || scene.Count == 0)
+                return null;
+
+            double width = canvas.ActualWidth;
+            double height = canvas.ActualHeight;
+            if (width < 1 || height < 1)
+                return null;
+
+            double effectiveScaleFactor = scaleFactor <= 0 ? 1.0 : scaleFactor;
+            int pixelWidth = Math.Max(1, (int)Math.Ceiling(width * effectiveScaleFactor));
+            int pixelHeight = Math.Max(1, (int)Math.Ceiling(height * effectiveScaleFactor));
+
+            var visual = new DrawingVisual();
+            using (var dc = visual.RenderOpen())
+            {
+                if (Math.Abs(effectiveScaleFactor - 1.0) > 1e-6)
+                    dc.PushTransform(new ScaleTransform(effectiveScaleFactor, effectiveScaleFactor));
+
+                dc.DrawRectangle(Brushes.White, null, new Rect(0, 0, width, height));
+
+                foreach (var entity in scene)
+                {
+                    if (entity is SceneLine ln)
+                    {
+                        var pen = new Pen(new SolidColorBrush(ln.StrokeColor), Math.Max(0.75, ln.Thickness));
+                        if (ln.Dash != null && ln.Dash.Length > 0)
+                            pen.DashStyle = new DashStyle(ln.Dash, 0);
+                        dc.DrawLine(pen, transform.P(ln.X1, ln.Y1), transform.P(ln.X2, ln.Y2));
+                    }
+                    else if (entity is DxfCircle circle)
+                    {
+                        double rPx = Math.Max(0.5, Math.Abs(circle.R * transform.Scale));
+                        var center = transform.P(circle.X, circle.Y);
+                        var pen = new Pen(new SolidColorBrush(circle.StrokeColor), Math.Max(0.75, circle.StrokeThicknessPx));
+                        if (circle.Dash != null && circle.Dash.Length > 0)
+                            pen.DashStyle = new DashStyle(circle.Dash, 0);
+                        Brush fill = circle.Filled ? new SolidColorBrush(circle.FillColor) : null;
+                        dc.DrawEllipse(fill, pen, center, rPx, rPx);
+                    }
+                    else if (entity is DxfArc arc)
+                    {
+                        DrawDxfArcToInteractiveViewport(dc, arc, transform);
+                    }
+                    else if (entity is DxfSolid solid)
+                    {
+                        var geometry = new StreamGeometry();
+                        using (var gctx = geometry.Open())
+                        {
+                            gctx.BeginFigure(transform.P(solid.X1, solid.Y1), true, true);
+                            gctx.LineTo(transform.P(solid.X2, solid.Y2), true, false);
+                            gctx.LineTo(transform.P(solid.X3, solid.Y3), true, false);
+                            gctx.LineTo(transform.P(solid.X4, solid.Y4), true, false);
+                        }
+                        geometry.Freeze();
+                        dc.DrawGeometry(new SolidColorBrush(solid.FillColor), null, geometry);
+                    }
+                    else if (renderText && entity is DxfText tx && !tx.SkipCanvasBitmap)
+                    {
+                        DrawDxfTextToInteractiveViewport(dc, tx, transform);
+                    }
+                }
+
+                if (Math.Abs(effectiveScaleFactor - 1.0) > 1e-6)
+                    dc.Pop();
+            }
+
+            var bitmap = new RenderTargetBitmap(pixelWidth, pixelHeight, 96.0, 96.0, PixelFormats.Pbgra32);
+            bitmap.Render(visual);
+            if (bitmap.CanFreeze) bitmap.Freeze();
+            return bitmap;
+        }
+
+        private BitmapSource CreateSceneInteractiveViewportSnapshot(Canvas canvas, List<object> scene, WCTransform snapshotTransform)
+        {
+            if (canvas == null || scene == null || scene.Count == 0)
+                return null;
+
+            double width = canvas.ActualWidth;
+            double height = canvas.ActualHeight;
+            if (width < 1 || height < 1)
+                return null;
+
+            bool renderText = scene.Count <= InteractiveViewportTextlessSceneThreshold;
+            return CreateSceneCanvasBitmap(canvas, scene, snapshotTransform, renderText, GetInteractiveViewportSnapshotScale(canvas));
+        }
+
+        private static void DrawDxfArcToInteractiveViewport(DrawingContext dc, DxfArc arc, WCTransform transform)
+        {
+            if (dc == null || arc == null || transform.Scale == 0)
+                return;
+
+            double startRad = arc.StartDeg * Math.PI / 180.0;
+            double endRad = arc.EndDeg * Math.PI / 180.0;
+            Point p0 = transform.P(arc.X + arc.R * Math.Cos(startRad), arc.Y + arc.R * Math.Sin(startRad));
+            Point p1 = transform.P(arc.X + arc.R * Math.Cos(endRad), arc.Y + arc.R * Math.Sin(endRad));
+            double rPx = Math.Max(0.5, Math.Abs(arc.R * transform.Scale));
+            double delta = NormalizeDeltaCCW(arc.StartDeg, arc.EndDeg);
+
+            var figure = new PathFigure { StartPoint = p0, IsClosed = false, IsFilled = false };
+            figure.Segments.Add(new ArcSegment
+            {
+                Point = p1,
+                Size = new Size(rPx, rPx),
+                RotationAngle = 0,
+                IsLargeArc = delta > 180.0,
+                SweepDirection = transform.YDown ? SweepDirection.Clockwise : SweepDirection.Counterclockwise
+            });
+
+            var geometry = new PathGeometry(new[] { figure });
+            var pen = new Pen(new SolidColorBrush(arc.StrokeColor), Math.Max(0.75, arc.ThicknessPx));
+            if (arc.Dash != null && arc.Dash.Length > 0)
+                pen.DashStyle = new DashStyle(arc.Dash, 0);
+            dc.DrawGeometry(null, pen, geometry);
+        }
+
+        private static void DrawDxfTextToInteractiveViewport(DrawingContext dc, DxfText tx, WCTransform transform)
+        {
+            if (dc == null || string.IsNullOrEmpty(tx.Value))
+                return;
+
+            var metrics = MeasureDxfTextLayout(tx, PlotRenderTextTarget, transform.Scale);
+            tx = metrics.Text;
+            var brush = new SolidColorBrush(tx.Color);
+            var text = new FormattedText(
+                tx.Value,
+                CultureInfo.CurrentCulture,
+                FlowDirection.LeftToRight,
+                metrics.Typeface,
+                metrics.FontPx,
+                brush,
+                1.0);
+
+            Point anchor = transform.P(tx.X, tx.Y);
+            Point drawPoint = GetDxfTextTopLeft(anchor, metrics.WidthPx, metrics.HeightPx, tx.HAnchor, tx.VAnchor);
+
+            if (Math.Abs(tx.RotationDeg) > 0.01)
+            {
+                dc.PushTransform(new RotateTransform(-tx.RotationDeg, anchor.X, anchor.Y));
+                dc.DrawText(text, drawPoint);
+                dc.Pop();
+                return;
+            }
+
+            dc.DrawText(text, drawPoint);
+        }
+
+        private bool TryBeginInteractiveViewport(Canvas canvas, GridBotsecozu item)
+        {
+            if (canvas == null || item == null)
+                return false;
+
+            var state = GetOrCreateInteractiveViewportState(canvas);
+            if (state == null)
+                return false;
+
+            state.Item = item;
+            if (state.IsActive && state.Overlay != null)
+            {
+                state.CommitTimer.Stop();
+                return true;
+            }
+
+            if (!(canvas.Parent is Panel parent))
+                return false;
+
+            if (!TryMakeTransform(canvas, item, out var snapshotTransform, out _, out _, out _))
+                return false;
+
+            BitmapSource bitmap;
+            if (!TryGetCachedInteractiveViewportSnapshot(canvas, item, snapshotTransform, out bitmap, out snapshotTransform))
+            {
+                bitmap = CreateInteractiveViewportSnapshot(canvas, item, snapshotTransform);
+                if (bitmap == null)
+                    return false;
+
+                state.CachedSnapshot = bitmap;
+                state.CachedSnapshotTransform = snapshotTransform;
+                state.CachedSnapshotItem = item;
+                state.CachedCanvasWidth = canvas.ActualWidth;
+                state.CachedCanvasHeight = canvas.ActualHeight;
+            }
+
+            var overlay = new Image
+            {
+                Source = bitmap,
+                Stretch = Stretch.Fill,
+                IsHitTestVisible = false,
+                SnapsToDevicePixels = true,
+                CacheMode = new BitmapCache(),
+                RenderTransform = state.OverlayTransform,
+                Clip = new RectangleGeometry(new Rect(0, 0, canvas.ActualWidth, canvas.ActualHeight))
+            };
+            RenderOptions.SetBitmapScalingMode(overlay, BitmapScalingMode.LowQuality);
+
+            CopyOverlayPlacement(canvas, overlay);
+            Panel.SetZIndex(overlay, Math.Max(Panel.GetZIndex(canvas), 1) + 10000);
+            parent.Children.Add(overlay);
+
+            state.Canvas = canvas;
+            state.Item = item;
+            state.Overlay = overlay;
+            state.SnapshotTransform = snapshotTransform;
+            state.OverlayTransform.Matrix = Matrix.Identity;
+            state.IsActive = true;
+
+            canvas.Opacity = 0.0;
+            return true;
+        }
+
+        private bool ApplyInteractiveViewport(Canvas canvas, GridBotsecozu item)
+        {
+            if (canvas == null || item == null)
+                return false;
+
+            if (!_interactiveViewportByCanvas.TryGetValue(canvas, out var state) ||
+                !state.IsActive ||
+                state.Overlay == null)
+            {
+                return false;
+            }
+
+            if (!TryMakeTransform(canvas, item, out var currentTransform, out _, out _, out _))
+                return false;
+
+            double snapshotScale = state.SnapshotTransform.Scale;
+            if (snapshotScale <= 0)
+                return false;
+
+            double scaleRatio = currentTransform.Scale / snapshotScale;
+            var matrix = new Matrix(
+                scaleRatio, 0,
+                0, scaleRatio,
+                currentTransform.Ox - state.SnapshotTransform.Ox * scaleRatio,
+                currentTransform.Oy - state.SnapshotTransform.Oy * scaleRatio);
+
+            state.OverlayTransform.Matrix = matrix;
+            return true;
+        }
+
+        private bool ApplyInteractiveViewportPan(Canvas canvas, Vector deltaPx)
+        {
+            if (canvas == null)
+                return false;
+
+            if (!_interactiveViewportByCanvas.TryGetValue(canvas, out var state) ||
+                !state.IsActive ||
+                state.Overlay == null)
+            {
+                return false;
+            }
+
+            var matrix = _panStartOverlayMatrix;
+            matrix.OffsetX += deltaPx.X;
+            matrix.OffsetY += deltaPx.Y;
+            state.OverlayTransform.Matrix = matrix;
+            return true;
+        }
+
+        private void ScheduleInteractiveViewportSnapshotRefresh(Canvas canvas, GridBotsecozu item)
+        {
+            var state = GetOrCreateInteractiveViewportState(canvas);
+            if (state == null)
+                return;
+
+            state.Canvas = canvas;
+            state.Item = item;
+            state.SnapshotTimer?.Stop();
+            if (state.IsActive)
+                return;
+
+            state.SnapshotTimer?.Start();
+        }
+
+        private void ScheduleDeferredInteractiveCanvasRedraw(Canvas canvas, GridBotsecozu item)
+        {
+            var state = GetOrCreateDeferredInteractiveCanvasState(canvas);
+            if (state == null)
+                return;
+
+            state.Canvas = canvas;
+            state.Item = item;
+            state.Timer?.Stop();
+            state.Timer?.Start();
+        }
+
+        private void ScheduleInteractiveViewportCommit(Canvas canvas, GridBotsecozu item)
+        {
+            var state = GetOrCreateInteractiveViewportState(canvas);
+            if (state == null)
+                return;
+
+            state.Item = item;
+            state.CommitTimer.Stop();
+            state.CommitTimer.Start();
+        }
+
+        private void EndInteractiveViewport(Canvas canvas)
+        {
+            if (canvas == null)
+                return;
+
+            if (_interactiveViewportByCanvas.TryGetValue(canvas, out var state))
+            {
+                state.CommitTimer?.Stop();
+                state.SnapshotTimer?.Stop();
+
+                if (state.Overlay != null)
+                {
+                    if (state.Overlay.Parent is Panel parent)
+                        parent.Children.Remove(state.Overlay);
+
+                    state.Overlay = null;
+                }
+
+                state.Item = null;
+                state.IsActive = false;
+                state.OverlayTransform.Matrix = Matrix.Identity;
+            }
+
+            canvas.Opacity = 1.0;
+        }
+
+        private void CommitInteractiveViewport(Canvas canvas, GridBotsecozu item)
+        {
+            if (canvas == null || item == null)
+                return;
+
+            EndInteractiveViewport(canvas);
+            Redraw(canvas, item);
         }
 
         // Trả về transform hiện tại + fitScale (để tính zoom quanh con trỏ)
@@ -3716,6 +7328,8 @@ namespace RevitProjectDataAddin
         bool _isPanning = false;
         Point _panStartPx;         // điểm màn hình lúc bắt đầu pan
         Point _panStartPanMm;      // pan mm lúc bắt đầu pan
+        double _panStartScalePxPerMm = 1.0;
+        Matrix _panStartOverlayMatrix = Matrix.Identity;
 
 
         // ======= PREVIEW: Redraw =======
@@ -3724,6 +7338,9 @@ namespace RevitProjectDataAddin
             var (hata1, hata2, anka1, anka2, nige1, nige2, TsugiteOption1, sugiteOption2) = GetKesanFlags();
 
             if (canvas == null || _projectData?.Kihon == null || _currentSecoList == null) return;
+            EndInteractiveViewport(canvas);
+            SyncRuntimeOverridesFromModel(item);
+            ResetOrangeSegmentRuntimeState(item);
             canvas.Children.Clear();
             SceneBegin(item);
 
@@ -3740,6 +7357,10 @@ namespace RevitProjectDataAddin
                                         : new List<double>();
 
             if (names.Count < 2 || spans.Count < names.Count - 1) return;
+
+            int previewSpanCount = Math.Max(0, names.Count - 1);
+            SetLightweightCanvasUi(item, previewSpanCount >= LightweightCanvasUiSpanThreshold);
+            _useApproximateCanvasTextLayout = IsLightweightCanvasUi(item);
 
             double W = spans.Take(names.Count - 1).Sum();
             if (W <= 0) return;
@@ -3801,14 +7422,14 @@ namespace RevitProjectDataAddin
             double yChainBot = 900;
             //double dimFont = 10;
             const double yChainLocalBase = 300.0;
-            double axisLineEndY = yChainLocalBase + 12900 + OffsetCentralStirrupFrame.Y;
-            Brush dimBrush = Brushes.DimGray;
+            double axisLineEndY = yChainLocalBase + 13500 + OffsetCentralStirrupFrame.Y;
+            Brush dimBrush = Brushes.Black;
 
             // ==== Cấu hình hiển thị kích thước cho đoạn cam ====
             const bool ShowOrangeDims = true;     // Cho phép tắt nhanh
             const double MinDimLen = 200.0;       // Chỉ hiển thị nếu đoạn ≥ ngưỡng (mm)
-            const double DimDyUpper = 180.0;      // Độ lệch chữ (nhóm trên)
-            const double DimDyLower = -180.0;     // Độ lệch chữ (nhóm dưới)
+            const double OrangeDimPrimaryTextGapMm = -15;
+            const double OrangeDimSecondaryTextGapMm = -30;
 
             // NEW: Bật/tắt chấm đen "tiền xử lý" (cm/cE2...) — MẶC ĐỊNH TẮT
             const bool ShowPreRoundCutMarks = false;
@@ -3884,21 +7505,104 @@ namespace RevitProjectDataAddin
                 }
             }
 
+            void RoundContiguousChainsInPlaceBySpan(
+                List<(double x1, double x2)> segs,
+                double step,
+                IReadOnlyList<double> breakPoints,
+                double eps = 1.0)
+            {
+                if (segs == null || segs.Count == 0) return;
+                if (breakPoints == null || breakPoints.Count == 0)
+                {
+                    RoundContiguousChainsInPlace(segs, step, eps);
+                    return;
+                }
+
+                bool IsSpanBreak(double x)
+                {
+                    for (int bi = 0; bi < breakPoints.Count; bi++)
+                    {
+                        if (Math.Abs(breakPoints[bi] - x) <= eps)
+                            return true;
+                    }
+
+                    return false;
+                }
+
+                int i = 0;
+                while (i < segs.Count)
+                {
+                    int j = i;
+                    while (j + 1 < segs.Count)
+                    {
+                        double joinX = 0.5 * (segs[j].x2 + segs[j + 1].x1);
+                        if (Math.Abs(segs[j].x2 - segs[j + 1].x1) > eps || IsSpanBreak(joinX))
+                            break;
+
+                        j++;
+                    }
+
+                    if (j > i)
+                    {
+                        double totalDelta = 0.0;
+
+                        for (int k2 = i; k2 < j; k2++)
+                        {
+                            var sk = segs[k2];
+                            double len = sk.x2 - sk.x1;
+                            double lenRounded = CeilToBase(len, step);
+                            double delta = Math.Max(0, lenRounded - len);
+                            if (delta <= 0) continue;
+
+                            for (int m = k2; m <= j; m++)
+                            {
+                                var sm = segs[m];
+                                if (m == k2) segs[m] = (sm.x1, sm.x2 + delta);
+                                else segs[m] = (sm.x1 + delta, sm.x2 + delta);
+                            }
+                            totalDelta += delta;
+                        }
+
+                        if (totalDelta > 0)
+                        {
+                            var last = segs[j];
+                            double lastLen = Math.Max(0, last.x2 - last.x1);
+                            double newLastLen = Math.Max(0, lastLen - totalDelta);
+                            segs[j] = (last.x1, last.x1 + newLastLen);
+                        }
+                    }
+
+                    i = j + 1;
+                }
+            }
+
             // =========================
             // Helper vẽ dot sau làm tròn (không dùng ??= để tương thích C# 7.3)
 
 
             void DrawAdjustedHardCutDots(
-                Canvas cvs, WCTransform tr, GridBotsecozu owner,
+                Canvas cvs, WCTransform tr, GridBotsecozu owner, int rowIndex,
                 List<(double x1, double x2)> segs, List<double> rowCuts,
+                double[] spanLeftArrLocal,
+                double[] spanRightArrLocal,
+                int spanCountLocal,
 
                 //double y, double dotR, Brush brush, double offsetX = 0)
 
                 double y, double dotR, Brush brush, double offsetX = 0,
-                Func<double, double> offsetSelector = null)
+                Func<double, double> offsetSelector = null,
+                Func<double, double, double> targetXSelector = null)
 
             {
                 if (segs == null || segs.Count < 2 || rowCuts == null || rowCuts.Count == 0) return;
+
+                int y10 = (int)Math.Round(y * 10.0);
+                if (_orangeSegCutMarkers.TryGetValue(owner, out var syncedMarkers)
+                    && syncedMarkers != null
+                    && syncedMarkers.Any(m => m.RowIndex == rowIndex && m.Y_10 == y10))
+                {
+                    return;
+                }
 
                 if (brush == null) brush = Brushes.Black;
 
@@ -3920,11 +7624,18 @@ namespace RevitProjectDataAddin
                 var used = new bool[borders.Count];
                 foreach (var cut in rowCuts)
                 {
+                    int cutSpanIdx = FindSpanIndexByX(cut, spanLeftArrLocal, spanRightArrLocal, spanCountLocal);
                     int best = -1;
                     double bestD = double.PositiveInfinity;
                     for (int i = 0; i < borders.Count; i++)
                     {
                         if (used[i]) continue;
+                        if (cutSpanIdx >= 0)
+                        {
+                            int borderSpanIdx = FindSpanIndexByX(borders[i], spanLeftArrLocal, spanRightArrLocal, spanCountLocal);
+                            if (borderSpanIdx != cutSpanIdx) continue;
+                        }
+
                         double d = Math.Abs(borders[i] - cut);
                         if (d < bestD)
                         {
@@ -3936,10 +7647,9 @@ namespace RevitProjectDataAddin
                     {
                         used[best] = true;
 
-                        //double xDot = borders[best] + offsetX;
-
-                        double appliedOffset = offsetSelector?.Invoke(borders[best]) ?? offsetX;
-                        double xDot = borders[best] + appliedOffset;
+                        double leftBaseX = segs[best].x1;
+                        double xDot = targetXSelector?.Invoke(cut, leftBaseX)
+                                      ?? (borders[best] + (offsetSelector?.Invoke(borders[best]) ?? offsetX));
 
 
                         DrawDotMm_Rec(cvs, tr, owner, xDot, y, rMm: dotR, layer: "MARK", fill: brush);
@@ -3950,7 +7660,11 @@ namespace RevitProjectDataAddin
             void ApplyTonariShiftToMergedCuts(
                 List<(double x1, double x2)> merged,
                 List<double> rowCuts,
-                Func<double, double> offsetSelector
+                double[] spanLeftArrLocal,
+                double[] spanRightArrLocal,
+                int spanCountLocal,
+                Func<double, double> offsetSelector,
+                Func<double, double, double> targetXSelector = null
 )
             {
                 if (merged == null || merged.Count < 2) return;
@@ -3970,12 +7684,19 @@ namespace RevitProjectDataAddin
 
                 foreach (var cut in rowCuts)
                 {
+                    int cutSpanIdx = FindSpanIndexByX(cut, spanLeftArrLocal, spanRightArrLocal, spanCountLocal);
                     int best = -1;
                     double bestD = double.MaxValue;
 
                     for (int i = 0; i < borders.Count; i++)
                     {
                         if (used[i]) continue;
+                        if (cutSpanIdx >= 0)
+                        {
+                            int borderSpanIdx = FindSpanIndexByX(borders[i], spanLeftArrLocal, spanRightArrLocal, spanCountLocal);
+                            if (borderSpanIdx != cutSpanIdx) continue;
+                        }
+
                         double d = Math.Abs(borders[i] - cut);
                         if (d < bestD)
                         {
@@ -3987,7 +7708,10 @@ namespace RevitProjectDataAddin
                     if (best < 0) continue;
                     used[best] = true;
 
-                    double delta = offsetSelector?.Invoke(borders[best]) ?? 0;
+                    double leftBaseX = merged[best].x1;
+                    double targetX = targetXSelector?.Invoke(cut, leftBaseX)
+                                     ?? (borders[best] + (offsetSelector?.Invoke(borders[best]) ?? 0));
+                    double delta = targetX - borders[best];
                     if (Math.Abs(delta) < 1e-6) continue;
 
                     var L = merged[best];
@@ -4018,13 +7742,16 @@ namespace RevitProjectDataAddin
                 double leftAnkaSigned, double rightAnkaSigned,
                 bool textAboveLine, // true: chữ nằm phía trên thanh cam
                 double baseX1, double baseX2,
+                bool suppressAnkaInTopLength = false,
+                bool forceShowForCutChild = false,
                 int rowIndex = 0    // ✅ optional để không bắt buộc sửa tất cả nơi gọi
             )
             {
                 if (!ShowOrangeDims) return;
 
                 double baseLen = (x2 - x1);
-                if (baseLen < MinDimLen) return;
+                // DIMは短尺でも、セグメントが存在する限り表示する（長さ調整「引く」後に消えないようにする）
+                if (baseLen <= 1e-6) return;
 
                 double cx = 0.5 * (x1 + x2);
                 int si = FindSpanIndexByX(cx, spanLeftArrLocal, spanRightArrLocal, spanCountLocal);
@@ -4042,6 +7769,9 @@ namespace RevitProjectDataAddin
                 double ankaAdd =
                     (hasLeftAnka ? Math.Abs(leftAnkaSigned) : 0.0) +
                     (hasRightAnka ? Math.Abs(rightAnkaSigned) : 0.0);
+                // 等分/任意切断の子セグメントでは通常ANKA加算を抑制するが、
+                // 実際にANKAが引き継がれている端部セグメントは上段DIMにANKAを含める。
+                if (suppressAnkaInTopLength && !(hasLeftAnka || hasRightAnka)) ankaAdd = 0.0;
 
                 // Text TOP
                 double wxTop = cx;
@@ -4083,10 +7813,11 @@ namespace RevitProjectDataAddin
                     cvs, tr, owner,
                     topTxtDraw,
                     wxTop, wyTop,
-                    dimFont, Brushes.DimGray,
+                    dimFont, Brushes.Black,
                     HAnchor.Center,
                     textAboveLine ? VAnchor.Bottom : VAnchor.Top,
-                    150, "DIM"
+                    200, "DIM",
+                    forceCanvasVisual: true
                 );
                 MakeOrangeDimTextEditable(topTb, cvs, tr, wxTop, wyTop, owner, topKey);
 
@@ -4107,9 +7838,19 @@ namespace RevitProjectDataAddin
                         dimFont, Brushes.Red,
                         HAnchor.Center,
                         textAboveLine ? VAnchor.Top : VAnchor.Bottom,
-                        150, "DIM"
+                        200, "DIM"
                     );
                     MakeOrangeDimTextEditable(botTb, cvs, tr, wxBot, wyBot, owner, botKey);
+                }
+
+                if (IsEqualCutMarker(owner, rowIndex, x1, y))
+                {
+                    DrawDotMm_Rec(cvs, tr, owner, x1, y, rMm: 30, layer: "DIM", fill: Brushes.Black);
+                }
+
+                if (IsEqualCutMarker(owner, rowIndex, x2, y))
+                {
+                    DrawDotMm_Rec(cvs, tr, owner, x2, y, rMm: 30, layer: "DIM", fill: Brushes.Black);
                 }
             }
 
@@ -4130,8 +7871,8 @@ namespace RevitProjectDataAddin
                 double phi = (si >= 0 && si < phiMidArray.Length) ? Math.Max(0, phiMidArray[si]) : 0.0;
 
                 string txt = $"D{phi:0}-{len:0}";
-                DrawText_Rec(cvs, tr, owner, txt, cx, y + dy, dimFont, Brushes.DimGray,
-                             HAnchor.Center, VAnchor.Bottom, 150, "DIM");
+                DrawText_Rec(cvs, tr, owner, txt, cx, y + dy, dimFont, Brushes.Black,
+                             HAnchor.Center, VAnchor.Bottom, 200, "DIM");
             }
 
             // === 1) Trục & offset ===
@@ -4141,7 +7882,7 @@ namespace RevitProjectDataAddin
 
                 // Tên trục X và Y
                 DrawText_Rec(canvas, T, item, i < names.Count ? names[i] : "", pos[i], y0, dimFont, Brushes.Black,
-                                HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                                HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
 
                 if (tsuIsY)
                 {
@@ -4151,24 +7892,24 @@ namespace RevitProjectDataAddin
                     DrawLine_Rec(canvas, T, item, pos[i], y0, pos[i], axisLineEndY, Brushes.Red, AxisStrokeThickness, null, "AXIS");
 
                     // Trục X xám 2 bên
-                    DrawLine_Rec(canvas, T, item, xLeft, y0, xLeft, axisLineEndY, Brushes.DimGray, 1.2, null, "OFFSET");
-                    DrawLine_Rec(canvas, T, item, xRight, y0, xRight, axisLineEndY, Brushes.DimGray, 1.2, null, "OFFSET");
+                    DrawLine_Rec(canvas, T, item, xLeft, y0, xLeft, axisLineEndY, Brushes.Black, 1.2, null, "OFFSET");
+                    DrawLine_Rec(canvas, T, item, xRight, y0, xRight, axisLineEndY, Brushes.Black, 1.2, null, "OFFSET");
 
                     if (pos[i] > xLeft)
                     {
-                        DrawLine_Rec(canvas, T, item, xLeft, yChainMid, pos[i], yChainMid, dimBrush, 1.2, null, "DIM");
+                        DrawLine_Rec(canvas, T, item, xLeft, yChainMid, pos[i], yChainMid, Brushes.Black, 1.2, null, "DIM");
                         DrawDotMm_Rec(canvas, T, item, xLeft, yChainMid, rMm: 30, layer: "DIM", fill: dimBrush);
                         DrawDotMm_Rec(canvas, T, item, pos[i], yChainMid, rMm: 30, layer: "DIM", fill: dimBrush);
                         double cxL = (xLeft + pos[i]) / 2.0;
-                        DrawText_Rec(canvas, T, item, $"{up[i]:0}", cxL, yChainMid, dimFont, dimBrush, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                        DrawText_Rec(canvas, T, item, $"{up[i]:0}", cxL, yChainMid, dimFont, dimBrush, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
                     }
                     if (xRight > pos[i])
                     {
-                        DrawLine_Rec(canvas, T, item, pos[i], yChainMid, xRight, yChainMid, dimBrush, 1.2, null, "DIM");
+                        DrawLine_Rec(canvas, T, item, pos[i], yChainMid, xRight, yChainMid, Brushes.Black, 1.2, null, "DIM");
                         DrawDotMm_Rec(canvas, T, item, pos[i], yChainMid, rMm: 30, layer: "DIM", fill: dimBrush);
                         DrawDotMm_Rec(canvas, T, item, xRight, yChainMid, rMm: 30, layer: "DIM", fill: dimBrush);
                         double cxR = (pos[i] + xRight) / 2.0;
-                        DrawText_Rec(canvas, T, item, $"{down[i]:0}", cxR, yChainMid, dimFont, dimBrush, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                        DrawText_Rec(canvas, T, item, $"{down[i]:0}", cxR, yChainMid, dimFont, dimBrush, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
                     }
                 }
                 else if (tsuIsX)
@@ -4178,24 +7919,24 @@ namespace RevitProjectDataAddin
                     // Trục Y đỏ
                     DrawLine_Rec(canvas, T, item, pos[i], y0, pos[i], axisLineEndY, Brushes.Red, AxisStrokeThickness, null, "AXIS");
                     // Trục Y xám 2 bên
-                    DrawLine_Rec(canvas, T, item, xLeft, y0, xLeft, axisLineEndY, Brushes.DimGray, 1.2, null, "OFFSET");
-                    DrawLine_Rec(canvas, T, item, xRight, y0, xRight, axisLineEndY, Brushes.DimGray, 1.2, null, "OFFSET");
+                    DrawLine_Rec(canvas, T, item, xLeft, y0, xLeft, axisLineEndY, Brushes.Black, 1.2, null, "OFFSET");
+                    DrawLine_Rec(canvas, T, item, xRight, y0, xRight, axisLineEndY, Brushes.Black, 1.2, null, "OFFSET");
 
                     if (pos[i] > xLeft)
                     {
-                        DrawLine_Rec(canvas, T, item, xLeft, yChainMid, pos[i], yChainMid, dimBrush, 1.2, null, "DIM");
+                        DrawLine_Rec(canvas, T, item, xLeft, yChainMid, pos[i], yChainMid, Brushes.Black, 1.2, null, "DIM");
                         DrawDotMm_Rec(canvas, T, item, xLeft, yChainMid, rMm: 30, layer: "DIM", fill: dimBrush);
                         DrawDotMm_Rec(canvas, T, item, pos[i], yChainMid, rMm: 30, layer: "DIM", fill: dimBrush);
                         double cxL = (xLeft + pos[i]) / 2.0;
-                        DrawText_Rec(canvas, T, item, $"{left[i]:0}", cxL, yChainMid, dimFont, dimBrush, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                        DrawText_Rec(canvas, T, item, $"{left[i]:0}", cxL, yChainMid, dimFont, dimBrush, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
                     }
                     if (xRight > pos[i])
                     {
-                        DrawLine_Rec(canvas, T, item, pos[i], yChainMid, xRight, yChainMid, dimBrush, 1.2, null, "DIM");
+                        DrawLine_Rec(canvas, T, item, pos[i], yChainMid, xRight, yChainMid, Brushes.Black, 1.2, null, "DIM");
                         DrawDotMm_Rec(canvas, T, item, pos[i], yChainMid, rMm: 30, layer: "DIM", fill: dimBrush);
                         DrawDotMm_Rec(canvas, T, item, xRight, yChainMid, rMm: 30, layer: "DIM", fill: dimBrush);
                         double cxR = (pos[i] + xRight) / 2.0;
-                        DrawText_Rec(canvas, T, item, $"{right[i]:0}", cxR, yChainMid, dimFont, dimBrush, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                        DrawText_Rec(canvas, T, item, $"{right[i]:0}", cxR, yChainMid, dimFont, dimBrush, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
                     }
                 }
             }
@@ -4212,8 +7953,8 @@ namespace RevitProjectDataAddin
                     double eff = (pos[j + 1] - pos[j]) - (down[j] + up[j + 1]);
                     double cx = (xA + xB) / 2.0;
 
-                    DrawLine_Rec(canvas, T, item, xA, yChainMid, xB, yChainMid, Brushes.DimGray, 1.2, null, "CHAIN");
-                    DrawText_Rec(canvas, T, item, $"{eff:0}", cx, yChainMid, dimFont, Brushes.Gray, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                    DrawLine_Rec(canvas, T, item, xA, yChainMid, xB, yChainMid, Brushes.Black, 1.2, null, "CHAIN");
+                    DrawText_Rec(canvas, T, item, $"{eff:0}", cx, yChainMid, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
 
                     ////////////////1 chổ////////
                     ////腹筋
@@ -4231,21 +7972,10 @@ namespace RevitProjectDataAddin
 
                     double midSpan = xA + ((xB - xA) / 2.0);
                     // 左の腹筋
-                    // 左の腹筋の左
                     DrawLine_Rec(canvas, T, item,
                         (xA - leftHook_L) + offset1.X, yChainMid + 7500 + offset1.Y,
-                        xA + offset1.X, yChainMid + 7500 + offset1.Y,
-                        Brushes.DimGray, 1.5, null, "CHAIN");
-                    // 左の腹筋の中央
-                    DrawLine_Rec(canvas, T, item,
-                        xA + offset1.X, yChainMid + 7500 + offset1.Y,
-                        midSpan + offset1.X, yChainMid + 7500 + offset1.Y,
-                        Brushes.Red, 1.5, null, "CHAIN");
-                    // 左の腹筋の右
-                    DrawLine_Rec(canvas, T, item,
-                        midSpan + offset1.X, yChainMid + 7500 + offset1.Y,
                         (midSpan + rightHook_L) + offset1.X, yChainMid + 7500 + offset1.Y,
-                        Brushes.Blue, 1.5, null, "CHAIN");
+                        Brushes.Red, 1.5, null, "CHAIN");
                     // Chéo của thanh bên trái
                     DrawLine_Rec(canvas, T, item,
                        (midSpan + rightHook_L) + offset1.X, yChainMid + 7500 + offset1.Y,
@@ -4253,43 +7983,31 @@ namespace RevitProjectDataAddin
                        Brushes.Blue, 1.5, null, "CHAIN");
 
                     // 右の腹筋
-                    // 右の腹筋の左
                     DrawLine_Rec(canvas, T, item,
-                        (midSpan - leftHook_R) + offset1.X, yChainMid + 7515 + offset1.Y,
-                        midSpan + offset1.X, yChainMid + 7515 + offset1.Y,
+                         (midSpan - leftHook_R) + offset1.X, yChainMid + 7515 + offset1.Y,
+                        (xB + rightHook_R) + offset1.X, yChainMid + 7515 + offset1.Y,
                         Brushes.Black, 1.5, null, "CHAIN");
                     // Chéo của thanh bên phải
                     DrawLine_Rec(canvas, T, item,
                         (midSpan - leftHook_R) + offset1.X, yChainMid + 7515 + offset1.Y,
                         (midSpan - leftHook_R) + offset1.X - 30, yChainMid + 7515 + offset1.Y - 30,
                         Brushes.Black, 1.5, null, "CHAIN");
-
-                    // 右の腹筋の中央
-                    DrawLine_Rec(canvas, T, item,
-                        midSpan + offset1.X, yChainMid + 7515 + offset1.Y,
-                        xB + offset1.X, yChainMid + 7515 + offset1.Y,
-                        Brushes.Orange, 1.5, null, "CHAIN");
-                    // 右の腹筋の右
-                    DrawLine_Rec(canvas, T, item,
-                        xB + offset1.X, yChainMid + 7515 + offset1.Y,
-                        (xB + rightHook_R) + offset1.X, yChainMid + 7515 + offset1.Y,
-                        Brushes.Red, 1.5, null, "CHAIN");
                     /////////////// hết 1 chổ ////////////
 
                     double Lspan = xB - xA;
                     double xQ1 = xA + 0.25 * Lspan;
                     double xQ3 = xA + 0.75 * Lspan;
 
-                    DrawLine_Rec(canvas, T, item, xA, yChainBot, xQ1, yChainBot, Brushes.DimGray, 1.2, null, "CHAIN");
-                    DrawLine_Rec(canvas, T, item, xQ1, yChainBot, xQ3, yChainBot, Brushes.DimGray, 1.2, null, "CHAIN");
-                    DrawLine_Rec(canvas, T, item, xQ3, yChainBot, xB, yChainBot, Brushes.DimGray, 1.2, null, "CHAIN");
+                    DrawLine_Rec(canvas, T, item, xA, yChainBot, xQ1, yChainBot, Brushes.Black, 1.2, null, "CHAIN");
+                    DrawLine_Rec(canvas, T, item, xQ1, yChainBot, xQ3, yChainBot, Brushes.Black, 1.2, null, "CHAIN");
+                    DrawLine_Rec(canvas, T, item, xQ3, yChainBot, xB, yChainBot, Brushes.Black, 1.2, null, "CHAIN");
 
                     double v14 = eff * 0.25, v12 = eff * 0.50;
-                    DrawText_Rec(canvas, T, item, $"{v14:0}", (xA + xQ1) / 2.0, yChainBot, dimFont, Brushes.Gray, HAnchor.Center, VAnchor.Bottom, 160, "TEXT");
-                    DrawText_Rec(canvas, T, item, $"{v12:0}", (xQ1 + xQ3) / 2.0, yChainBot, dimFont, Brushes.Gray, HAnchor.Center, VAnchor.Bottom, 160, "TEXT");
-                    DrawText_Rec(canvas, T, item, $"{v14:0}", (xQ3 + xB) / 2.0, yChainBot, dimFont, Brushes.Gray, HAnchor.Center, VAnchor.Bottom, 160, "TEXT");
+                    DrawText_Rec(canvas, T, item, $"{v14:0}", (xA + xQ1) / 2.0, yChainBot, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, $"{v12:0}", (xQ1 + xQ3) / 2.0, yChainBot, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, $"{v14:0}", (xQ3 + xB) / 2.0, yChainBot, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
 
-                    DrawDotMm_Rec(canvas, T, item, xQ1, yChainBot, rMm: 25, layer: "MARK", fill: Brushes.Gray);
+                    DrawDotMm_Rec(canvas, T, item, xQ1, yChainBot, rMm: 25, layer: "MARK", fill: Brushes.Black);
                     DrawDotMm_Rec(canvas, T, item, xQ3, yChainBot, rMm: 25, layer: "MARK");
                 }
             }
@@ -4304,8 +8022,8 @@ namespace RevitProjectDataAddin
                     double eff = (pos[j + 1] - pos[j]) - (right[j] + left[j + 1]);
                     double cx = (xA + xB) / 2.0;
 
-                    DrawLine_Rec(canvas, T, item, xA, yChainMid, xB, yChainMid, Brushes.DimGray, 1.2, null, "CHAIN");
-                    DrawText_Rec(canvas, T, item, $"{eff:0}", cx, yChainMid, dimFont, Brushes.Gray, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                    DrawLine_Rec(canvas, T, item, xA, yChainMid, xB, yChainMid, Brushes.Black, 1.2, null, "CHAIN");
+                    DrawText_Rec(canvas, T, item, $"{eff:0}", cx, yChainMid, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
 
                     ///////////////// 2 chổ /////////////////
                     ////腹筋
@@ -4323,21 +8041,10 @@ namespace RevitProjectDataAddin
                     double midSpanX = xA + ((xB - xA) / 2.0);
 
                     // 左の腹筋
-                    //左の腹筋の左
                     DrawLine_Rec(canvas, T, item,
-                                 (xA - leftHook_L) + offset2.X, yChainMid + 7500 + offset2.Y,
-                                xA + offset2.X, yChainMid + 7500 + offset2.Y,
-                                 Brushes.DimGray, 1.5, null, "CHAIN");
-                    //左の腹筋の中央
-                    DrawLine_Rec(canvas, T, item,
-                                 xA + offset2.X, yChainMid + 7500 + offset2.Y,
-                                 midSpanX + offset2.X, yChainMid + 7500 + offset2.Y,
+                                  (xA - leftHook_L) + offset2.X, yChainMid + 7500 + offset2.Y,
+                                  midSpanX + rightHook_L + offset2.X, yChainMid + 7500 + offset2.Y,
                                  Brushes.Red, 1.5, null, "CHAIN");
-                    //左の腹筋の右
-                    DrawLine_Rec(canvas, T, item,
-                                 midSpanX + offset2.X, yChainMid + 7500 + offset2.Y,
-                                 midSpanX + rightHook_L + offset2.X, yChainMid + 7500 + offset2.Y,
-                                 Brushes.Blue, 1.5, null, "CHAIN");
                     // Chéo của thanh bên trái
                     DrawLine_Rec(canvas, T, item,
                                  midSpanX + rightHook_L + offset2.X, yChainMid + 7500 + offset2.Y,
@@ -4345,26 +8052,15 @@ namespace RevitProjectDataAddin
                                  Brushes.Blue, 1.5, null, "CHAIN");
 
                     //右の腹筋
-                    //右の腹筋の左
                     DrawLine_Rec(canvas, T, item,
-                                  midSpanX - leftHook_R + offset2.X, yChainMid + 7515 + offset2.Y,
-                                 midSpanX + offset2.X, yChainMid + 7515 + offset2.Y,
-                                 Brushes.Black, 1.5, null, "CHAIN");
+                                 midSpanX - leftHook_R + offset2.X, yChainMid + 7515 + offset2.Y,
+                                  (xB + rightHook_R) + offset2.X, yChainMid + 7515 + offset2.Y,
+                                Brushes.Black, 1.5, null, "CHAIN");
                     // Chéo của thanh bên phải
                     DrawLine_Rec(canvas, T, item,
                                  midSpanX - leftHook_R + offset2.X, yChainMid + 7515 + offset2.Y,
                                 midSpanX - leftHook_R + offset2.X - 30, yChainMid + 7515 + offset2.Y - 30,
                                 Brushes.Black, 1.5, null, "CHAIN");
-                    //右の腹筋の中央
-                    DrawLine_Rec(canvas, T, item,
-                                 midSpanX + offset2.X, yChainMid + 7515 + offset2.Y,
-                                (xB) + offset2.X, yChainMid + 7515 + offset2.Y,
-                                Brushes.Orange, 1.5, null, "CHAIN");
-                    //右の腹筋の右
-                    DrawLine_Rec(canvas, T, item,
-                             xB + offset2.X, yChainMid + 7515 + offset2.Y,
-                            (xB + rightHook_R) + offset2.X, yChainMid + 7515 + offset2.Y,
-                            Brushes.Red, 1.5, null, "CHAIN");
                     //////////////// hết 2 chổ //////////////
 
 
@@ -4372,16 +8068,16 @@ namespace RevitProjectDataAddin
                     double xQ1 = xA + 0.25 * Lspan;
                     double xQ3 = xA + 0.75 * Lspan;
 
-                    DrawLine_Rec(canvas, T, item, xA, yChainBot, xQ1, yChainBot, Brushes.DimGray, 1.2, null, "CHAIN");
-                    DrawLine_Rec(canvas, T, item, xQ1, yChainBot, xQ3, yChainBot, Brushes.DimGray, 1.2, null, "CHAIN");
-                    DrawLine_Rec(canvas, T, item, xQ3, yChainBot, xB, yChainBot, Brushes.DimGray, 1.2, null, "CHAIN");
+                    DrawLine_Rec(canvas, T, item, xA, yChainBot, xQ1, yChainBot, Brushes.Black, 1.2, null, "CHAIN");
+                    DrawLine_Rec(canvas, T, item, xQ1, yChainBot, xQ3, yChainBot, Brushes.Black, 1.2, null, "CHAIN");
+                    DrawLine_Rec(canvas, T, item, xQ3, yChainBot, xB, yChainBot, Brushes.Black, 1.2, null, "CHAIN");
 
                     double v14 = eff * 0.25, v12 = eff * 0.50;
-                    DrawText_Rec(canvas, T, item, $"{v14:0}", (xA + xQ1) / 2.0, yChainBot, dimFont, Brushes.Gray, HAnchor.Center, VAnchor.Bottom, 160, "TEXT");
-                    DrawText_Rec(canvas, T, item, $"{v12:0}", (xQ1 + xQ3) / 2.0, yChainBot, dimFont, Brushes.Gray, HAnchor.Center, VAnchor.Bottom, 160, "TEXT");
-                    DrawText_Rec(canvas, T, item, $"{v14:0}", (xQ3 + xB) / 2.0, yChainBot, dimFont, Brushes.Gray, HAnchor.Center, VAnchor.Bottom, 160, "TEXT");
+                    DrawText_Rec(canvas, T, item, $"{v14:0}", (xA + xQ1) / 2.0, yChainBot, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, $"{v12:0}", (xQ1 + xQ3) / 2.0, yChainBot, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, $"{v14:0}", (xQ3 + xB) / 2.0, yChainBot, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
 
-                    DrawDotMm_Rec(canvas, T, item, xQ1, yChainBot, rMm: 25, layer: "MARK", fill: Brushes.Gray);
+                    DrawDotMm_Rec(canvas, T, item, xQ1, yChainBot, rMm: 25, layer: "MARK", fill: Brushes.Black);
                     DrawDotMm_Rec(canvas, T, item, xQ3, yChainBot, rMm: 25, layer: "MARK");
                 }
             }
@@ -4406,22 +8102,8 @@ namespace RevitProjectDataAddin
             var (nigeUwa, nigeUwaChu1, nigeUwaChu2, nigeShitaChu2, nigeShitaChu1, nigeShita) = GetNigeValues();
 
             // ===== Hằng số khoảng cách hiển thị giá trị dưới nhãn =====
-            const double LabelDy = 250.0;
+            const double LabelDy = 200.0;
             const double ValueDy = 800.0;
-
-            DrawLine_Rec(canvas, T, item,
-                leftEdge - 1500, yChainBot + 2600,
-                rightEdge + 1500, yChainBot + 2600,
-                Brushes.Aqua, 1.2, null, "CHAIN");
-            DrawText_Rec(canvas, T, item, "上筋", leftEdge - 1300, yChainBot + 2600 + LabelDy, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-            // <<< ニゲ TEXT >>>
-            if (nige1 == true)
-            {
-                DrawText_Rec(canvas, T, item, $"ニゲ {nigeUwa:0}", leftEdge - 1100, yChainBot + 2600 + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                DrawText_Rec(canvas, T, item, $"ニゲ {nigeUwa:0}", rightEdge + 1100, yChainBot + 2600 + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-            }
-
-
             // === 3b) Thu thập dữ liệu span ===
             int spanCount = Math.Max(0, names.Count - 1);
             var qLArr = new double[spanCount];
@@ -4452,6 +8134,10 @@ namespace RevitProjectDataAddin
                 var zcfg = GetRebarConfigForSpan(selF, string.IsNullOrWhiteSpace(G0) ? "G0" : G0);
                 var (中央幅, 中央成, 中央スタラップ径, ピッチ, スタラップ材質, 端部1幅止筋径, 端部1幅止筋ピッチ, 中央中子筋径,
                                    中央中子筋径ピッチ, 中央中子筋材質, 端部1腹筋径) = GetBeamSize(selF, G0);
+                (中央幅, 中央成) = GetSpanBeamDimensions(item, i, 中央幅, 中央成);
+                (中央スタラップ径, ピッチ, スタラップ材質) = GetSpanCentralStirrupValues(item, i, 中央スタラップ径, ピッチ, スタラップ材質);
+                (端部1幅止筋径, 端部1幅止筋ピッチ) = GetSpanEndWidthStopValues(item, i, 端部1幅止筋径, 端部1幅止筋ピッチ);
+                (中央中子筋径, 中央中子筋径ピッチ, 中央中子筋材質) = GetSpanCentralIntermediateValues(item, i, 中央中子筋径, 中央中子筋径ピッチ, 中央中子筋材質);
                 var (ankaUwa, ankaUwaChu, ankaShitaChu, ankaShita) = GetAnkaNagaValues();
                 double x0 = pos[i];
                 double x1 = pos[i + 1];
@@ -4496,6 +8182,8 @@ namespace RevitProjectDataAddin
                         // --- fallback theo eff (giữ logic cho 左/右) ---
                         const double abdominalLeftFallback = 200.0;
                         const double abdominalRightFallback = 200.0;
+                        string leftTanbuDiameter = GetTanbuDiameter(item, i, isRightAbdominal: false, 端部1腹筋径);
+                        string rightTanbuDiameter = GetTanbuDiameter(item, i, isRightAbdominal: true, 端部1腹筋径);
                         // --- hiển thị: lấy override theo từng bên ---
                         //double hookLengthLeft = GetTanbuHookLength(item, i, isRight: false, hookLengthFallback);
                         //double hookLengthRight = GetTanbuHookLength(item, i, isRight: true, hookLengthFallback);
@@ -4513,20 +8201,24 @@ namespace RevitProjectDataAddin
                         double hookLengthRight = (eff / 2.0) + leftHook_R + rightHook_R;  // 右の腹筋 total
 
 
-                        string leftDisplay = $"D{端部1腹筋径}- {hookLengthLeft:0}";
-                        string rightDisplay = $"D{端部1腹筋径}- {hookLengthRight:0}";
+                        //string leftDisplay = $"D{端部1腹筋径}-{hookLengthLeft:0}";
+                        //string rightDisplay = $"D{端部1腹筋径}-{hookLengthRight:0}";
 
+                        string leftDisplayText = $"D{leftTanbuDiameter}-{hookLengthLeft:0}";
+                        string rightDisplayText = $"D{rightTanbuDiameter}-{hookLengthRight:0}";
                         double hookCenter = pos[i] + (eff / 2.0);
 
                         var offset3 = OffsetTanbuText;
 
-                        var leftText = DrawText_Rec(canvas, T, item, leftDisplay,
+                        var leftText = DrawText_Rec(canvas, T, item, leftDisplayText,
                             hookCenter - 700 + offset3.X, tanbuTextY + offset3.Y,
-                            dimFont, Brushes.Gray, HAnchor.Center, VAnchor.Bottom, 160, "TEXT");
+                            dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT",
+                            forceCanvasVisual: true);
 
-                        var rightText = DrawText_Rec(canvas, T, item, rightDisplay,
+                        var rightText = DrawText_Rec(canvas, T, item, rightDisplayText,
                             hookCenter + 1800 + offset3.X, tanbuTextY + offset3.Y,
-                            dimFont, Brushes.Gray, HAnchor.Center, VAnchor.Bottom, 160, "TEXT");
+                            dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT",
+                            forceCanvasVisual: true);
 
                         MakeTanbuFukkinEditable(
                             leftText, canvas, T,
@@ -4536,6 +8228,7 @@ namespace RevitProjectDataAddin
                             端部1腹筋径,
                             i,
                             false,
+                            eff / 2.0,
                              //() => hookLengthFallback);
                              abdominalLeftFallback,
                             abdominalRightFallback);
@@ -4548,6 +8241,7 @@ namespace RevitProjectDataAddin
                             端部1腹筋径,
                             i,
                             true,
+                            eff / 2.0,
                             //() => hookLengthFallback);
                             abdominalLeftFallback,
                             abdominalRightFallback);
@@ -4584,7 +8278,7 @@ namespace RevitProjectDataAddin
                 double cx = (x0 + x1) / 2.0;
                 double yChainLocal = yChainLocalBase;
                 // Span chính //
-                DrawEditableSpanLabel(canvas, T, cx, yChainLocal - 150, i, spans[i].ToString("0"), tsuIsX, tsuIsY, item);
+                DrawEditableSpanLabel(canvas, T, cx, yChainLocal, i, spans[i].ToString("0"), tsuIsX, tsuIsY, item);
                 DrawLine_Rec(canvas, T, item, qL, yChainLocal + 600, qL, yChainLocal + offset4.Y + 10000, Brushes.Green, 1.2, null, "MARK");
                 DrawLine_Rec(canvas, T, item, qR, yChainLocal + 600, qR, yChainLocal + offset4.Y + 10000, Brushes.Green, 1.2, null, "MARK");
 
@@ -4600,30 +8294,30 @@ namespace RevitProjectDataAddin
                 DrawLine_Rec(canvas, T, item, qR1 + 500, yChainLocal + 1300, qR1 + 500, yChainLocal + 2800, Brushes.Blue, 1.2, null, "MARK");
 
                 // Text giữa span
-                DrawText_Rec(canvas, T, item, $"{G0}", mid, yChainLocal + 900, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                DrawText_Rec(canvas, T, item, $"({梁の段差1})", mid, yChainLocal + 1200, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                DrawText_Rec(canvas, T, item, $"{G0}", mid, yChainLocal + 900, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                DrawText_Rec(canvas, T, item, $"({梁の段差1})", mid, yChainLocal + 1200, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
                 if (zcfg != null)
                 {
-                    DrawText_Rec(canvas, T, item, zcfg.中央上筋本数, mid, yChainLocal + 1550, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    DrawText_Rec(canvas, T, item, zcfg.中央上宙1, mid, yChainLocal + 1750, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    DrawText_Rec(canvas, T, item, zcfg.中央上宙2, mid, yChainLocal + 1950, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    DrawText_Rec(canvas, T, item, zcfg.中央下宙2, mid, yChainLocal + 2350, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    DrawText_Rec(canvas, T, item, zcfg.中央下宙1, mid, yChainLocal + 2550, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    DrawText_Rec(canvas, T, item, zcfg.中央下筋本数, mid, yChainLocal + 2750, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.中央上筋本数, mid, yChainLocal + 1550, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.中央上宙1, mid, yChainLocal + 1750, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.中央上宙2, mid, yChainLocal + 1950, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.中央下宙2, mid, yChainLocal + 2350, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.中央下宙1, mid, yChainLocal + 2550, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.中央下筋本数, mid, yChainLocal + 2750, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
 
-                    DrawText_Rec(canvas, T, item, zcfg.端部1上筋本数, qL1, yChainLocal + 1550, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    DrawText_Rec(canvas, T, item, zcfg.端部1上宙1, qL1, yChainLocal + 1750, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    DrawText_Rec(canvas, T, item, zcfg.端部1上宙2, qL1, 12 + yChainLocal + 1950, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    DrawText_Rec(canvas, T, item, zcfg.端部1下宙2, qL1, yChainLocal + 2350, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    DrawText_Rec(canvas, T, item, zcfg.端部1下宙1, qL1, yChainLocal + 2550, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    DrawText_Rec(canvas, T, item, zcfg.端部1下筋本数, qL1, yChainLocal + 2750, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.端部1上筋本数, qL1, yChainLocal + 1550, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.端部1上宙1, qL1, yChainLocal + 1750, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.端部1上宙2, qL1, 12 + yChainLocal + 1950, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.端部1下宙2, qL1, yChainLocal + 2350, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.端部1下宙1, qL1, yChainLocal + 2550, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.端部1下筋本数, qL1, yChainLocal + 2750, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
 
-                    DrawText_Rec(canvas, T, item, zcfg.端部2上筋本数, qR1, yChainLocal + 1550, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    DrawText_Rec(canvas, T, item, zcfg.端部2上宙1, qR1, yChainLocal + 1750, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    DrawText_Rec(canvas, T, item, zcfg.端部2上宙2, qR1, yChainLocal + 1950, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    DrawText_Rec(canvas, T, item, zcfg.端部2下宙2, qR1, yChainLocal + 2350, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    DrawText_Rec(canvas, T, item, zcfg.端部2下宙1, qR1, yChainLocal + 2550, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    DrawText_Rec(canvas, T, item, zcfg.端部2下筋本数, qR1, yChainLocal + 2750, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.端部2上筋本数, qR1, yChainLocal + 1550, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.端部2上宙1, qR1, yChainLocal + 1750, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.端部2上宙2, qR1, yChainLocal + 1950, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.端部2下宙2, qR1, yChainLocal + 2350, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.端部2下宙1, qR1, yChainLocal + 2550, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, zcfg.端部2下筋本数, qR1, yChainLocal + 2750, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
                 }
 
                 // Khung xanh giữa
@@ -4731,13 +8425,14 @@ namespace RevitProjectDataAddin
                     string grossLabel = string.Format(CultureInfo.InvariantCulture, "({0}x{1})", grossWidth, grossHeight);
                     var grossText = DrawText_Rec(canvas, T, item,
                                 grossLabel,
-                                mid - 25, yChainLocal + 3100, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    MakeBeamSizeEditable(grossText, canvas, T, mid, yChainLocal + 3000, selF, G0, item);
+                                mid, yChainLocal + 3100, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT",
+                                forceCanvasVisual: true);
+                    MakeBeamSizeEditable(grossText, canvas, T, mid, yChainLocal + 3000, selF, G0, item, i);
 
                     //(500x744)
                     DrawText_Rec(canvas, T, item,
                                 $"({netWidth}x{adjustedNetHeight})",
-                                mid + offset4.X, yChainLocal + 9600 + offset4.Y, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                                mid + offset4.X, yChainLocal + 9600 + offset4.Y, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
                     //D13@120(SD390)
 
                     string centralStirrupMaterial = showStirrupMaterial ? $"({(スタラップ材質)})" : string.Empty;
@@ -4749,7 +8444,7 @@ namespace RevitProjectDataAddin
                     TextBlock tbDia, tbPitch, tbMat;
                     DrawCentralStirrupTripletPx(
                         canvas, T, item,
-                        mid + offset4.X, yChainLocal + 9870 + offset4.Y,
+                        mid + offset4.X, yChainLocal + 9920 + offset4.Y,
                         dimFont, Brushes.Black,
                         diaPart, pitchPart, matPart,
                         out tbDia, out tbPitch, out tbMat);
@@ -4758,8 +8453,9 @@ namespace RevitProjectDataAddin
                     MakeCentralStirrupEditable(
                          tbDia, tbPitch, tbMat,    // ✅ đúng: Dia trước, Pitch giữa, Mat sau
                          canvas, T,
-                         mid + offset4.X, yChainLocal + 9870 + offset4.Y,
+                         mid + offset4.X, yChainLocal + 9920 + offset4.Y,
                          item, selF, G0,
+                         i,
                          中央スタラップ径, ピッチ, スタラップ材質,
                          showStirrupMaterial);
 
@@ -4768,11 +8464,11 @@ namespace RevitProjectDataAddin
                     //(P56)
                     DrawText_Rec(canvas, T, item,
                                 $"(P56)",
-                                mid + offset4.X, yChainLocal + 10150 + offset4.Y, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                                mid + offset4.X, yChainLocal + 10180 + offset4.Y, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
                     // 500
                     DrawText_Rec(canvas, T, item,
                                 $"{netWidth}",
-                                mid + offset4.X, yChainLocal + 10550 + offset4.Y, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                                mid + offset4.X, yChainLocal + 10550 + offset4.Y, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
 
                     //[D10@200]
                     string endDiaPart = $"[ D{端部1幅止筋径}";
@@ -4782,7 +8478,7 @@ namespace RevitProjectDataAddin
                     TextBlock tbEndDia, tbEndPitch, tbEndRight;
                     DrawCentralStirrupTripletPx(
                         canvas, T, item,
-                        mid + offset4.X, yChainLocal + 10800 + offset4.Y,
+                        mid + offset4.X, yChainLocal + 10850 + offset4.Y,
                         dimFont, Brushes.Black,
                         endDiaPart, endPitchPart, endRightPart,
                         out tbEndDia, out tbEndPitch, out tbEndRight);
@@ -4790,18 +8486,19 @@ namespace RevitProjectDataAddin
                     MakeEndWidthStopEditable(
                         tbEndDia, tbEndPitch, tbEndRight,
                         canvas, T,
-                        mid + offset4.X, yChainLocal + 10800 + offset4.Y,
+                        mid + offset4.X, yChainLocal + 10850 + offset4.Y,
                         item, selF, G0,
+                        i,
                         端部1幅止筋径, 端部1幅止筋ピッチ);
 
                     //(P7)
                     DrawText_Rec(canvas, T, item,
                                 $"(P7)",
-                                mid + offset4.X, yChainLocal + 11100 + offset4.Y, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                                mid + offset4.X, yChainLocal + 11100 + offset4.Y, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
                     // 744
                     DrawText_Rec(canvas, T, item,
                                 $"{adjustedNetHeight}",
-                                mid + offset4.X, yChainLocal + 12850 + offset4.Y, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                                mid + offset4.X, yChainLocal + 12850 + offset4.Y, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
                     //D13@180(SD390)
                     //string centralIntermediateMaterial = showStirrupMaterial ? $"({(中央中子筋材質)})" : string.Empty;
                     string diaPart2 = $"D{(中央中子筋径)}";
@@ -4811,7 +8508,7 @@ namespace RevitProjectDataAddin
                     TextBlock tbDia2, tbPitch2, tbMat2;
                     DrawCentralStirrupTripletPx(
                         canvas, T, item,
-                        mid + offset4.X, yChainLocal + 13100 + offset4.Y,
+                        mid + offset4.X, yChainLocal + 13150 + offset4.Y,
                         dimFont, Brushes.Black,
                         diaPart2, pitchPart2, matPart2,
                         out tbDia2, out tbPitch2, out tbMat2);
@@ -4819,21 +8516,23 @@ namespace RevitProjectDataAddin
                     MakeCentralIntermediateEditable(
                         tbDia2, tbPitch2, tbMat2,
                         canvas, T,
-                        mid + offset4.X, yChainLocal + 13100 + offset4.Y,
+                        mid + offset4.X, yChainLocal + 13150 + offset4.Y,
                         item, selF, G0,
+                        i,
                         中央中子筋径, 中央中子筋径ピッチ, 中央中子筋材質,
                         showStirrupMaterial);
 
                     // (P56)
                     DrawText_Rec(canvas, T, item,
                                 $"(P56)",
-                                mid + offset4.X, yChainLocal + 13400 + offset4.Y, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                                mid + offset4.X, yChainLocal + 13400 + offset4.Y, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
 
                     int centralStirrupShape = 1;
                     if (!int.TryParse(zcfg?.中央スタラップ形, out centralStirrupShape))
                     {
                         centralStirrupShape = 1;
                     }
+                    centralStirrupShape = GetSpanCentralStirrupShape(item, i, centralStirrupShape);
 
                     if (centralStirrupShape == 1)
                     {
@@ -5167,6 +8866,7 @@ namespace RevitProjectDataAddin
                     MakeCentralStirrupShapeEditable(
                                    canvas, T, item,
                                    selF, G0,
+                                   i,
                                    centralStirrupShape,
                                    stirrupShapes,
                                    // vùng hit theo đúng khung bạn vẽ (mid±350, 8300..9300)
@@ -5182,6 +8882,7 @@ namespace RevitProjectDataAddin
                 {
                     centralNakagoShape = 1;
                 }
+                centralNakagoShape = GetSpanCentralIntermediateShape(item, i, centralNakagoShape);
 
                 // Offset riêng cho phần Nakago (giữ nguyên offset4, chỉ cộng thêm ở đúng chỗ)
                 double offsetNakagoX = 0;
@@ -5478,6 +9179,7 @@ namespace RevitProjectDataAddin
                 }
                 MakeCentralNakagoShapeEditable(canvas, T, item,
                                                 selF, G0,
+                                                i,
                                                 centralNakagoShape,
                                                 nakagoShapes,
                                                 /*hit center (world mm)*/ mid + offset4.X + offsetNakagoX,
@@ -5717,6 +9419,63 @@ namespace RevitProjectDataAddin
                 return daiOnKoiOff ? tonariOo : tonariKo;
             }
 
+            double GetShitaHardCutAnchorX(int spanIndex)
+            {
+                if (spanIndex < 0 || spanIndex >= spanCount)
+                    return 0.0;
+
+                // Keep the existing sole/tonari spacing between lower-layer cut points,
+                // but shift the whole cluster so it is referenced from the green qR line.
+                return qRArr[spanIndex];
+            }
+
+            double GetUwaHardCutAnchorX(int spanIndex)
+            {
+                if (spanIndex < 0 || spanIndex >= spanCount)
+                    return 0.0;
+
+                // The upper-bar anchor follows the center of the blue box drawn at mid.
+                double boxLeft = midArr[spanIndex] - 500.0;
+                double boxRight = midArr[spanIndex] + 500.0;
+                return 0.5 * (boxLeft + boxRight);
+            }
+
+            var shitaSpanBreaks = new List<double>(Math.Max(0, spanCount - 1));
+            for (int i = 1; i < spanCount; i++)
+                shitaSpanBreaks.Add(spanLeftArr[i]);
+
+            const double visibleLayerGap = 400.0;
+
+            int GetMaxLayerRowCount(int[] end1ArrLocal, int[] midArrLocal, int[] end2ArrLocal)
+            {
+                int maxRows = 0;
+                for (int i = 0; i < spanCount; i++)
+                    maxRows = Math.Max(maxRows, Math.Max(end1ArrLocal[i], Math.Max(midArrLocal[i], end2ArrLocal[i])));
+                return maxRows;
+            }
+
+            TextBlock DrawRebarLayerHeader(double yBase, string label, double nigeValue)
+            {
+                DrawLine_Rec(canvas, T, item,
+                    leftEdge - 1500, yBase,
+                    rightEdge + 1500, yBase,
+                    Brushes.Aqua, 1.2, null, "CHAIN");
+
+                var labelTb = DrawText_Rec(canvas, T, item, label,
+                    leftEdge - 1300, yBase + LabelDy + 100, dimFont, Brushes.Red,
+                    HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+
+                if (nige1 == true)
+                {
+                    DrawText_Rec(canvas, T, item, $"ニゲ {nigeValue:0}", leftEdge - 1100, yBase + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    DrawText_Rec(canvas, T, item, $"ニゲ {nigeValue:0}", rightEdge + 1100, yBase + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                }
+
+                return labelTb;
+            }
+
+            double nextRebarLayerBaseY = yChainBot + 2600;
+
             double lastYOfUwagane = 0.0;
             {
                 double yStart = yChainBot + 2850 + 200;
@@ -5733,9 +9492,8 @@ namespace RevitProjectDataAddin
 
                 double dotR = 30.0;
 
-                int nRowsGlobal = 0;
-                for (int i = 0; i < spanCount; i++)
-                    nRowsGlobal = Math.Max(nRowsGlobal, Math.Max(nEnd1Arr[i], Math.Max(nMidArr[i], nEnd2Arr[i])));
+                int nRowsGlobal = GetMaxLayerRowCount(nEnd1Arr, nMidArr, nEnd2Arr);
+                bool hasVisibleUwagane = false;
 
                 // Vị trí ANKA biên theo hàng (cố định theo span biên)
                 double leftAnkaX_Global = (spanCount > 0) ? spanLeftArr[0] + Math.Max(0, nigeUwaLocal) : double.NaN;
@@ -5748,7 +9506,6 @@ namespace RevitProjectDataAddin
                     //double tonariOffset = GetTonariDotOffset(kRow);
 
                     double y = yStart + kRow * barSpacing;
-                    if (kRow == nRowsGlobal - 1) lastYOfUwagane = y;
 
                     var rowSegs = new List<(double x1, double x2)>();
                     var rowCuts = new List<double>();
@@ -5804,7 +9561,9 @@ namespace RevitProjectDataAddin
 
                         if (hasTriple)
                         {
-                            double cm = 0.5 * (x1 + x2);
+                            double cm = GetUwaHardCutAnchorX(i);
+                            cm = Math.Max(cm, x1 + minGap);
+                            cm = Math.Min(cm, x2 - minGap);
                             rowSegs.Add((x1, cm));
                             rowSegs.Add((cm, x2));
                             rowCuts.Add(cm);
@@ -5880,25 +9639,38 @@ namespace RevitProjectDataAddin
                     merged.Add(cur);
 
                     // === NEW: Làm tròn theo bội 500 cho các chuỗi liền nhau trước khi vẽ ===
-                    RoundContiguousChainsInPlace(merged, 500.0, 1.0);
+                    RoundContiguousChainsInPlaceBySpan(merged, 500.0, shitaSpanBreaks, 1.0);
 
                     // ① DỊCH BIÊN CẮT THẬT
                     ApplyTonariShiftToMergedCuts(
                         merged,
                         rowCuts,
-                        x => GetTonariDotOffset(kRow, x)
+                        spanLeftArr,
+                        spanRightArr,
+                        spanCount,
+                        x => GetTonariDotOffset(kRow, x),
+                        (cut, leftBaseX) => leftBaseX + CeilToBase(cut - leftBaseX, 500.0) + GetTonariDotOffset(kRow, cut)
                     );
 
-                    var visibleSegs = GetVisibleOrangeSegs(item, kRow, y, merged);
+                    var visibleSegs = ClampVisibleOrangeSegsToBounds(
+                        GetVisibleOrangeSegs(item, kRow, y, merged),
+                        leftAnkaX_Global,
+                        rightAnkaX_Global);
+                    if (visibleSegs.Count == 0) continue;
+
+                    hasVisibleUwagane = true;
+                    lastYOfUwagane = y;
 
                     // ② VẼ DOT KHÔNG OFFSET NỮA
                     DrawAdjustedHardCutDots(
-                        canvas, T, item,
+                        canvas, T, item, kRow,
                         visibleSegs.Select(seg => (seg.X1, seg.X2)).ToList(), rowCuts,
+                        spanLeftArr, spanRightArr, spanCount,
                         y, dotR,
                         Brushes.Black,
                         0,
-                        null
+                        null,
+                        (cut, leftBaseX) => leftBaseX + CeilToBase(cut - leftBaseX, 500.0) + GetTonariDotOffset(kRow, cut)
                     );
 
                     foreach (var seg in visibleSegs)
@@ -5913,14 +9685,14 @@ namespace RevitProjectDataAddin
                             rightAnkaX_Global,
                             hasLeftAnka_Global,
                             hasRightAnka_Global,
-                            +ankaUwa,
-                            +ankaUwa,
+                            -ankaUwa,
+                            -ankaUwa,
                             out bool hitLeftBoundary,
                             out bool hitRightBoundary,
                             out double defaultLeftSigned,
                             out double defaultRightSigned);
                         double wxTop = 0.5 * (seg.X1 + seg.X2);
-                        double wyTop = y + DimDyUpper - 200;
+                        double wyTop = y - OrangeDimPrimaryTextGapMm;
                         var topKey = new OrangeDimTextKey(kRow, true, wxTop, wyTop);
                         double leftSigned = GetAnkaOverrideBySegKeyOrDefault(item, segKey, AnkaSide.Left, defaultLeftSigned);
                         double rightSigned = GetAnkaOverrideBySegKeyOrDefault(item, segKey, AnkaSide.Right, defaultRightSigned);
@@ -5942,38 +9714,48 @@ namespace RevitProjectDataAddin
                         {
                             if (Math.Abs(leftSigned) > 0.0001)
                             {
-                                DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X1, y - leftSigned, Brushes.Orange, 1.2, null, "MARK");
+                                DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X1, y - leftSigned, Brushes.Black, 1.2, null, "MARK");
                                 if (anka1 == true)
                                 {
                                     DrawText_Rec(canvas, T, item, $"{Math.Abs(leftSigned):0}", seg.X1 - 650, y - leftSigned / 2.0 + 100, dimFont,
-                                             Brushes.Black, HAnchor.Left, VAnchor.Bottom, 120, "TEXT");
+                                             Brushes.Black, HAnchor.Left, VAnchor.Bottom, 200, "TEXT");
                                 }
                             }
                             if (Math.Abs(rightSigned) > 0.0001)
                             {
-                                DrawLine_Rec(canvas, T, item, seg.X2, y, seg.X2, y - rightSigned, Brushes.Orange, 1.2, null, "MARK");
+                                DrawLine_Rec(canvas, T, item, seg.X2, y, seg.X2, y - rightSigned, Brushes.Black, 1.2, null, "MARK");
                                 if (anka1 == true)
                                 {
                                     DrawText_Rec(canvas, T, item, $"{Math.Abs(rightSigned):0}", seg.X2 + 250, y - rightSigned / 2.0 + 100, dimFont,
-                                        Brushes.Black, HAnchor.Left, VAnchor.Bottom, 120, "TEXT");
+                                        Brushes.Black, HAnchor.Left, VAnchor.Bottom, 200, "TEXT");
                                 }
                             }
                         }
 
-                        DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X2, y, Brushes.Orange, 1.2, null, "MARK");
+                        DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X2, y, Brushes.Black, 1.2, null, "MARK");
 
                         // TEXT CAM: dùng chiều dài đã làm tròn (hoặc đoạn cuối không làm tròn)
                         DimOrangeSegmentWithAnkaLabels(
                             canvas, T, item,
                             seg.X1, seg.X2,
-                            y, /*dyTop*/ DimDyUpper - 200, /*dyBottom*/ -DimDyUpper + 180,
+                            y, /*dyTop*/ -OrangeDimPrimaryTextGapMm, /*dyBottom*/ OrangeDimSecondaryTextGapMm,
                             diaMidArr, spanLeftArr, spanRightArr, spanCount,
                             defaultLeftSigned, defaultRightSigned,
                             leftSigned, rightSigned,
-                            /*textAboveLine*/ true, seg.BaseX1, seg.BaseX2, kRow
+                            /*textAboveLine*/ true, seg.BaseX1, seg.BaseX2,
+                                suppressAnkaInTopLength: seg.IsEqualCutChild,
+                            forceShowForCutChild: seg.IsEqualCutChild,
+                                rowIndex: kRow
                         );
                     }
                 }
+
+                if (hasVisibleUwagane)
+                {
+                    DrawRebarLayerHeader(nextRebarLayerBaseY, "\u4e0a\u7b4b", nigeUwa);
+                    nextRebarLayerBaseY = lastYOfUwagane + visibleLayerGap;
+                }
+
             }
 
             // === 3c) Chuỗi bổ sung do user chèn ===
@@ -5994,17 +9776,17 @@ namespace RevitProjectDataAddin
                         rightEdge + 1500 + offset5.X, yChainBot + 6600 + offset5.Y,
                         Brushes.Aqua, 1.2, null, "CHAIN");
             DrawText_Rec(canvas, T, item, "腹筋",
-                         leftEdge - 1300 + offset5.X, yChainBot + 6850 + offset5.Y,
-                         dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                         leftEdge - 1400 + offset5.X, yChainBot + 6850 + offset5.Y + 100,
+                         dimFont, Brushes.Red, HAnchor.Left, VAnchor.Bottom, 200, "TEXT");
             DrawText_Rec(canvas, T, item, "STP",
-                         leftEdge - 1300 + offset5.X, yChainBot + 7850 + offset5.Y,
-                         dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                         leftEdge - 1400 + offset5.X, yChainBot + 7850 + offset5.Y,
+                         dimFont, Brushes.Red, HAnchor.Left, VAnchor.Bottom, 200, "TEXT");
             DrawText_Rec(canvas, T, item, "腹筋幅止め",
-                         leftEdge - 1300 + offset5.X, yChainBot + 9850 + offset5.Y,
-                         dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                         leftEdge - 1400 + offset5.X, yChainBot + 9850 + offset5.Y,
+                         dimFont, Brushes.Red, HAnchor.Left, VAnchor.Bottom, 200, "TEXT");
             DrawText_Rec(canvas, T, item, "中子",
-                         leftEdge - 1300 + offset5.X, yChainBot + 10850 + offset5.Y,
-                         dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                         leftEdge - 1400 + offset5.X, yChainBot + 10850 + offset5.Y,
+                         dimFont, Brushes.Red, HAnchor.Left, VAnchor.Bottom, 200, "TEXT");
             /////////// hết 5 chổ ////////////
 
 
@@ -6051,19 +9833,7 @@ namespace RevitProjectDataAddin
             }
 
             // Vẽ đường Aqua "上宙1"
-            double gapBelowUwagane = 400.0;
-            double yChu1Base = (lastYOfUwagane > 0 ? lastYOfUwagane + gapBelowUwagane : yChainBot + 2600 + 2000);
-            DrawLine_Rec(canvas, T, item,
-                leftEdge - 1500, yChu1Base,
-                rightEdge + 1500, yChu1Base,
-                Brushes.Aqua, 1.2, null, "CHAIN");
-            DrawText_Rec(canvas, T, item, "上宙1", leftEdge - 1300, yChu1Base + LabelDy, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-            // <<< ニゲ TEXT >>>
-            if (nige1 == true)
-            {
-                DrawText_Rec(canvas, T, item, $"ニゲ {nigeUwaChu1:0}", leftEdge - 1100, yChu1Base + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                DrawText_Rec(canvas, T, item, $"ニゲ {nigeUwaChu1:0}", rightEdge + 1100, yChu1Base + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-            }
+            double yChu1Base = nextRebarLayerBaseY;
             // 上宙1
             double lastYOfChu1 = 0.0;
             {
@@ -6086,16 +9856,14 @@ namespace RevitProjectDataAddin
                 bool hasLeftAnka_Global = (!teiUwaChuNow) && (ankaUwaChu > 0) && (spanCount > 0);
                 bool hasRightAnka_Global = (!teiUwaChuNow) && (ankaUwaChu > 0) && (spanCount > 0);
 
-                int nRowsGlobalChu1 = 0;
-                for (int i = 0; i < spanCount; i++)
-                    nRowsGlobalChu1 = Math.Max(nRowsGlobalChu1, Math.Max(nEnd1Chu1Arr[i], Math.Max(nMidChu1Arr[i], nEnd2Chu1Arr[i])));
+                int nRowsGlobalChu1 = GetMaxLayerRowCount(nEnd1Chu1Arr, nMidChu1Arr, nEnd2Chu1Arr);
+                bool hasVisibleChu1 = false;
 
                 for (int kRow = 0; kRow < nRowsGlobalChu1; kRow++)
                 {
                     //double tonariOffset = GetTonariDotOffset(kRow);
 
                     double y = yStartChu1 + kRow * barSpacing;
-                    if (kRow == nRowsGlobalChu1 - 1) lastYOfChu1 = y;
 
                     var rowSegs = new List<(double x1, double x2)>();
                     var rowCuts = new List<double>();
@@ -6151,7 +9919,9 @@ namespace RevitProjectDataAddin
 
                         if (hasTriple)
                         {
-                            double cm = 0.5 * (x1 + x2);
+                            double cm = GetUwaHardCutAnchorX(i);
+                            cm = Math.Max(cm, x1 + minGap);
+                            cm = Math.Min(cm, x2 - minGap);
                             rowSegs.Add((x1, cm));
                             rowSegs.Add((cm, x2));
                             rowCuts.Add(cm);
@@ -6226,25 +9996,38 @@ namespace RevitProjectDataAddin
                     merged.Add(cur);
 
                     // NEW: Làm tròn bội 500 cho chuỗi liền nhau
-                    RoundContiguousChainsInPlace(merged, 500.0, 1.0);
+                    RoundContiguousChainsInPlaceBySpan(merged, 500.0, shitaSpanBreaks, 1.0);
 
                     // ① DỊCH BIÊN CẮT THẬT
                     ApplyTonariShiftToMergedCuts(
                         merged,
                         rowCuts,
-                        x => GetTonariDotOffset(kRow, x)
+                        spanLeftArr,
+                        spanRightArr,
+                        spanCount,
+                        x => GetTonariDotOffset(kRow, x),
+                        (cut, leftBaseX) => leftBaseX + CeilToBase(cut - leftBaseX, 500.0) + GetTonariDotOffset(kRow, cut)
                     );
 
-                    var visibleSegs = GetVisibleOrangeSegs(item, kRow, y, merged);
+                    var visibleSegs = ClampVisibleOrangeSegsToBounds(
+                        GetVisibleOrangeSegs(item, kRow, y, merged),
+                        leftAnkaX_Global,
+                        rightAnkaX_Global);
+                    if (visibleSegs.Count == 0) continue;
+
+                    hasVisibleChu1 = true;
+                    lastYOfChu1 = y;
 
                     // ② VẼ DOT KHÔNG OFFSET NỮA
                     DrawAdjustedHardCutDots(
-                        canvas, T, item,
+                        canvas, T, item, kRow,
                         visibleSegs.Select(seg => (seg.X1, seg.X2)).ToList(), rowCuts,
+                        spanLeftArr, spanRightArr, spanCount,
                         y, dotR,
                         Brushes.Black,
                         0,
-                        null
+                        null,
+                        (cut, leftBaseX) => leftBaseX + CeilToBase(cut - leftBaseX, 500.0) + GetTonariDotOffset(kRow, cut)
                     );
 
                     foreach (var seg in visibleSegs)
@@ -6259,14 +10042,14 @@ namespace RevitProjectDataAddin
                             rightAnkaX_Global,
                             hasLeftAnka_Global,
                             hasRightAnka_Global,
-                            +ankaUwaChu,
-                            +ankaUwaChu,
+                            -ankaUwaChu,
+                            -ankaUwaChu,
                             out bool hitLeftBoundary,
                             out bool hitRightBoundary,
                             out double defaultLeftSigned,
                             out double defaultRightSigned);
                         double wxTop = 0.5 * (seg.X1 + seg.X2);
-                        double wyTop = y + DimDyUpper - 200;
+                        double wyTop = y - OrangeDimPrimaryTextGapMm;
                         var topKey = new OrangeDimTextKey(kRow, true, wxTop, wyTop);
                         double leftSigned = GetAnkaOverrideBySegKeyOrDefault(item, segKey, AnkaSide.Left, defaultLeftSigned);
                         double rightSigned = GetAnkaOverrideBySegKeyOrDefault(item, segKey, AnkaSide.Right, defaultRightSigned);
@@ -6288,38 +10071,47 @@ namespace RevitProjectDataAddin
                         {
                             if (Math.Abs(leftSigned) > 0.0001)
                             {
-                                DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X1, y - leftSigned, Brushes.Orange, 1.2, null, "MARK");
+                                DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X1, y - leftSigned, Brushes.Black, 1.2, null, "MARK");
                                 if (anka1 == true)
                                 {
                                     DrawText_Rec(canvas, T, item, $"{Math.Abs(leftSigned):0}", seg.X1 - 650, y - leftSigned / 2.0 + 100, dimFont,
-                                             Brushes.Black, HAnchor.Left, VAnchor.Bottom, 120, "TEXT");
+                                             Brushes.Black, HAnchor.Left, VAnchor.Bottom, 200, "TEXT");
                                 }
                             }
                             if (Math.Abs(rightSigned) > 0.0001)
                             {
-                                DrawLine_Rec(canvas, T, item, seg.X2, y, seg.X2, y - rightSigned, Brushes.Orange, 1.2, null, "MARK");
+                                DrawLine_Rec(canvas, T, item, seg.X2, y, seg.X2, y - rightSigned, Brushes.Black, 1.2, null, "MARK");
                                 if (anka1 == true)
                                 {
                                     DrawText_Rec(canvas, T, item, $"{Math.Abs(rightSigned):0}", seg.X2 + 250, y - rightSigned / 2.0 + 100, dimFont,
-                                             Brushes.Black, HAnchor.Left, VAnchor.Bottom, 120, "TEXT");
+                                             Brushes.Black, HAnchor.Left, VAnchor.Bottom, 200, "TEXT");
                                 }
                             }
                         }
 
-                        DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X2, y, Brushes.Orange, 1.2, null, "MARK");
+                        DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X2, y, Brushes.Black, 1.2, null, "MARK");
 
                         // TEXT CAM
                         DimOrangeSegmentWithAnkaLabels(
                             canvas, T, item,
                             seg.X1, seg.X2,
-                            y, /*dyTop*/ DimDyUpper - 200, /*dyBottom*/ -DimDyUpper + 180,
+                            y, /*dyTop*/ -OrangeDimPrimaryTextGapMm, /*dyBottom*/ OrangeDimSecondaryTextGapMm,
                             diaMidChu1Arr, spanLeftArr, spanRightArr, spanCount,
                             defaultLeftSigned, defaultRightSigned,
                             leftSigned, rightSigned,
-                            /*textAboveLine*/ true, seg.BaseX1, seg.BaseX2, kRow
+                            /*textAboveLine*/ true, seg.BaseX1, seg.BaseX2,
+                                suppressAnkaInTopLength: seg.IsEqualCutChild,
+                            forceShowForCutChild: seg.IsEqualCutChild,
+                                rowIndex: kRow
 
                         );
                     }
+                }
+
+                if (hasVisibleChu1)
+                {
+                    DrawRebarLayerHeader(yChu1Base, "上宙1", nigeUwaChu1);
+                    nextRebarLayerBaseY = lastYOfChu1 + visibleLayerGap;
                 }
             }
 
@@ -6354,19 +10146,7 @@ namespace RevitProjectDataAddin
             }
 
             // Line Aqua + label "上宙2"
-            double gapBelowChu1 = 400.0;
-            double yChu2Base = (lastYOfChu1 > 0 ? lastYOfChu1 + gapBelowChu1 : yChu1Base + 2000);
-            DrawLine_Rec(canvas, T, item,
-                leftEdge - 1500, yChu2Base,
-                rightEdge + 1500, yChu2Base,
-                Brushes.Aqua, 1.2, null, "CHAIN");
-            DrawText_Rec(canvas, T, item, "上宙2", leftEdge - 1300, yChu2Base + LabelDy, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-            // <<< ニゲ TEXT >>>
-            if (nige1 == true)
-            {
-                DrawText_Rec(canvas, T, item, $"ニゲ {nigeUwaChu2:0}", leftEdge - 1100, yChu2Base + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                DrawText_Rec(canvas, T, item, $"ニゲ {nigeUwaChu2:0}", rightEdge + 1100, yChu2Base + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-            }
+            double yChu2Base = nextRebarLayerBaseY;
             // 上宙2 — GIỮ LOGIC giống 上筋/上宙1 (cắt giữa đoạn trung tâm khi hasTriple)
             double lastYOfChu2 = 0.0;
             {
@@ -6389,16 +10169,14 @@ namespace RevitProjectDataAddin
                 bool hasLeftAnka_Global = (!teiUwaChuNow) && (ankaUwaChu > 0) && (spanCount > 0);
                 bool hasRightAnka_Global = (!teiUwaChuNow) && (ankaUwaChu > 0) && (spanCount > 0);
 
-                int nRowsGlobalChu2 = 0;
-                for (int i = 0; i < spanCount; i++)
-                    nRowsGlobalChu2 = Math.Max(nRowsGlobalChu2, Math.Max(nEnd1Chu2Arr[i], Math.Max(nMidChu2Arr[i], nEnd2Chu2Arr[i])));
+                int nRowsGlobalChu2 = GetMaxLayerRowCount(nEnd1Chu2Arr, nMidChu2Arr, nEnd2Chu2Arr);
+                bool hasVisibleChu2 = false;
 
                 for (int kRow = 0; kRow < nRowsGlobalChu2; kRow++)
                 {
                     //double tonariOffset = GetTonariDotOffset(kRow);
 
                     double y = yStartChu2 + kRow * barSpacing;
-                    if (kRow == nRowsGlobalChu2 - 1) lastYOfChu2 = y;
 
                     var rowSegs = new List<(double x1, double x2)>();
                     var rowCuts = new List<double>();
@@ -6454,7 +10232,9 @@ namespace RevitProjectDataAddin
 
                         if (hasTriple)
                         {
-                            double cm = 0.5 * (x1 + x2);
+                            double cm = GetUwaHardCutAnchorX(i);
+                            cm = Math.Max(cm, x1 + minGap);
+                            cm = Math.Min(cm, x2 - minGap);
                             rowSegs.Add((x1, cm));
                             rowSegs.Add((cm, x2));
                             rowCuts.Add(cm);
@@ -6533,25 +10313,38 @@ namespace RevitProjectDataAddin
                     merged.Add(cur);
 
                     // NEW: Làm tròn bội 500
-                    RoundContiguousChainsInPlace(merged, 500.0, 1.0);
+                    RoundContiguousChainsInPlaceBySpan(merged, 500.0, shitaSpanBreaks, 1.0);
 
                     // ① DỊCH BIÊN CẮT THẬT
                     ApplyTonariShiftToMergedCuts(
                         merged,
                         rowCuts,
-                        x => GetTonariDotOffset(kRow, x)
+                        spanLeftArr,
+                        spanRightArr,
+                        spanCount,
+                        x => GetTonariDotOffset(kRow, x),
+                        (cut, leftBaseX) => leftBaseX + CeilToBase(cut - leftBaseX, 500.0) + GetTonariDotOffset(kRow, cut)
                     );
 
-                    var visibleSegs = GetVisibleOrangeSegs(item, kRow, y, merged);
+                    var visibleSegs = ClampVisibleOrangeSegsToBounds(
+                        GetVisibleOrangeSegs(item, kRow, y, merged),
+                        leftAnkaX_Global,
+                        rightAnkaX_Global);
+                    if (visibleSegs.Count == 0) continue;
+
+                    hasVisibleChu2 = true;
+                    lastYOfChu2 = y;
 
                     // ② VẼ DOT KHÔNG OFFSET NỮA
                     DrawAdjustedHardCutDots(
-                        canvas, T, item,
+                        canvas, T, item, kRow,
                         visibleSegs.Select(seg => (seg.X1, seg.X2)).ToList(), rowCuts,
+                        spanLeftArr, spanRightArr, spanCount,
                         y, dotR,
                         Brushes.Black,
                         0,
-                        null
+                        null,
+                        (cut, leftBaseX) => leftBaseX + CeilToBase(cut - leftBaseX, 500.0) + GetTonariDotOffset(kRow, cut)
                     );
 
                     foreach (var seg in visibleSegs)
@@ -6566,14 +10359,14 @@ namespace RevitProjectDataAddin
                             rightAnkaX_Global,
                             hasLeftAnka_Global,
                             hasRightAnka_Global,
-                            +ankaUwaChu,
-                            +ankaUwaChu,
+                            -ankaUwaChu,
+                            -ankaUwaChu,
                             out bool hitLeftBoundary,
                             out bool hitRightBoundary,
                             out double defaultLeftSigned,
                             out double defaultRightSigned);
                         double wxTop = 0.5 * (seg.X1 + seg.X2);
-                        double wyTop = y + DimDyUpper - 200;
+                        double wyTop = y - OrangeDimPrimaryTextGapMm;
                         var topKey = new OrangeDimTextKey(kRow, true, wxTop, wyTop);
                         double leftSigned = GetAnkaOverrideBySegKeyOrDefault(item, segKey, AnkaSide.Left, defaultLeftSigned);
                         double rightSigned = GetAnkaOverrideBySegKeyOrDefault(item, segKey, AnkaSide.Right, defaultRightSigned);
@@ -6595,38 +10388,47 @@ namespace RevitProjectDataAddin
                         {
                             if (Math.Abs(leftSigned) > 0.0001)
                             {
-                                DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X1, y - leftSigned, Brushes.Orange, 1.2, null, "MARK");
+                                DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X1, y - leftSigned, Brushes.Black, 1.2, null, "MARK");
                                 if (anka1 == true)
                                 {
                                     DrawText_Rec(canvas, T, item, $"{Math.Abs(leftSigned):0}", seg.X1 - 650, y - leftSigned / 2.0 + 100, dimFont,
-                                         Brushes.Black, HAnchor.Left, VAnchor.Bottom, 120, "TEXT");
+                                         Brushes.Black, HAnchor.Left, VAnchor.Bottom, 200, "TEXT");
                                 }
                             }
                             if (Math.Abs(rightSigned) > 0.0001)
                             {
-                                DrawLine_Rec(canvas, T, item, seg.X2, y, seg.X2, y - rightSigned, Brushes.Orange, 1.2, null, "MARK");
+                                DrawLine_Rec(canvas, T, item, seg.X2, y, seg.X2, y - rightSigned, Brushes.Black, 1.2, null, "MARK");
                                 if (anka1 == true)
                                 {
                                     DrawText_Rec(canvas, T, item, $"{Math.Abs(rightSigned):0}", seg.X2 + 250, y - rightSigned / 2.0 + 100, dimFont,
-                                         Brushes.Black, HAnchor.Left, VAnchor.Bottom, 120, "TEXT");
+                                         Brushes.Black, HAnchor.Left, VAnchor.Bottom, 200, "TEXT");
                                 }
                             }
                         }
 
-                        DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X2, y, Brushes.Orange, 1.2, null, "MARK");
+                        DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X2, y, Brushes.Black, 1.2, null, "MARK");
 
                         // TEXT CAM
                         DimOrangeSegmentWithAnkaLabels(
                             canvas, T, item,
                             seg.X1, seg.X2,
-                            y, /*dyTop*/ DimDyUpper - 200, /*dyBottom*/ -DimDyUpper + 180,
+                            y, /*dyTop*/ -OrangeDimPrimaryTextGapMm, /*dyBottom*/ OrangeDimSecondaryTextGapMm,
                             diaMidChu2Arr, spanLeftArr, spanRightArr, spanCount,
                             defaultLeftSigned, defaultRightSigned,
                             leftSigned, rightSigned,
-                            /*textAboveLine*/ true, seg.BaseX1, seg.BaseX2, kRow
+                            /*textAboveLine*/ true, seg.BaseX1, seg.BaseX2,
+                                suppressAnkaInTopLength: seg.IsEqualCutChild,
+                            forceShowForCutChild: seg.IsEqualCutChild,
+                                rowIndex: kRow
 
                         );
                     }
+                }
+
+                if (hasVisibleChu2)
+                {
+                    DrawRebarLayerHeader(yChu2Base, "上宙2", nigeUwaChu2);
+                    nextRebarLayerBaseY = lastYOfChu2 + visibleLayerGap;
                 }
             }
 
@@ -6661,19 +10463,7 @@ namespace RevitProjectDataAddin
             }
 
             // Kẻ line Aqua & nhãn “下宙2”
-            double gapBelowChu2ToShita2 = 400.0;
-            double yShitaChu2Base = (lastYOfChu2 > 0 ? lastYOfChu2 + gapBelowChu2ToShita2 : yChu2Base + 2000);
-            DrawLine_Rec(canvas, T, item,
-                leftEdge - 1500, yShitaChu2Base,
-                rightEdge + 1500, yShitaChu2Base,
-                Brushes.Aqua, 1.2, null, "CHAIN");
-            DrawText_Rec(canvas, T, item, "下宙2", leftEdge - 1300, yShitaChu2Base + LabelDy, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-            // <<< ニゲ TEXT >>>
-            if (nige1 == true)
-            {
-                DrawText_Rec(canvas, T, item, $"ニゲ {nigeShitaChu2:0}", leftEdge - 1100, yShitaChu2Base + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                DrawText_Rec(canvas, T, item, $"ニゲ {nigeShitaChu2:0}", rightEdge + 1100, yShitaChu2Base + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-            }
+            double yShitaChu2Base = nextRebarLayerBaseY;
             // 下宙2 — CẮT Ở GIỮA ĐOẠN E2
             double lastYOfShitaChu2 = 0.0;
             {
@@ -6696,9 +10486,8 @@ namespace RevitProjectDataAddin
                 bool hasLeftAnka_Global = (!teiShitaChuNow) && (ankaShitaChu > 0) && (spanCount > 0);
                 bool hasRightAnka_Global = (!teiShitaChuNow) && (ankaShitaChu > 0) && (spanCount > 0);
 
-                int nRowsGlobalShitaChu2 = 0;
-                for (int i = 0; i < spanCount; i++)
-                    nRowsGlobalShitaChu2 = Math.Max(nRowsGlobalShitaChu2, Math.Max(nEnd1ShitaChu2Arr[i], Math.Max(nMidShitaChu2Arr[i], nEnd2ShitaChu2Arr[i])));
+                int nRowsGlobalShitaChu2 = GetMaxLayerRowCount(nEnd1ShitaChu2Arr, nMidShitaChu2Arr, nEnd2ShitaChu2Arr);
+                bool hasVisibleShitaChu2 = false;
 
                 for (int kRow = 0; kRow < nRowsGlobalShitaChu2; kRow++)
                 {
@@ -6706,7 +10495,6 @@ namespace RevitProjectDataAddin
                     //double tonariOffset = GetTonariDotOffset(kRow);
 
                     double y = yStartShitaChu2 + kRow * barSpacing;
-                    if (kRow == nRowsGlobalShitaChu2 - 1) lastYOfShitaChu2 = y;
 
                     var rowSegs = new List<(double x1, double x2)>();
                     var rowCuts = new List<double>();
@@ -6763,8 +10551,8 @@ namespace RevitProjectDataAddin
 
                         if (hasTriple)
                         {
-                            // cE2 lấy từ qR1, nhưng clamp trong vùng cho phép
-                            double cE2 = qR1Arr[i];
+                            // Anchor cụm cut của lớp dưới theo line xanh qR, rồi giữ nguyên clamp/rule hiện có.
+                            double cE2 = GetShitaHardCutAnchorX(i);
                             cE2 = Math.Max(cE2, midArr[i] + minGap);
                             cE2 = Math.Max(cE2, x1 + minGap);
                             cE2 = Math.Min(cE2, spanRightArr[i] - minGap);
@@ -6847,25 +10635,38 @@ namespace RevitProjectDataAddin
                     merged.Add(cur);
 
                     // NEW: Làm tròn bội 500
-                    RoundContiguousChainsInPlace(merged, 500.0, 1.0);
+                    RoundContiguousChainsInPlaceBySpan(merged, 500.0, shitaSpanBreaks, 1.0);
 
                     // ① DỊCH BIÊN CẮT THẬT
                     ApplyTonariShiftToMergedCuts(
                         merged,
                         rowCuts,
-                        x => GetTonariDotOffset(kRow, x)
+                        spanLeftArr,
+                        spanRightArr,
+                        spanCount,
+                        x => GetTonariDotOffset(kRow, x),
+                        (cut, leftBaseX) => leftBaseX + CeilToBase(cut - leftBaseX, 500.0) + 500.0 + GetTonariDotOffset(kRow, cut)
                     );
 
-                    var visibleSegs = GetVisibleOrangeSegs(item, kRow, y, merged);
+                    var visibleSegs = ClampVisibleOrangeSegsToBounds(
+                        GetVisibleOrangeSegs(item, kRow, y, merged),
+                        leftAnkaX_Global,
+                        rightAnkaX_Global);
+                    if (visibleSegs.Count == 0) continue;
+
+                    hasVisibleShitaChu2 = true;
+                    lastYOfShitaChu2 = y;
 
                     // ② VẼ DOT KHÔNG OFFSET NỮA
                     DrawAdjustedHardCutDots(
-                        canvas, T, item,
+                        canvas, T, item, kRow,
                         visibleSegs.Select(seg => (seg.X1, seg.X2)).ToList(), rowCuts,
+                        spanLeftArr, spanRightArr, spanCount,
                         y, dotR,
                         Brushes.Black,
                         0,
-                        null
+                        null,
+                        (cut, leftBaseX) => leftBaseX + CeilToBase(cut - leftBaseX, 500.0) + 500.0 + GetTonariDotOffset(kRow, cut)
                     );
 
                     foreach (var seg in visibleSegs)
@@ -6880,14 +10681,14 @@ namespace RevitProjectDataAddin
                             rightAnkaX_Global,
                             hasLeftAnka_Global,
                             hasRightAnka_Global,
-                            -ankaShitaChu,
-                            -ankaShitaChu,
+                            +ankaShitaChu,
+                            +ankaShitaChu,
                             out bool hitLeftBoundary,
                             out bool hitRightBoundary,
                             out double defaultLeftSigned,
                             out double defaultRightSigned);
                         double wxTop = 0.5 * (seg.X1 + seg.X2);
-                        double wyTop = y + DimDyLower - 100;
+                        double wyTop = y - OrangeDimPrimaryTextGapMm;
                         var topKey = new OrangeDimTextKey(kRow, true, wxTop, wyTop);
                         double leftSigned = GetAnkaOverrideBySegKeyOrDefault(item, segKey, AnkaSide.Left, defaultLeftSigned);
                         double rightSigned = GetAnkaOverrideBySegKeyOrDefault(item, segKey, AnkaSide.Right, defaultRightSigned);
@@ -6909,38 +10710,47 @@ namespace RevitProjectDataAddin
                         {
                             if (Math.Abs(leftSigned) > 0.0001)
                             {
-                                DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X1, y - leftSigned, Brushes.Orange, 1.2, null, "MARK");
+                                DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X1, y - leftSigned, Brushes.Black, 1.2, null, "MARK");
                                 if (anka1 == true)
                                 {
                                     DrawText_Rec(canvas, T, item, $"{Math.Abs(leftSigned):0}", seg.X1 - 650, y - leftSigned / 2.0 + 100, dimFont,
-                                             Brushes.Black, HAnchor.Left, VAnchor.Bottom, 120, "TEXT");
+                                             Brushes.Black, HAnchor.Left, VAnchor.Bottom, 200, "TEXT");
                                 }
                             }
                             if (Math.Abs(rightSigned) > 0.0001)
                             {
-                                DrawLine_Rec(canvas, T, item, seg.X2, y, seg.X2, y - rightSigned, Brushes.Orange, 1.2, null, "MARK");
+                                DrawLine_Rec(canvas, T, item, seg.X2, y, seg.X2, y - rightSigned, Brushes.Black, 1.2, null, "MARK");
                                 if (anka1 == true)
                                 {
                                     DrawText_Rec(canvas, T, item, $"{Math.Abs(rightSigned):0}", seg.X2 + 250, y - rightSigned / 2.0 + 100, dimFont,
-                                             Brushes.Black, HAnchor.Left, VAnchor.Bottom, 120, "TEXT");
+                                             Brushes.Black, HAnchor.Left, VAnchor.Bottom, 200, "TEXT");
                                 }
                             }
                         }
 
-                        DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X2, y, Brushes.Orange, 1.2, null, "MARK");
+                        DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X2, y, Brushes.Black, 1.2, null, "MARK");
 
-                        // TEXT CAM (nhóm dưới): textAboveLine=false, dùng DimDyLower
+                        // TEXT CAM (nhóm dưới): dùng cùng khoảng cách chuẩn như nhóm trên
                         DimOrangeSegmentWithAnkaLabels(
                             canvas, T, item,
                             seg.X1, seg.X2,
-                            y, /*dyTop*/ DimDyLower - 100, /*dyBottom*/ -DimDyLower + 50,
+                            y, /*dyTop*/ -OrangeDimPrimaryTextGapMm, /*dyBottom*/ OrangeDimSecondaryTextGapMm,
                             diaMidShitaChu2Arr, spanLeftArr, spanRightArr, spanCount,
                             defaultLeftSigned, defaultRightSigned,
                             leftSigned, rightSigned,
-                            /*textAboveLine*/ false, seg.BaseX1, seg.BaseX2, kRow
+                            /*textAboveLine*/ true, seg.BaseX1, seg.BaseX2,
+                                suppressAnkaInTopLength: seg.IsEqualCutChild,
+                            forceShowForCutChild: seg.IsEqualCutChild,
+                                rowIndex: kRow
 
                         );
                     }
+                }
+
+                if (hasVisibleShitaChu2)
+                {
+                    DrawRebarLayerHeader(yShitaChu2Base, "\u4e0b\u5b99\u0032", nigeShitaChu2);
+                    nextRebarLayerBaseY = lastYOfShitaChu2 + visibleLayerGap;
                 }
             }
 
@@ -6975,19 +10785,7 @@ namespace RevitProjectDataAddin
             }
 
             // Kẻ line Aqua & nhãn “下宙1”
-            double gapBelowShitaChu2ToShita1 = 400.0;
-            double yShitaChu1Base = (lastYOfShitaChu2 > 0 ? lastYOfShitaChu2 + gapBelowShitaChu2ToShita1 : yShitaChu2Base + 2000);
-            DrawLine_Rec(canvas, T, item,
-                leftEdge - 1500, yShitaChu1Base,
-                rightEdge + 1500, yShitaChu1Base,
-                Brushes.Aqua, 1.2, null, "CHAIN");
-            DrawText_Rec(canvas, T, item, "下宙1", leftEdge - 1300, yShitaChu1Base + LabelDy, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-            // <<< ニゲ TEXT >>>
-            if (nige1 == true)
-            {
-                DrawText_Rec(canvas, T, item, $"ニゲ {nigeShitaChu1:0}", leftEdge - 1100, yShitaChu1Base + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                DrawText_Rec(canvas, T, item, $"ニゲ {nigeShitaChu1:0}", rightEdge + 1100, yShitaChu1Base + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-            }
+            double yShitaChu1Base = nextRebarLayerBaseY;
             double lastYOfShitaChu1 = 0.0;
 
             // 下宙1 — CẮT Ở GIỮA ĐOẠN E2
@@ -7011,9 +10809,8 @@ namespace RevitProjectDataAddin
                 bool hasLeftAnka_Global = (!teiShitaChuNow) && (ankaShitaChu > 0) && (spanCount > 0);
                 bool hasRightAnka_Global = (!teiShitaChuNow) && (ankaShitaChu > 0) && (spanCount > 0);
 
-                int nRowsGlobalShitaChu1 = 0;
-                for (int i = 0; i < spanCount; i++)
-                    nRowsGlobalShitaChu1 = Math.Max(nRowsGlobalShitaChu1, Math.Max(nEnd1ShitaChu1Arr[i], Math.Max(nMidShitaChu1Arr[i], nEnd2ShitaChu1Arr[i])));
+                int nRowsGlobalShitaChu1 = GetMaxLayerRowCount(nEnd1ShitaChu1Arr, nMidShitaChu1Arr, nEnd2ShitaChu1Arr);
+                bool hasVisibleShitaChu1 = false;
 
                 for (int kRow = 0; kRow < nRowsGlobalShitaChu1; kRow++)
                 {
@@ -7021,8 +10818,6 @@ namespace RevitProjectDataAddin
 
                     double y = yStartShitaChu1 + kRow * barSpacing;
                     // ⭐ Thêm dòng này — giống hệt 下宙2
-                    if (kRow == nRowsGlobalShitaChu1 - 1)
-                        lastYOfShitaChu1 = y;
 
                     var rowSegs = new List<(double x1, double x2)>();
                     var rowCuts = new List<double>();
@@ -7078,7 +10873,7 @@ namespace RevitProjectDataAddin
 
                         if (hasTriple)
                         {
-                            double cE2 = qR1Arr[i];
+                            double cE2 = GetShitaHardCutAnchorX(i);
                             cE2 = Math.Max(cE2, midArr[i] + minGap);
                             cE2 = Math.Max(cE2, x1 + minGap);
                             cE2 = Math.Min(cE2, spanRightArr[i] - minGap);
@@ -7160,25 +10955,38 @@ namespace RevitProjectDataAddin
                     merged.Add(cur);
 
                     // NEW: Làm tròn bội 500
-                    RoundContiguousChainsInPlace(merged, 500.0, 1.0);
+                    RoundContiguousChainsInPlaceBySpan(merged, 500.0, shitaSpanBreaks, 1.0);
 
                     // ① DỊCH BIÊN CẮT THẬT
                     ApplyTonariShiftToMergedCuts(
                         merged,
                         rowCuts,
-                        x => GetTonariDotOffset(kRow, x)
+                        spanLeftArr,
+                        spanRightArr,
+                        spanCount,
+                        x => GetTonariDotOffset(kRow, x),
+                        (cut, leftBaseX) => leftBaseX + CeilToBase(cut - leftBaseX, 500.0) + 500.0 + GetTonariDotOffset(kRow, cut)
                     );
 
-                    var visibleSegs = GetVisibleOrangeSegs(item, kRow, y, merged);
+                    var visibleSegs = ClampVisibleOrangeSegsToBounds(
+                        GetVisibleOrangeSegs(item, kRow, y, merged),
+                        leftAnkaX_Global,
+                        rightAnkaX_Global);
+                    if (visibleSegs.Count == 0) continue;
+
+                    hasVisibleShitaChu1 = true;
+                    lastYOfShitaChu1 = y;
 
                     // ② VẼ DOT KHÔNG OFFSET NỮA
                     DrawAdjustedHardCutDots(
-                        canvas, T, item,
+                        canvas, T, item, kRow,
                         visibleSegs.Select(seg => (seg.X1, seg.X2)).ToList(), rowCuts,
+                        spanLeftArr, spanRightArr, spanCount,
                         y, dotR,
                         Brushes.Black,
                         0,
-                        null
+                        null,
+                        (cut, leftBaseX) => leftBaseX + CeilToBase(cut - leftBaseX, 500.0) + 500.0 + GetTonariDotOffset(kRow, cut)
                     );
 
                     foreach (var seg in visibleSegs)
@@ -7193,14 +11001,14 @@ namespace RevitProjectDataAddin
                             rightAnkaX_Global,
                             hasLeftAnka_Global,
                             hasRightAnka_Global,
-                            -ankaShitaChu,
-                            -ankaShitaChu,
+                            +ankaShitaChu,
+                            +ankaShitaChu,
                             out bool hitLeftBoundary,
                             out bool hitRightBoundary,
                             out double defaultLeftSigned,
                             out double defaultRightSigned);
                         double wxTop = 0.5 * (seg.X1 + seg.X2);
-                        double wyTop = y + DimDyLower - 100;
+                        double wyTop = y - OrangeDimPrimaryTextGapMm;
                         var topKey = new OrangeDimTextKey(kRow, true, wxTop, wyTop);
                         double leftSigned = GetAnkaOverrideBySegKeyOrDefault(item, segKey, AnkaSide.Left, defaultLeftSigned);
                         double rightSigned = GetAnkaOverrideBySegKeyOrDefault(item, segKey, AnkaSide.Right, defaultRightSigned);
@@ -7222,38 +11030,47 @@ namespace RevitProjectDataAddin
                         {
                             if (Math.Abs(leftSigned) > 0.0001)
                             {
-                                DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X1, y - leftSigned, Brushes.Orange, 1.2, null, "MARK");
+                                DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X1, y - leftSigned, Brushes.Black, 1.2, null, "MARK");
                                 if (anka1 == true)
                                 {
                                     DrawText_Rec(canvas, T, item, $"{Math.Abs(leftSigned):0}", seg.X1 - 650, y - leftSigned / 2.0 + 100, dimFont,
-                                             Brushes.Black, HAnchor.Left, VAnchor.Bottom, 120, "TEXT");
+                                             Brushes.Black, HAnchor.Left, VAnchor.Bottom, 200, "TEXT");
                                 }
                             }
                             if (Math.Abs(rightSigned) > 0.0001)
                             {
-                                DrawLine_Rec(canvas, T, item, seg.X2, y, seg.X2, y - rightSigned, Brushes.Orange, 1.2, null, "MARK");
+                                DrawLine_Rec(canvas, T, item, seg.X2, y, seg.X2, y - rightSigned, Brushes.Black, 1.2, null, "MARK");
                                 if (anka1 == true)
                                 {
                                     DrawText_Rec(canvas, T, item, $"{Math.Abs(rightSigned):0}", seg.X2 + 250, y - rightSigned / 2.0 + 100, dimFont,
-                                             Brushes.Black, HAnchor.Left, VAnchor.Bottom, 120, "TEXT");
+                                             Brushes.Black, HAnchor.Left, VAnchor.Bottom, 200, "TEXT");
                                 }
                             }
                         }
 
-                        DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X2, y, Brushes.Orange, 1.2, null, "MARK");
+                        DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X2, y, Brushes.Black, 1.2, null, "MARK");
 
                         // TEXT CAM (nhóm dưới)
                         DimOrangeSegmentWithAnkaLabels(
                             canvas, T, item,
                             seg.X1, seg.X2,
-                            y, /*dyTop*/ DimDyLower - 100, /*dyBottom*/ -DimDyLower + 50,
+                            y, /*dyTop*/ -OrangeDimPrimaryTextGapMm, /*dyBottom*/ OrangeDimSecondaryTextGapMm,
                             diaMidShitaChu1Arr, spanLeftArr, spanRightArr, spanCount,
                             defaultLeftSigned, defaultRightSigned,
                             leftSigned, rightSigned,
-                            /*textAboveLine*/ false, seg.BaseX1, seg.BaseX2, kRow
+                            /*textAboveLine*/ true, seg.BaseX1, seg.BaseX2,
+                                suppressAnkaInTopLength: seg.IsEqualCutChild,
+                            forceShowForCutChild: seg.IsEqualCutChild,
+                                rowIndex: kRow
 
                         );
                     }
+                }
+
+                if (hasVisibleShitaChu1)
+                {
+                    DrawRebarLayerHeader(yShitaChu1Base, "\u4e0b\u5b99\u0031", nigeShitaChu1);
+                    nextRebarLayerBaseY = lastYOfShitaChu1 + visibleLayerGap;
                 }
             }
 
@@ -7292,31 +11109,28 @@ namespace RevitProjectDataAddin
                 }
 
                 // Baseline & nhãn "下筋" – đặt ngay dưới 下宙1
-                //double yShitaganeBase = (yShitaChu1Base + 2000);
-                double gapBelowShitaChu1ToShita = 400.0;  // bạn có thể giữ 400 như Chu1 → Shita2
-                double yShitaganeBase =
-                    (lastYOfShitaChu1 > 0
-                        ? lastYOfShitaChu1 + gapBelowShitaChu1ToShita
-                        : yShitaChu1Base + 2000);
+                double yShitaganeBase = nextRebarLayerBaseY;
 
-
-                DrawLine_Rec(canvas, T, item,
+                var shitaHeaderLine = DrawLine_Rec(canvas, T, item,
                     leftEdge - 1500, yShitaganeBase,
                     rightEdge + 1500, yShitaganeBase,
                     Brushes.Aqua, 1.2, null, "CHAIN");
                 //DrawText_Rec(canvas, T, item, "下筋", leftEdge - 1300, yShitaganeBase + LabelDy, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
 
-                var shitaLabel = DrawText_Rec(canvas, T, item, "下筋", leftEdge - 1300, yShitaganeBase + LabelDy, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                var shitaLabel = DrawText_Rec(canvas, T, item, "下筋", leftEdge - 1300, yShitaganeBase + LabelDy + 100, dimFont, Brushes.Red, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
                 // <<< ニゲ TEXT >>>
+                TextBlock shitaNigeLeft = null;
+                TextBlock shitaNigeRight = null;
                 if (nige1 == true)
                 {
-                    DrawText_Rec(canvas, T, item, $"ニゲ {nigeShita:0}", leftEdge - 1100, yShitaganeBase + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-                    DrawText_Rec(canvas, T, item, $"ニゲ {nigeShita:0}", rightEdge + 1100, yShitaganeBase + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+                    shitaNigeLeft = DrawText_Rec(canvas, T, item, $"ニゲ {nigeShita:0}", leftEdge - 1100, yShitaganeBase + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
+                    shitaNigeRight = DrawText_Rec(canvas, T, item, $"ニゲ {nigeShita:0}", rightEdge + 1100, yShitaganeBase + ValueDy, dimFont, Brushes.Black, HAnchor.Center, VAnchor.Bottom, 200, "TEXT");
                 }
                 var shitaAnkaYs = ShitaganeAnkaYsFor(item);
                 shitaAnkaYs.Clear();
                 var shitaOrangeYs = ShitaganeOrangeYsFor(item);
                 shitaOrangeYs.Clear();
+                bool hasVisibleShita = false;
                 if (shitaLabel != null)
                 {
                     shitaLabel.Cursor = Cursors.Hand;
@@ -7389,9 +11203,7 @@ namespace RevitProjectDataAddin
                     bool hasLeftAnka_Global = (!teiShitaNow) && (ankaShita > 0) && (spanCount > 0);
                     bool hasRightAnka_Global = (!teiShitaNow) && (ankaShita > 0) && (spanCount > 0);
 
-                    int nRowsGlobalShita = 0;
-                    for (int i = 0; i < spanCount; i++)
-                        nRowsGlobalShita = Math.Max(nRowsGlobalShita, Math.Max(nEnd1ShitaArr[i], Math.Max(nMidShitaArr[i], nEnd2ShitaArr[i])));
+                    int nRowsGlobalShita = GetMaxLayerRowCount(nEnd1ShitaArr, nMidShitaArr, nEnd2ShitaArr);
 
                     for (int kRow = 0; kRow < nRowsGlobalShita; kRow++)
                     {
@@ -7455,7 +11267,7 @@ namespace RevitProjectDataAddin
 
                             if (hasTriple)
                             {
-                                double cE2 = qR1Arr[i];                 // dùng qR1 làm vị trí cắt
+                                double cE2 = GetShitaHardCutAnchorX(i);  // anchor cụm cut theo line xanh qR
                                 cE2 = Math.Max(cE2, midArr[i] + minGap);
                                 cE2 = Math.Max(cE2, x1 + minGap);
                                 cE2 = Math.Min(cE2, spanRightArr[i] - minGap);
@@ -7505,8 +11317,6 @@ namespace RevitProjectDataAddin
                         }
 
                         if (rowSegs.Count == 0) continue;
-                        if (!shitaOrangeYs.Contains(y))
-                            shitaOrangeYs.Add(y);
                         rowSegs.Sort((a, b) => a.x1.CompareTo(b.x1));
 
                         var merged = new List<(double x1, double x2)>();
@@ -7539,25 +11349,41 @@ namespace RevitProjectDataAddin
                         merged.Add(cur);
 
                         // NEW: Làm tròn bội 500
-                        RoundContiguousChainsInPlace(merged, 500.0, 1.0);
+                        RoundContiguousChainsInPlaceBySpan(merged, 500.0, shitaSpanBreaks, 1.0);
 
                         // ① DỊCH BIÊN CẮT THẬT
                         ApplyTonariShiftToMergedCuts(
                             merged,
                             rowCuts,
-                            x => GetTonariDotOffset(kRow, x)
+                            spanLeftArr,
+                            spanRightArr,
+                            spanCount,
+                            x => GetTonariDotOffset(kRow, x),
+                            (cut, leftBaseX) => leftBaseX + CeilToBase(cut - leftBaseX, 500.0) + 500.0 + GetTonariDotOffset(kRow, cut)
                         );
 
-                        var visibleSegs = GetVisibleOrangeSegs(item, kRow, y, merged);
+                        var visibleSegs = ClampVisibleOrangeSegsToBounds(
+                            GetVisibleOrangeSegs(item, kRow, y, merged),
+                            leftAnkaX_Global,
+                            rightAnkaX_Global);
+                        if (visibleSegs.Count == 0) continue;
+
+                        hasVisibleShita = true;
+                        lastYOfShitakin1 = y;
+
+                        if (!shitaOrangeYs.Contains(y))
+                            shitaOrangeYs.Add(y);
 
                         // ② VẼ DOT KHÔNG OFFSET NỮA
                         DrawAdjustedHardCutDots(
-                            canvas, T, item,
+                            canvas, T, item, kRow,
                             visibleSegs.Select(seg => (seg.X1, seg.X2)).ToList(), rowCuts,
+                            spanLeftArr, spanRightArr, spanCount,
                             y, dotR,
                             Brushes.Black,
                             0,
-                            null
+                            null,
+                            (cut, leftBaseX) => leftBaseX + CeilToBase(cut - leftBaseX, 500.0) + 500.0 + GetTonariDotOffset(kRow, cut)
                         );
 
                         foreach (var seg in visibleSegs)
@@ -7572,14 +11398,14 @@ namespace RevitProjectDataAddin
                                 rightAnkaX_Global,
                                 hasLeftAnka_Global,
                                 hasRightAnka_Global,
-                                -ankaShita,
-                                -ankaShita,
+                                +ankaShita,
+                                +ankaShita,
                                 out bool hitLeftBoundary,
                                 out bool hitRightBoundary,
                                 out double defaultLeftSigned,
                                 out double defaultRightSigned);
                             double wxTop = 0.5 * (seg.X1 + seg.X2);
-                            double wyTop = y + DimDyLower - 100;
+                            double wyTop = y - OrangeDimPrimaryTextGapMm;
                             var topKey = new OrangeDimTextKey(kRow, true, wxTop, wyTop);
                             double leftSigned = GetAnkaOverrideBySegKeyOrDefault(item, segKey, AnkaSide.Left, defaultLeftSigned);
                             double rightSigned = GetAnkaOverrideBySegKeyOrDefault(item, segKey, AnkaSide.Right, defaultRightSigned);
@@ -7601,41 +11427,56 @@ namespace RevitProjectDataAddin
                             {
                                 if (Math.Abs(leftSigned) > 0.0001)
                                 {
-                                    DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X1, y - leftSigned, Brushes.Orange, 1.2, null, "MARK");
+                                    DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X1, y - leftSigned, Brushes.Black, 1.2, null, "MARK");
                                     shitaAnkaYs.Add((y, y - leftSigned));
                                     if (anka1 == true)
                                     {
                                         DrawText_Rec(canvas, T, item, $"{Math.Abs(leftSigned):0}", seg.X1 - 650, y - leftSigned / 2.0 + 100, dimFont,
-                                                 Brushes.Black, HAnchor.Left, VAnchor.Bottom, 120, "TEXT");
+                                                 Brushes.Black, HAnchor.Left, VAnchor.Bottom, 200, "TEXT");
                                     }
                                 }
                                 if (Math.Abs(rightSigned) > 0.0001)
                                 {
-                                    DrawLine_Rec(canvas, T, item, seg.X2, y, seg.X2, y - rightSigned, Brushes.Orange, 1.2, null, "MARK");
+                                    DrawLine_Rec(canvas, T, item, seg.X2, y, seg.X2, y - rightSigned, Brushes.Black, 1.2, null, "MARK");
                                     shitaAnkaYs.Add((y, y - rightSigned));
                                     if (anka1 == true)
                                     {
                                         DrawText_Rec(canvas, T, item, $"{Math.Abs(rightSigned):0}", seg.X2 + 250, y - rightSigned / 2.0 + 100, dimFont,
-                                                 Brushes.Black, HAnchor.Left, VAnchor.Bottom, 120, "TEXT");
+                                                 Brushes.Black, HAnchor.Left, VAnchor.Bottom, 200, "TEXT");
                                     }
                                 }
                             }
 
-                            DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X2, y, Brushes.Orange, 1.2, null, "MARK");
+                            DrawLine_Rec(canvas, T, item, seg.X1, y, seg.X2, y, Brushes.Black, 1.2, null, "MARK");
 
                             // TEXT CAM (nhóm dưới)
                             DimOrangeSegmentWithAnkaLabels(
                                 canvas, T, item,
                                 seg.X1, seg.X2,
-                                y, /*dyTop*/ DimDyLower - 100, /*dyBottom*/ -DimDyLower + 50,
+                                y, /*dyTop*/ -OrangeDimPrimaryTextGapMm, /*dyBottom*/ OrangeDimSecondaryTextGapMm,
                                 diaMidShitaArr, spanLeftArr, spanRightArr, spanCount,
                                 defaultLeftSigned, defaultRightSigned,
                                 leftSigned, rightSigned,
-                                /*textAboveLine*/ false, seg.BaseX1, seg.BaseX2, kRow
+                                /*textAboveLine*/ true, seg.BaseX1, seg.BaseX2,
+                                suppressAnkaInTopLength: seg.IsEqualCutChild,
+                            forceShowForCutChild: seg.IsEqualCutChild,
+                                rowIndex: kRow
 
                             );
                         }
                     }
+                }
+
+                if (!hasVisibleShita)
+                {
+                    if (shitaHeaderLine != null) shitaHeaderLine.Visibility = System.Windows.Visibility.Collapsed;
+                    if (shitaLabel != null) shitaLabel.Visibility = System.Windows.Visibility.Collapsed;
+                    if (shitaNigeLeft != null) shitaNigeLeft.Visibility = System.Windows.Visibility.Collapsed;
+                    if (shitaNigeRight != null) shitaNigeRight.Visibility = System.Windows.Visibility.Collapsed;
+                }
+                else
+                {
+                    nextRebarLayerBaseY = lastYOfShitakin1 + visibleLayerGap;
                 }
 
                 if (shitaOrangeYs.Count > 0)
@@ -7645,6 +11486,28 @@ namespace RevitProjectDataAddin
                 }
 
             }
+
+            if (RebuildAllOrangeCutMarkers(item) && _orangeCutMarkerRedrawInProgress.Add(item))
+            {
+                try
+                {
+                    Redraw(canvas, item);
+                }
+                finally
+                {
+                    _orangeCutMarkerRedrawInProgress.Remove(item);
+                }
+                return;
+            }
+
+            bool useLightweightCanvasUi = IsLightweightCanvasUi(item);
+
+            if (useLightweightCanvasUi)
+            {
+                RenderSceneBitmapToCanvas(canvas, item, T);
+            }
+
+            ScheduleInteractiveViewportSnapshotRefresh(canvas, item);
         }
         // ========================= gần nhất thay đổi ở đây (2025/12/15 10h29) =========================
         // ===== DXF TEXT model =====
@@ -7663,13 +11526,15 @@ namespace RevitProjectDataAddin
             public MediaColor Color;        // màu chữ
             public HAnchor HAnchor;    // neo ngang gốc
             public VAnchor VAnchor;    // neo dọc gốc
+            public bool SkipCanvasBitmap;
 
             public DxfText(string value, double x, double y, double heightMm,
                            int hAlign = 1, int vAlign = 1, double rotDeg = 0,
                            string layer = "TEXT", string style = "STANDARD",
                            double fontPx = 12.0, string fontFamily = null,
                            MediaColor? color = null, HAnchor hAnchor = HAnchor.Center,
-                           VAnchor vAnchor = VAnchor.Bottom)
+                           VAnchor vAnchor = VAnchor.Bottom,
+                           bool skipCanvasBitmap = false)
             {
                 Value = value;
                 X = x; Y = y; Height = heightMm;
@@ -7682,10 +11547,164 @@ namespace RevitProjectDataAddin
                 Color = color ?? Colors.Black;
                 HAnchor = hAnchor;
                 VAnchor = vAnchor;
+                SkipCanvasBitmap = skipCanvasBitmap;
             }
         }
 
         // ===== [SCENE] Build DXF từ Scene (fallback qua dữ liệu nếu Scene trống) =====
+        private static double GetTextOffsetY(VAnchor anchor, TextOutputTarget target)
+        {
+            double magnitude;
+            switch (target)
+            {
+                case TextOutputTarget.Ui:
+                    magnitude = anchor == VAnchor.Bottom ? UiTopTextOffsetY
+                              : anchor == VAnchor.Top ? UiBottomTextOffsetY
+                              : 0.0;
+                    break;
+                case TextOutputTarget.Dxf:
+                    magnitude = anchor == VAnchor.Bottom ? DxfTopTextOffsetY
+                              : anchor == VAnchor.Top ? DxfBottomTextOffsetY
+                              : 0.0;
+                    break;
+                case TextOutputTarget.Pdf:
+                    magnitude = anchor == VAnchor.Bottom ? PdfTopTextOffsetY
+                              : anchor == VAnchor.Top ? PdfBottomTextOffsetY
+                              : 0.0;
+                    break;
+                default:
+                    magnitude = 0.0;
+                    break;
+            }
+
+            if (anchor == VAnchor.Bottom)
+                return -magnitude;
+            if (anchor == VAnchor.Top)
+                return magnitude;
+            return 0.0;
+        }
+
+        private static DxfText ApplyTextOffset(DxfText text, TextOutputTarget target)
+        {
+            double offsetY = GetTextOffsetY(text.VAnchor, target);
+            if (Math.Abs(offsetY) < 1e-9)
+                return text;
+
+            text.Y += offsetY;
+            return text;
+        }
+
+        private readonly struct DxfTextLayoutMetrics
+        {
+            public DxfTextLayoutMetrics(DxfText text, Typeface typeface, double fontPx, double widthPx, double heightPx, double widthMm, double heightMm)
+            {
+                Text = text;
+                Typeface = typeface;
+                FontPx = fontPx;
+                WidthPx = widthPx;
+                HeightPx = heightPx;
+                WidthMm = widthMm;
+                HeightMm = heightMm;
+            }
+
+            public DxfText Text { get; }
+            public Typeface Typeface { get; }
+            public double FontPx { get; }
+            public double WidthPx { get; }
+            public double HeightPx { get; }
+            public double WidthMm { get; }
+            public double HeightMm { get; }
+        }
+
+        private static Typeface CreateDxfTextTypeface(DxfText text)
+            => new Typeface(new FontFamily(text.FontFamily ?? "Yu Mincho"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+
+        private static double ResolveDxfTextFontPx(DxfText text, double scalePxPerMm)
+        {
+            if (text.Height > 0 && scalePxPerMm > 0)
+                return Math.Max(1.0, Math.Abs(text.Height * scalePxPerMm));
+
+            if (text.FontPx > 0)
+                return Math.Max(1.0, text.FontPx);
+
+            if (text.Height > 0)
+                return Math.Max(1.0, text.Height * SharedMmToPx);
+
+            return 12.0;
+        }
+
+        private static DxfTextLayoutMetrics MeasureDxfTextLayout(DxfText source, TextOutputTarget target, double scalePxPerMm)
+        {
+            var text = ApplyTextOffset(source, target);
+            var typeface = CreateDxfTextTypeface(text);
+            double fontPx = ResolveDxfTextFontPx(text, scalePxPerMm);
+            var formatted = new FormattedText(
+                text.Value ?? string.Empty,
+                CultureInfo.CurrentCulture,
+                FlowDirection.LeftToRight,
+                typeface,
+                fontPx,
+                Brushes.Black,
+                1.0);
+
+            double widthPx = Math.Max(0.0, formatted.WidthIncludingTrailingWhitespace);
+            double heightPx = Math.Max(1.0, formatted.Height);
+            double widthMm;
+            double heightMm;
+
+            if (scalePxPerMm > 0)
+            {
+                widthMm = widthPx / scalePxPerMm;
+                heightMm = heightPx / scalePxPerMm;
+            }
+            else
+            {
+                heightMm = Math.Max(1.0, text.Height > 0 ? text.Height : heightPx * SharedPxToMm);
+                widthMm = heightPx > 0
+                    ? widthPx * (heightMm / heightPx)
+                    : Math.Max(heightMm, (text.Value?.Length ?? 0) * heightMm * 0.6);
+            }
+
+            return new DxfTextLayoutMetrics(text, typeface, fontPx, widthPx, heightPx, widthMm, heightMm);
+        }
+
+        private static Point GetDxfTextTopLeft(Point anchorPoint, double width, double height, HAnchor hAnchor, VAnchor vAnchor)
+        {
+            double drawX = anchorPoint.X;
+            double drawY = anchorPoint.Y;
+
+            if (hAnchor == HAnchor.Center) drawX -= width / 2.0;
+            else if (hAnchor == HAnchor.Right) drawX -= width;
+
+            if (vAnchor == VAnchor.Middle) drawY -= height / 2.0;
+            else if (vAnchor == VAnchor.Bottom) drawY -= height;
+
+            return new Point(drawX, drawY);
+        }
+
+        private static Vector GetDxfTextAnchorOffset(double width, double height, HAnchor hAnchor, VAnchor vAnchor)
+        {
+            double offsetX = 0;
+            double offsetY = 0;
+
+            if (hAnchor == HAnchor.Center) offsetX = width / 2.0;
+            else if (hAnchor == HAnchor.Right) offsetX = width;
+
+            if (vAnchor == VAnchor.Middle) offsetY = height / 2.0;
+            else if (vAnchor == VAnchor.Bottom) offsetY = height;
+
+            return new Vector(offsetX, offsetY);
+        }
+
+        private static Point GetPlotRenderTextAnchorWorld(DxfText text)
+            => new Point(text.X, text.Y + 25);
+
+        private static Point GetPlotRenderTextTopLeftWorld(DxfTextLayoutMetrics metrics)
+            => GetDxfTextTopLeft(GetPlotRenderTextAnchorWorld(metrics.Text), metrics.WidthMm, metrics.HeightMm, metrics.Text.HAnchor, metrics.Text.VAnchor);
+
+        private static Point GetDxfTextTopLeftWorld(DxfTextLayoutMetrics metrics)
+            => GetDxfTextTopLeft(new Point(metrics.Text.X, metrics.Text.Y), metrics.WidthMm, metrics.HeightMm, metrics.Text.HAnchor, metrics.Text.VAnchor);
+
         private (List<DxfLine> lines, List<DxfText> texts,
              List<DxfCircle> circles, List<DxfArc> arcs,
              List<DxfSolid> solids, string fileKey)
@@ -7725,7 +11744,7 @@ namespace RevitProjectDataAddin
             public double[] Dash;
             public MediaColor StrokeColor;
             public DxfLine(double x1, double y1, double x2, double y2,
-                           string layer = "0", double thicknessPx = 1.0,
+                           string layer = "0", double thicknessPx = 2.5,
                            double[] dash = null, MediaColor? strokeColor = null)
             {
                 X1 = x1; Y1 = y1; X2 = x2; Y2 = y2;
@@ -7805,6 +11824,8 @@ namespace RevitProjectDataAddin
                 ColorFromBrush(fill ?? stroke ?? Brushes.Black, Colors.Black)));
 
             // (3) Vẽ trên Canvas (polyline đóng + fill để xem trên màn hình)
+            if (IsLightweightCanvasUi(owner))
+                return;
             var pts = new List<Point>
             {
                 new Point(xL, yTop),
@@ -7969,19 +11990,20 @@ namespace RevitProjectDataAddin
                 // TEXT entities (unchanged)
                 foreach (var t in texts)
                 {
-                    var y = flipY ? -t.Y : t.Y;
+                    var exportText = ApplyTextOffset(t, TextOutputTarget.Dxf);
+                    var y = flipY ? -exportText.Y : exportText.Y;
                     sw.WriteLine("0"); sw.WriteLine("TEXT");
-                    sw.WriteLine("8"); sw.WriteLine(string.IsNullOrEmpty(t.Layer) ? "TEXT" : t.Layer);
+                    sw.WriteLine("8"); sw.WriteLine(string.IsNullOrEmpty(exportText.Layer) ? "TEXT" : exportText.Layer);
                     //sw.WriteLine("7"); sw.WriteLine(string.IsNullOrEmpty(t.Style) ? "STANDARD" : t.Style);
-                    sw.WriteLine("10"); sw.WriteLine(t.X.ToString(CultureInfo.InvariantCulture));
+                    sw.WriteLine("10"); sw.WriteLine(exportText.X.ToString(CultureInfo.InvariantCulture));
                     sw.WriteLine("20"); sw.WriteLine(y.ToString(CultureInfo.InvariantCulture));
                     sw.WriteLine("30"); sw.WriteLine("0");
-                    sw.WriteLine("40"); sw.WriteLine(t.Height.ToString(CultureInfo.InvariantCulture));
-                    sw.WriteLine("1"); sw.WriteLine(t.Value ?? "");
-                    sw.WriteLine("50"); sw.WriteLine(t.RotationDeg.ToString(CultureInfo.InvariantCulture));
-                    sw.WriteLine("72"); sw.WriteLine(t.HAlign.ToString());
-                    sw.WriteLine("73"); sw.WriteLine(t.VAlign.ToString());
-                    sw.WriteLine("11"); sw.WriteLine(t.X.ToString(CultureInfo.InvariantCulture));
+                    sw.WriteLine("40"); sw.WriteLine(exportText.Height.ToString(CultureInfo.InvariantCulture));
+                    sw.WriteLine("1"); sw.WriteLine(exportText.Value ?? "");
+                    sw.WriteLine("50"); sw.WriteLine(exportText.RotationDeg.ToString(CultureInfo.InvariantCulture));
+                    sw.WriteLine("72"); sw.WriteLine(exportText.HAlign.ToString());
+                    sw.WriteLine("73"); sw.WriteLine(exportText.VAlign.ToString());
+                    sw.WriteLine("11"); sw.WriteLine(exportText.X.ToString(CultureInfo.InvariantCulture));
                     sw.WriteLine("21"); sw.WriteLine(y.ToString(CultureInfo.InvariantCulture));
                     sw.WriteLine("31"); sw.WriteLine("0");
                 }
@@ -8111,6 +12133,10 @@ namespace RevitProjectDataAddin
 
         private void ExportPdf_Click(object sender, RoutedEventArgs e)
         {
+            ExportPdfScene_Click(sender, e);
+            return;
+
+#if false
             if (_currentSecoList?.gridbotsecozu == null || _currentSecoList.gridbotsecozu.Count == 0)
             { MessageBox.Show("Không có gì để xuất."); return; }
 
@@ -8122,6 +12148,22 @@ namespace RevitProjectDataAddin
             if (canvases.Count == 0)
             { MessageBox.Show("Không tìm thấy canvas để xuất."); return; }
 
+            var sources = new List<PdfExportSource>();
+            foreach (var canvas in canvases)
+            {
+                if (canvas?.DataContext is GridBotsecozu item)
+                {
+                    var key = BuildDxfGeometry(item).fileKey;
+                    sources.Add(new PdfExportSource(item, canvas, key));
+                }
+            }
+
+            if (sources.Count == 0)
+            { MessageBox.Show("Không có dữ liệu để xuất PDF."); return; }
+
+            var exportOptions = ShowPdfExportOptionsDialog(sources);
+            if (exportOptions == null) return;
+
             var dlg = new SaveFileDialog
             {
                 Filter = "PDF files (*.pdf)|*.pdf",
@@ -8129,24 +12171,54 @@ namespace RevitProjectDataAddin
             };
             if (dlg.ShowDialog() != true) return;
 
+            var selectedKeys = new HashSet<string>(exportOptions.SelectedKeys ?? new List<string>(), StringComparer.Ordinal);
             var vectorPages = new List<PdfVectorPage>();
-            foreach (var canvas in canvases)
+            foreach (var src in sources)
             {
-                if (canvas?.DataContext is GridBotsecozu item)
-                {
-                    if (!_sceneByItem.TryGetValue(item, out var scene) || scene == null || scene.Count == 0)
-                    {
-                        try { Redraw(canvas, item); }
-                        catch { /* ignore redraw failures, will fallback if scene still empty */ }
-                    }
+                if (selectedKeys.Count > 0 && !selectedKeys.Contains(src.Key))
+                    continue;
 
-                    var (lines, texts, circles, arcs, solids, key) = BuildDxfGeometry(item);
-                    var page = PdfVectorBuilder.Create(key, lines, texts, circles, arcs, solids,
-                                                        this.FontFamily?.Source ?? "Yu Mincho");
-                    if (page != null)
+                if (!_sceneByItem.TryGetValue(src.Item, out var scene) || scene == null || scene.Count == 0)
+                {
+                    try { Redraw(src.Canvas, src.Item); }
+                    catch { }
+                }
+
+                var (lines, texts, circles, arcs, solids, key) = BuildDxfGeometry(src.Item);
+                var scene = CaptureSceneForPdfExport(src.Item, src.Key);
+                var viewportWindows = BuildPdfViewportWindows(exportOptions.PaperSize, exportOptions.Orientation, exportOptions.ScaleDenominator, scene, exportOptions.FitToPage, exportOptions.InnerFrameOffsetMm, exportOptions.FitMode);
+                if (viewportWindows.Count == 0)
+                {
+                    viewportWindows.Add(new PdfViewportWindow
                     {
+                        PageIndex = 0,
+                        PageCount = 1
+                    });
+                }
+
+                foreach (var viewportWindow in viewportWindows)
+                {
+                    var pageSettings = new PdfPlotSettings
+                    {
+                        PaperSize = exportOptions.PaperSize,
+                        Orientation = exportOptions.Orientation,
+                        ScaleDenominator = exportOptions.ScaleDenominator,
+                        FitMode = exportOptions.FitMode,
+                        HorizontalAlignment = exportOptions.HorizontalAlignment,
+                        VerticalAlignment = exportOptions.VerticalAlignment,
+                        InnerFrameOffsetMm = exportOptions.InnerFrameOffsetMm,
+                        TitleText = exportOptions.TitleText,
+                        DateText = exportOptions.DateText,
+                        SelectedKeys = exportOptions.SelectedKeys != null ? new List<string>(exportOptions.SelectedKeys) : new List<string>(),
+                        ViewportWindow = viewportWindow
+                    };
+
+                    string pageKey = viewportWindow.PageCount > 1 ? $"{key}_{viewportWindow.PageIndex + 1}" : key;
+                    var page = PdfVectorBuilder.Create(pageKey, lines, texts, circles, arcs, solids,
+                                                       this.FontFamily?.Source ?? "Yu Mincho",
+                                                       pageSettings);
+                    if (page != null)
                         vectorPages.Add(page);
-                    }
                 }
             }
 
@@ -8162,6 +12234,2453 @@ namespace RevitProjectDataAddin
             {
                 MessageBox.Show($"Xuất PDF thất bại: {ex.Message}");
             }
+#endif
+        }
+
+        private sealed class PdfExportSource
+        {
+            public PdfExportSource(GridBotsecozu item, Canvas canvas, string key)
+            {
+                Item = item;
+                Canvas = canvas;
+                Key = string.IsNullOrWhiteSpace(key) ? "(No name)" : key;
+            }
+
+            public GridBotsecozu Item { get; }
+            public Canvas Canvas { get; }
+            public string Key { get; }
+        }
+
+        private sealed class PdfPlotSettings
+        {
+            public PdfPaperSize PaperSize { get; set; }
+            public PdfPaperOrientation Orientation { get; set; } = PdfPaperOrientation.Landscape;
+            public double? ScaleDenominator { get; set; }
+            public PdfFitMode FitMode { get; set; } = PdfFitMode.Width;
+            public PdfHorizontalAlignment HorizontalAlignment { get; set; } = PdfHorizontalAlignment.Center;
+            public PdfVerticalAlignment VerticalAlignment { get; set; } = PdfVerticalAlignment.Middle;
+            public double InnerFrameOffsetMm { get; set; } = DefaultPdfInnerFrameOffsetMm;
+            public string TitleText { get; set; } = "梁配筋図";
+            public string DateText { get; set; } = DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            public List<string> SelectedKeys { get; set; } = new List<string>();
+            public bool FitToPage => !ScaleDenominator.HasValue;
+            public bool IsPortrait => Orientation == PdfPaperOrientation.Portrait;
+            public PdfViewportWindow ViewportWindow { get; set; }
+        }
+
+        private sealed class PdfViewportWindow
+        {
+            public int PageIndex { get; set; }
+            public int PageCount { get; set; }
+            public int StartSpanIndex { get; set; }
+            public int EndSpanIndex { get; set; }
+            public double MinX { get; set; }
+            public double MaxX { get; set; }
+            public double MinY { get; set; }
+            public double MaxY { get; set; }
+            public bool IsConnectorPage { get; set; }
+            public int ConnectsFromPage { get; set; }
+            public int ConnectsToPage { get; set; }
+            public string Label
+                => IsConnectorPage
+                    ? $"Trang nối {ConnectsFromPage}-{ConnectsToPage}"
+                    : (PageCount > 1 ? $"Trang {PageIndex + 1}/{PageCount}" : "Trang 1/1");
+        }
+
+        private sealed class PdfPaperMargins
+        {
+            public double LeftMm { get; }
+            public double RightMm { get; }
+            public double TopMm { get; }
+            public double BottomMm { get; }
+
+            public PdfPaperMargins(double leftMm, double rightMm, double topMm, double bottomMm)
+            {
+                LeftMm = leftMm;
+                RightMm = rightMm;
+                TopMm = topMm;
+                BottomMm = bottomMm;
+            }
+        }
+
+        private sealed class PdfPageLayoutPlan
+        {
+            public double PageWidthMm { get; set; }
+            public double PageHeightMm { get; set; }
+            public double PrintableWidthMm { get; set; }
+            public double PrintableHeightMm { get; set; }
+            public double ScaleMmPerMm { get; set; }
+            public double MarginLeftMm { get; set; }
+            public double MarginBottomMm { get; set; }
+            public double PaperMarginLeftMm { get; set; }
+            public double PaperMarginRightMm { get; set; }
+            public double PaperMarginTopMm { get; set; }
+            public double PaperMarginBottomMm { get; set; }
+            public double FrameLeftMm { get; set; }
+            public double FrameBottomMm { get; set; }
+            public double FrameWidthMm { get; set; }
+            public double FrameHeightMm { get; set; }
+            public double InnerFrameOffsetMm { get; set; }
+            public double InnerFrameLeftMm { get; set; }
+            public double InnerFrameBottomMm { get; set; }
+            public double InnerFrameWidthMm { get; set; }
+            public double InnerFrameHeightMm { get; set; }
+            public double ContentLeftMm { get; set; }
+            public double ContentBottomMm { get; set; }
+            public double ContentWidthMm { get; set; }
+            public double ContentHeightMm { get; set; }
+            public double TitleBlockLeftMm { get; set; }
+            public double TitleBlockBottomMm { get; set; }
+            public double TitleBlockWidthMm { get; set; }
+            public double TitleBlockHeightMm { get; set; }
+            public double UsedWidthMm { get; set; }
+            public double UsedHeightMm { get; set; }
+            public bool FitsContent { get; set; }
+            public bool IsClipped => !FitsContent;
+            public bool IsPortrait { get; set; }
+            public string OrientationLabel => IsPortrait ? "Portrait" : "Landscape";
+        }
+
+        private static string GetPdfPaperDisplayText(PdfPaperSize paperSize)
+            => paperSize == PdfPaperSize.A3 ? "A3" : "A4";
+
+        private static string GetPdfOrientationDisplayText(PdfPaperOrientation orientation)
+            => orientation == PdfPaperOrientation.Portrait ? "Portrait" : "Landscape";
+
+        private static string GetPdfScaleDisplayText(double? scaleDenominator)
+            => scaleDenominator.HasValue ? $"1:{scaleDenominator.Value:0}" : "Fit to page";
+
+        private static string GetPdfScaleDisplayText(PdfPlotSettings settings)
+        {
+            if (settings == null)
+                return "Fit to page (Width)";
+
+            if (settings.ScaleDenominator.HasValue)
+                return $"1:{settings.ScaleDenominator.Value:0}";
+
+            return settings.FitMode == PdfFitMode.Height ? "Fit to page (Height)" : "Fit to page (Width)";
+        }
+
+        private static string GetPdfScaleDisplayText(PdfPlotSettings settings, PdfPageLayoutPlan layout)
+        {
+            if (layout == null || layout.ScaleMmPerMm <= 0 || double.IsNaN(layout.ScaleMmPerMm) || double.IsInfinity(layout.ScaleMmPerMm))
+                return GetPdfScaleDisplayText(settings);
+
+            double effectiveDenominator = 1.0 / layout.ScaleMmPerMm;
+            if (settings?.FitToPage == true)
+                return settings.FitMode == PdfFitMode.Height
+                    ? $"Fit to page (Height) (≈ 1:{effectiveDenominator:0.##})"
+                    : $"Fit to page (Width) (≈ 1:{effectiveDenominator:0.##})";
+
+            return $"1:{effectiveDenominator:0.##}";
+        }
+
+        private static string GetPdfHorizontalAlignmentDisplayText(PdfHorizontalAlignment alignment)
+        {
+            switch (alignment)
+            {
+                case PdfHorizontalAlignment.Left:
+                    return "Trái";
+                case PdfHorizontalAlignment.Right:
+                    return "Phải";
+                default:
+                    return "Giữa";
+            }
+        }
+
+        private static string GetPdfVerticalAlignmentDisplayText(PdfVerticalAlignment alignment)
+        {
+            switch (alignment)
+            {
+                case PdfVerticalAlignment.Top:
+                    return "Trên";
+                case PdfVerticalAlignment.Bottom:
+                    return "Dưới";
+                default:
+                    return "Giữa";
+            }
+        }
+
+        private static void ApplyPdfAlignmentToVisibleBounds(PdfPlotSettings settings, ref double minX, ref double minY, ref double maxX, ref double maxY)
+        {
+            if (settings?.ScaleDenominator == null || settings.ScaleDenominator.Value <= 0)
+                return;
+
+            var page = CreateDefaultPdfPageLayout(
+                settings.PaperSize,
+                settings.Orientation,
+                settings.InnerFrameOffsetMm);
+
+            double visibleWidthMm = page.PrintableWidthMm * settings.ScaleDenominator.Value;
+            double visibleHeightMm = page.PrintableHeightMm * settings.ScaleDenominator.Value;
+            double currentWidthMm = maxX - minX;
+            double currentHeightMm = maxY - minY;
+
+            if (currentWidthMm > visibleWidthMm + 1e-6)
+            {
+                switch (settings.HorizontalAlignment)
+                {
+                    case PdfHorizontalAlignment.Right:
+                        minX = maxX - visibleWidthMm;
+                        break;
+                    case PdfHorizontalAlignment.Center:
+                        minX += (currentWidthMm - visibleWidthMm) / 2.0;
+                        break;
+                    default:
+                        break;
+                }
+
+                maxX = minX + visibleWidthMm;
+            }
+
+            if (currentHeightMm > visibleHeightMm + 1e-6)
+            {
+                switch (settings.VerticalAlignment)
+                {
+                    case PdfVerticalAlignment.Top:
+                        maxY = minY + visibleHeightMm;
+                        break;
+                    case PdfVerticalAlignment.Middle:
+                        minY += (currentHeightMm - visibleHeightMm) / 2.0;
+                        maxY = minY + visibleHeightMm;
+                        break;
+                    default:
+                        minY = maxY - visibleHeightMm;
+                        break;
+                }
+            }
+        }
+
+        private static Rect GetDxfTextBounds(DxfText text, TextOutputTarget target)
+        {
+            var metrics = MeasureDxfTextLayout(text, target, SharedMmToPx);
+            Point topLeft = target == PlotRenderTextTarget
+                ? GetPlotRenderTextTopLeftWorld(metrics)
+                : GetDxfTextTopLeftWorld(metrics);
+            return new Rect(topLeft.X, topLeft.Y, metrics.WidthMm, metrics.HeightMm);
+        }
+
+        private static (double WidthMm, double HeightMm) GetPdfPaperBaseSizeMm(PdfPaperSize paperSize)
+            => paperSize == PdfPaperSize.A3 ? (420.0, 297.0) : (297.0, 210.0);
+
+        private static PdfPaperMargins GetPdfPaperMargins(PdfPaperSize paperSize, bool isPortrait)
+        {
+            if (paperSize == PdfPaperSize.A3)
+            {
+                if (isPortrait)
+                {
+                    return new PdfPaperMargins(
+                        leftMm: 10.0,
+                        rightMm: 10.0,
+                        topMm: 15.0,
+                        bottomMm: 15.0);
+                }
+
+                return new PdfPaperMargins(
+                    leftMm: 15.0,
+                    rightMm: 15.0,
+                    topMm: 10.0,
+                    bottomMm: 10.0);
+            }
+
+            if (isPortrait)
+            {
+                return new PdfPaperMargins(
+                    leftMm: 5.0,
+                    rightMm: 5.0,
+                    topMm: 10.0,
+                    bottomMm: 10.0);
+            }
+
+            return new PdfPaperMargins(
+                leftMm: 10.0,
+                rightMm: 10.0,
+                topMm: 5.0,
+                bottomMm: 5.0);
+        }
+
+        private static PdfPageLayoutPlan CreateDefaultPdfPageLayout(PdfPaperSize paperSize, PdfPaperOrientation orientation, double innerFrameOffsetMm = DefaultPdfInnerFrameOffsetMm)
+        {
+            var baseSize = GetPdfPaperBaseSizeMm(paperSize);
+            bool isPortrait = orientation == PdfPaperOrientation.Portrait;
+            double pageWidthMm = isPortrait ? baseSize.HeightMm : baseSize.WidthMm;
+            double pageHeightMm = isPortrait ? baseSize.WidthMm : baseSize.HeightMm;
+            var margins = GetPdfPaperMargins(paperSize, isPortrait);
+            double frameLeft = margins.LeftMm;
+            double frameBottom = margins.BottomMm;
+            double frameWidth = Math.Max(1.0, pageWidthMm - margins.LeftMm - margins.RightMm);
+            double frameHeight = Math.Max(1.0, pageHeightMm - margins.TopMm - margins.BottomMm);
+            double safeInnerOffset = Math.Max(0.0, Math.Min(innerFrameOffsetMm, Math.Min(frameWidth, frameHeight) / 2.0 - 0.5));
+            double innerFrameLeft = frameLeft + safeInnerOffset;
+            double innerFrameBottom = frameBottom + safeInnerOffset;
+            double innerFrameWidth = Math.Max(1.0, frameWidth - safeInnerOffset * 2.0);
+            double innerFrameHeight = Math.Max(1.0, frameHeight - safeInnerOffset * 2.0);
+            double contentLeft = innerFrameLeft;
+            double contentBottom = innerFrameBottom;
+            double contentWidth = innerFrameWidth;
+            double contentHeight = innerFrameHeight;
+
+            return new PdfPageLayoutPlan
+            {
+                PageWidthMm = pageWidthMm,
+                PageHeightMm = pageHeightMm,
+                PrintableWidthMm = contentWidth,
+                PrintableHeightMm = contentHeight,
+                ScaleMmPerMm = 1.0,
+                MarginLeftMm = contentLeft,
+                MarginBottomMm = contentBottom,
+                PaperMarginLeftMm = margins.LeftMm,
+                PaperMarginRightMm = margins.RightMm,
+                PaperMarginTopMm = margins.TopMm,
+                PaperMarginBottomMm = margins.BottomMm,
+                FrameLeftMm = frameLeft,
+                FrameBottomMm = frameBottom,
+                FrameWidthMm = frameWidth,
+                FrameHeightMm = frameHeight,
+                InnerFrameOffsetMm = safeInnerOffset,
+                InnerFrameLeftMm = innerFrameLeft,
+                InnerFrameBottomMm = innerFrameBottom,
+                InnerFrameWidthMm = innerFrameWidth,
+                InnerFrameHeightMm = innerFrameHeight,
+                ContentLeftMm = contentLeft,
+                ContentBottomMm = contentBottom,
+                ContentWidthMm = contentWidth,
+                ContentHeightMm = contentHeight,
+                TitleBlockLeftMm = frameLeft,
+                TitleBlockBottomMm = frameBottom,
+                TitleBlockWidthMm = frameWidth,
+                TitleBlockHeightMm = 0.0,
+                UsedWidthMm = 0.0,
+                UsedHeightMm = 0.0,
+                FitsContent = true,
+                IsPortrait = isPortrait
+            };
+        }
+
+        private static PdfPageLayoutPlan ResolvePdfPageLayout(
+            PdfPaperSize paperSize,
+            PdfPaperOrientation orientation,
+            double contentWidthMm,
+            double contentHeightMm,
+            double? scaleDenominator,
+            PdfFitMode fitMode = PdfFitMode.Width,
+            PdfHorizontalAlignment horizontalAlignment = PdfHorizontalAlignment.Center,
+            PdfVerticalAlignment verticalAlignment = PdfVerticalAlignment.Middle,
+            double innerFrameOffsetMm = DefaultPdfInnerFrameOffsetMm)
+        {
+            const double titleBlockHeightMm = 0.0;
+
+            contentWidthMm = Math.Max(1.0, contentWidthMm);
+            contentHeightMm = Math.Max(1.0, contentHeightMm);
+
+            PdfPageLayoutPlan Evaluate(double pageWidthMm, double pageHeightMm, bool isPortrait)
+            {
+                var margins = GetPdfPaperMargins(paperSize, isPortrait);
+                double frameLeft = margins.LeftMm;
+                double frameBottom = margins.BottomMm;
+                double frameWidth = Math.Max(1.0, pageWidthMm - margins.LeftMm - margins.RightMm);
+                double frameHeight = Math.Max(1.0, pageHeightMm - margins.TopMm - margins.BottomMm);
+                double safeInnerOffset = Math.Max(0.0, Math.Min(innerFrameOffsetMm, Math.Min(frameWidth, frameHeight) / 2.0 - 0.5));
+                double innerFrameLeft = frameLeft + safeInnerOffset;
+                double innerFrameBottom = frameBottom + safeInnerOffset;
+                double innerFrameWidth = Math.Max(1.0, frameWidth - safeInnerOffset * 2.0);
+                double innerFrameHeight = Math.Max(1.0, frameHeight - safeInnerOffset * 2.0);
+
+                double contentLeft = innerFrameLeft;
+                double contentBottom = innerFrameBottom;
+                double printableWidth = innerFrameWidth;
+                double printableHeight = innerFrameHeight;
+
+                double scaleMmPerMm;
+                bool fitsContent;
+                if (scaleDenominator.HasValue && scaleDenominator.Value > 0)
+                {
+                    scaleMmPerMm = 1.0 / scaleDenominator.Value;
+                    fitsContent = contentWidthMm * scaleMmPerMm <= printableWidth + 1e-6
+                               && contentHeightMm * scaleMmPerMm <= printableHeight + 1e-6;
+                }
+                else
+                {
+                    scaleMmPerMm = fitMode == PdfFitMode.Height
+                        ? printableHeight / contentHeightMm
+                        : printableWidth / contentWidthMm;
+                    fitsContent = true;
+                }
+
+                if (scaleMmPerMm <= 0 || double.IsNaN(scaleMmPerMm) || double.IsInfinity(scaleMmPerMm))
+                    scaleMmPerMm = 1.0;
+
+                double usedWidth = contentWidthMm * scaleMmPerMm;
+                double usedHeight = contentHeightMm * scaleMmPerMm;
+                double remainingWidth = Math.Max(0.0, printableWidth - usedWidth);
+                double remainingHeight = Math.Max(0.0, printableHeight - usedHeight);
+
+                double marginLeft = contentLeft;
+                switch (horizontalAlignment)
+                {
+                    case PdfHorizontalAlignment.Left:
+                        break;
+                    case PdfHorizontalAlignment.Right:
+                        marginLeft += remainingWidth;
+                        break;
+                    default:
+                        marginLeft += remainingWidth / 2.0;
+                        break;
+                }
+
+                double marginBottom = contentBottom;
+                switch (verticalAlignment)
+                {
+                    case PdfVerticalAlignment.Bottom:
+                        break;
+                    case PdfVerticalAlignment.Top:
+                        marginBottom += remainingHeight;
+                        break;
+                    default:
+                        marginBottom += remainingHeight / 2.0;
+                        break;
+                }
+
+                return new PdfPageLayoutPlan
+                {
+                    PageWidthMm = pageWidthMm,
+                    PageHeightMm = pageHeightMm,
+                    PrintableWidthMm = printableWidth,
+                    PrintableHeightMm = printableHeight,
+                    ScaleMmPerMm = scaleMmPerMm,
+                    MarginLeftMm = marginLeft,
+                    MarginBottomMm = marginBottom,
+                    PaperMarginLeftMm = margins.LeftMm,
+                    PaperMarginRightMm = margins.RightMm,
+                    PaperMarginTopMm = margins.TopMm,
+                    PaperMarginBottomMm = margins.BottomMm,
+                    FrameLeftMm = frameLeft,
+                    FrameBottomMm = frameBottom,
+                    FrameWidthMm = frameWidth,
+                    FrameHeightMm = frameHeight,
+                    InnerFrameOffsetMm = safeInnerOffset,
+                    InnerFrameLeftMm = innerFrameLeft,
+                    InnerFrameBottomMm = innerFrameBottom,
+                    InnerFrameWidthMm = innerFrameWidth,
+                    InnerFrameHeightMm = innerFrameHeight,
+                    ContentLeftMm = contentLeft,
+                    ContentBottomMm = contentBottom,
+                    ContentWidthMm = printableWidth,
+                    ContentHeightMm = printableHeight,
+                    TitleBlockLeftMm = frameLeft,
+                    TitleBlockBottomMm = frameBottom,
+                    TitleBlockWidthMm = frameWidth,
+                    TitleBlockHeightMm = titleBlockHeightMm,
+                    UsedWidthMm = usedWidth,
+                    UsedHeightMm = usedHeight,
+                    FitsContent = fitsContent,
+                    IsPortrait = isPortrait
+                };
+            }
+
+            var baseSize = GetPdfPaperBaseSizeMm(paperSize);
+            bool usePortrait = orientation == PdfPaperOrientation.Portrait;
+            return usePortrait
+                ? Evaluate(baseSize.HeightMm, baseSize.WidthMm, isPortrait: true)
+                : Evaluate(baseSize.WidthMm, baseSize.HeightMm, isPortrait: false);
+        }
+
+        private static string BuildPdfPlotStatusText(PdfPlotSettings settings, PdfPageLayoutPlan layout)
+        {
+            if (settings == null || layout == null)
+                return string.Empty;
+
+            string summary = $"Khổ {GetPdfPaperDisplayText(settings.PaperSize)} {layout.OrientationLabel} | Scale {GetPdfScaleDisplayText(settings, layout)}";
+            if (settings.ViewportWindow != null && settings.ViewportWindow.PageCount > 1)
+                summary = $"{summary} | {settings.ViewportWindow.Label}";
+            if (!layout.IsClipped)
+                return $"{summary}\nNội dung nằm trong vùng in {layout.PrintableWidthMm:0.#} x {layout.PrintableHeightMm:0.#} mm.";
+
+            return $"{summary}\nCảnh báo: nội dung vượt khổ in và sẽ bị cắt, không tự fit lại.";
+        }
+
+        private List<PdfViewportWindow> BuildPdfViewportWindows(PdfPaperSize paperSize, PdfPaperOrientation orientation, double? scaleDenominator, IReadOnlyList<object> scene, bool fitToPage = false, double innerFrameOffsetMm = DefaultPdfInnerFrameOffsetMm, PdfFitMode fitMode = PdfFitMode.Width)
+        {
+            const double pageOverlapRatio = 0.20;
+
+            if (scene == null || scene.Count == 0)
+                return new List<PdfViewportWindow>();
+
+            if (!TryGetSceneBounds(scene, PlotRenderTextTarget, out double sceneMinX, out double sceneMinY, out double sceneMaxX, out double sceneMaxY))
+                return new List<PdfViewportWindow>();
+
+            var windows = new List<PdfViewportWindow>();
+            bool fitToPageByHeight = fitToPage && fitMode == PdfFitMode.Height;
+            if ((fitToPage && !fitToPageByHeight) || (!scaleDenominator.HasValue && !fitToPageByHeight) || _projectData?.Kihon == null || _currentSecoList == null)
+            {
+                windows.Add(new PdfViewportWindow
+                {
+                    PageIndex = 0,
+                    PageCount = 1,
+                    StartSpanIndex = 0,
+                    EndSpanIndex = 0,
+                    MinX = sceneMinX,
+                    MaxX = sceneMaxX,
+                    MinY = sceneMinY,
+                    MaxY = sceneMaxY
+                });
+                return windows;
+            }
+
+            var k = _projectData.Kihon;
+            bool tsuIsX = k.NameX.Any(n => n.Name == _currentSecoList.通を選択);
+            bool tsuIsY = k.NameY.Any(n => n.Name == _currentSecoList.通を選択);
+            var spans = tsuIsY ? k.ListSpanX.Select(s => ParseMm(s.Span)).ToList()
+                               : tsuIsX ? k.ListSpanY.Select(s => ParseMm(s.Span)).ToList()
+                                        : new List<double>();
+
+            spans = spans.Where(s => s > 0).ToList();
+            if (spans.Count == 0)
+            {
+                windows.Add(new PdfViewportWindow
+                {
+                    PageIndex = 0,
+                    PageCount = 1,
+                    StartSpanIndex = 0,
+                    EndSpanIndex = Math.Max(0, spans.Count - 1),
+                    MinX = sceneMinX,
+                    MaxX = sceneMaxX,
+                    MinY = sceneMinY,
+                    MaxY = sceneMaxY
+                });
+                return windows;
+            }
+
+            var pageLayout = CreateDefaultPdfPageLayout(paperSize, orientation, innerFrameOffsetMm);
+            double pageSliceWidthMm;
+            if (fitToPageByHeight)
+            {
+                double contentWidthMm = Math.Max(1.0, sceneMaxX - sceneMinX);
+                double contentHeightMm = Math.Max(1.0, sceneMaxY - sceneMinY);
+                var fitHeightLayout = ResolvePdfPageLayout(
+                    paperSize,
+                    orientation,
+                    contentWidthMm,
+                    contentHeightMm,
+                    scaleDenominator: null,
+                    fitMode: PdfFitMode.Height,
+                    innerFrameOffsetMm: innerFrameOffsetMm);
+                double fitScaleMmPerMm = fitHeightLayout?.ScaleMmPerMm ?? 0.0;
+                pageSliceWidthMm = fitScaleMmPerMm > 0
+                    ? fitHeightLayout.PrintableWidthMm / fitScaleMmPerMm
+                    : contentWidthMm;
+            }
+            else
+            {
+                pageSliceWidthMm = pageLayout.PrintableWidthMm * scaleDenominator.Value;
+            }
+
+            if (pageSliceWidthMm <= 0 || double.IsNaN(pageSliceWidthMm) || double.IsInfinity(pageSliceWidthMm))
+                pageSliceWidthMm = spans.Sum();
+
+            double totalWidth = spans.Sum();
+            double contentMinX = sceneMinX;
+            double contentMaxX = sceneMaxX;
+            double contentWidth = contentMaxX - contentMinX;
+            if (contentWidth <= pageSliceWidthMm + 1e-6)
+            {
+                windows.Add(new PdfViewportWindow
+                {
+                    PageIndex = 0,
+                    PageCount = 1,
+                    StartSpanIndex = 0,
+                    EndSpanIndex = Math.Max(0, spans.Count - 1),
+                    MinX = sceneMinX,
+                    MaxX = sceneMaxX,
+                    MinY = sceneMinY,
+                    MaxY = sceneMaxY
+                });
+                return windows;
+            }
+
+            var positions = new List<double> { -totalWidth / 2.0 };
+            for (int i = 0; i < spans.Count; i++)
+                positions.Add(positions[i] + spans[i]);
+
+            double fullSpanMinX = positions.First();
+            double spanOffsetX = contentMinX - fullSpanMinX;
+            var scenePositions = positions.Select(p => p + spanOffsetX).ToList();
+            double pageOverlapMm = Math.Max(0.0, Math.Min(pageSliceWidthMm * pageOverlapRatio, pageSliceWidthMm - 1.0));
+            double pageAdvanceMm = Math.Max(1.0, pageSliceWidthMm - pageOverlapMm);
+            double baseStartX = contentMinX;
+
+            while (baseStartX < contentMaxX - 1e-6)
+            {
+                double groupMinX = Math.Max(contentMinX, baseStartX);
+                double groupMaxX = Math.Min(contentMaxX, baseStartX + pageSliceWidthMm);
+
+                int startSpanIndex = 0;
+                for (int i = 0; i < spans.Count; i++)
+                {
+                    if (scenePositions[i + 1] > groupMinX)
+                    {
+                        startSpanIndex = i;
+                        break;
+                    }
+                }
+
+                int endSpanIndex = Math.Max(0, spans.Count - 1);
+                for (int i = 0; i < spans.Count; i++)
+                {
+                    bool isLastPage = groupMaxX >= contentMaxX - 1e-6;
+                    if ((scenePositions[i] < groupMaxX && groupMaxX <= scenePositions[i + 1]) || (isLastPage && scenePositions[i] < groupMaxX))
+                    {
+                        endSpanIndex = i;
+                        break;
+                    }
+                }
+
+                windows.Add(new PdfViewportWindow
+                {
+                    StartSpanIndex = startSpanIndex,
+                    EndSpanIndex = endSpanIndex,
+                    MinX = groupMinX,
+                    MaxX = groupMaxX,
+                    MinY = sceneMinY,
+                    MaxY = sceneMaxY
+                });
+
+                if (groupMaxX >= contentMaxX - 1e-6)
+                    break;
+
+                baseStartX += pageAdvanceMm;
+            }
+
+            for (int i = 0; i < windows.Count; i++)
+            {
+                windows[i].PageIndex = i;
+                windows[i].PageCount = windows.Count;
+                windows[i].IsConnectorPage = false;
+                windows[i].ConnectsFromPage = 0;
+                windows[i].ConnectsToPage = 0;
+            }
+
+            return windows;
+        }
+
+        private static Rect PdfRectMmToPreviewPx(double leftMm, double bottomMm, double widthMm, double heightMm, double pageHeightMm, double mmToPx)
+        {
+            return new Rect(
+                leftMm * mmToPx,
+                (pageHeightMm - bottomMm - heightMm) * mmToPx,
+                widthMm * mmToPx,
+                heightMm * mmToPx);
+        }
+
+        private static void DrawPdfPlotPreviewFrame(DrawingContext dc, PdfPageLayoutPlan layout, PdfPlotSettings settings, string pageNumber, double mmToPx)
+        {
+            var outerRect = new Rect(0, 0, layout.PageWidthMm * mmToPx, layout.PageHeightMm * mmToPx);
+            var frameRect = PdfRectMmToPreviewPx(layout.FrameLeftMm, layout.FrameBottomMm, layout.FrameWidthMm, layout.FrameHeightMm, layout.PageHeightMm, mmToPx);
+            var innerFrameRect = PdfRectMmToPreviewPx(layout.InnerFrameLeftMm, layout.InnerFrameBottomMm, layout.InnerFrameWidthMm, layout.InnerFrameHeightMm, layout.PageHeightMm, mmToPx);
+            var titleRect = PdfRectMmToPreviewPx(layout.TitleBlockLeftMm, layout.TitleBlockBottomMm, layout.TitleBlockWidthMm, layout.TitleBlockHeightMm, layout.PageHeightMm, mmToPx);
+
+            //dc.DrawRectangle(null, new Pen(Brushes.Black, 5), outerRect);
+            dc.DrawRectangle(null, new Pen(Brushes.Black, 1.0), frameRect);
+            //dc.DrawRectangle(null, new Pen(new SolidColorBrush(Color.FromRgb(76, 132, 201)), 0.9), innerFrameRect);
+            dc.DrawRectangle(null, new Pen(Brushes.Black, 1.0), titleRect);
+
+            double noWidthMm = 28.0;
+            double dateWidthMm = 38.0;
+            double scaleWidthMm = 28.0;
+            double titleWidthMm = Math.Max(40.0, layout.TitleBlockWidthMm - noWidthMm - dateWidthMm - scaleWidthMm);
+
+            double x1 = titleRect.X + titleWidthMm * mmToPx;
+            double x2 = x1 + scaleWidthMm * mmToPx;
+            double x3 = x2 + dateWidthMm * mmToPx;
+            double yMid = titleRect.Y + Math.Min(titleRect.Height * 0.38, 12.0 * mmToPx);
+
+            var gridPen = new Pen(Brushes.Black, 0.8);
+            dc.DrawLine(gridPen, new Point(x1, titleRect.Y), new Point(x1, titleRect.Bottom));
+            dc.DrawLine(gridPen, new Point(x2, titleRect.Y), new Point(x2, titleRect.Bottom));
+            dc.DrawLine(gridPen, new Point(x3, titleRect.Y), new Point(x3, titleRect.Bottom));
+            dc.DrawLine(gridPen, new Point(titleRect.X, yMid), new Point(titleRect.Right, yMid));
+
+            DrawPdfPlotPreviewTitleCell(dc, new Rect(titleRect.X, titleRect.Y, x1 - titleRect.X, titleRect.Height), "TITLE", settings?.TitleText ?? "梁配筋図");
+            DrawPdfPlotPreviewTitleCell(dc, new Rect(x1, titleRect.Y, x2 - x1, titleRect.Height), "SCALE", GetPdfScaleDisplayText(settings, layout));
+            DrawPdfPlotPreviewTitleCell(dc, new Rect(x2, titleRect.Y, x3 - x2, titleRect.Height), "DATE", settings?.DateText ?? DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            DrawPdfPlotPreviewTitleCell(dc, new Rect(x3, titleRect.Y, titleRect.Right - x3, titleRect.Height), "NO.", pageNumber ?? "-");
+        }
+
+        private static void DrawPdfPlotPreviewTitleCell(DrawingContext dc, Rect rect, string label, string value)
+        {
+            if (rect.Width <= 2 || rect.Height <= 2)
+                return;
+
+            var labelText = new FormattedText(label ?? string.Empty, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+                new Typeface(new FontFamily("Yu Gothic UI"), FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal),
+                8.0, Brushes.Black, 1.0);
+            var valueText = new FormattedText(value ?? string.Empty, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+                new Typeface(new FontFamily("Yu Gothic UI"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal),
+                10.0, Brushes.Black, 1.0)
+            {
+                Trimming = TextTrimming.CharacterEllipsis,
+                MaxTextWidth = Math.Max(4.0, rect.Width - 6.0)
+            };
+
+            dc.DrawText(labelText, new Point(rect.X + 3.0, rect.Y + 1.5));
+            dc.DrawText(valueText, new Point(rect.X + 3.0, rect.Y + rect.Height * 0.42));
+        }
+
+        private PdfPlotSettings ShowPdfExportOptionsDialog(IReadOnlyList<PdfExportSource> sources)
+        {
+            var optionWindow = new Window
+            {
+                Owner = this,
+                Title = "Thiết lập xuất PDF",
+                Width = 520,
+                Height = 520,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                ResizeMode = ResizeMode.NoResize,
+                Background = Brushes.White
+            };
+
+            var root = new Grid { Margin = new Thickness(16) };
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            optionWindow.Content = root;
+
+            var title = new TextBlock
+            {
+                Text = "Xuất file PDF",
+                FontSize = 22,
+                FontWeight = FontWeights.Bold,
+                Margin = new Thickness(0, 0, 0, 12)
+            };
+            root.Children.Add(title);
+
+            var paperPanel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 10) };
+            Grid.SetRow(paperPanel, 1);
+            paperPanel.Children.Add(new TextBlock { Text = "Khổ giấy:", Width = 100, VerticalAlignment = VerticalAlignment.Center, FontSize = 14 });
+            var paperCombo = new ComboBox { Width = 150, FontSize = 14 };
+            paperCombo.Items.Add("A4");
+            paperCombo.Items.Add("A3");
+
+            var kesan = _projectData?.Kesan;
+            if (kesan?.Printsize2 == true)
+            {
+                paperCombo.SelectedItem = "A3";
+            }
+            else
+            {
+                paperCombo.SelectedItem = "A4";
+            }
+
+            paperCombo.SelectionChanged += (s, e) =>
+            {
+                var selectedPaper = (paperCombo.SelectedItem as string) ?? "A4";
+                if (_projectData?.Kesan == null) return;
+
+                _projectData.Kesan.Printsize1 = selectedPaper == "A4";
+                _projectData.Kesan.Printsize2 = selectedPaper == "A3";
+            };
+
+            paperPanel.Children.Add(paperCombo);
+            root.Children.Add(paperPanel);
+
+            var rangeTitle = new TextBlock
+            {
+                Text = "Phạm vi in (theo vị trí chọn):",
+                FontSize = 14,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 6)
+            };
+            Grid.SetRow(rangeTitle, 2);
+            root.Children.Add(rangeTitle);
+
+            var positionList = new ListBox
+            {
+                SelectionMode = SelectionMode.Multiple,
+                BorderBrush = Brushes.Silver,
+                BorderThickness = new Thickness(1),
+                FontSize = 13
+            };
+            foreach (var src in sources)
+                positionList.Items.Add(src.Key);
+            positionList.SelectAll();
+            Grid.SetRow(positionList, 3);
+            root.Children.Add(positionList);
+
+            var footer = new Grid { Margin = new Thickness(0, 12, 0, 0) };
+            footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetRow(footer, 4);
+            root.Children.Add(footer);
+
+            var previewText = new TextBlock
+            {
+                Text = "Chưa preview",
+                VerticalAlignment = VerticalAlignment.Center,
+                Foreground = Brushes.Black,
+                Margin = new Thickness(0, 0, 10, 0),
+                TextWrapping = TextWrapping.Wrap
+            };
+            footer.Children.Add(previewText);
+
+            var previewButton = new Button { Content = "Review", Width = 90, Height = 30, Margin = new Thickness(0, 0, 8, 0) };
+            Grid.SetColumn(previewButton, 1);
+            footer.Children.Add(previewButton);
+
+            var okButton = new Button { Content = "Xuất", Width = 90, Height = 30, Margin = new Thickness(0, 0, 8, 0) };
+            Grid.SetColumn(okButton, 2);
+            footer.Children.Add(okButton);
+
+            var cancelButton = new Button { Content = "Hủy", Width = 90, Height = 30 };
+            Grid.SetColumn(cancelButton, 3);
+            footer.Children.Add(cancelButton);
+
+            PdfPlotSettings result = null;
+
+            previewButton.Click += (s, e) =>
+            {
+                var selected = positionList.SelectedItems.Cast<string>().ToList();
+                var paper = (paperCombo.SelectedItem as string) ?? "A4";
+                previewText.Text = $"Khổ: {paper} | Số vị trí sẽ in: {selected.Count}/{sources.Count}";
+
+                var selectedSet = new HashSet<string>(selected, StringComparer.Ordinal);
+                var selectedSources = sources
+                    .Where(src => selectedSet.Contains(src.Key))
+                    .ToList();
+                ShowPdfExportReviewWindow(optionWindow, selectedSources, paper);
+            };
+
+            okButton.Click += (s, e) =>
+            {
+                var selected = positionList.SelectedItems.Cast<string>().ToList();
+                if (selected.Count == 0)
+                {
+                    MessageBox.Show(optionWindow, "Vui lòng chọn ít nhất 1 vị trí để in.");
+                    return;
+                }
+
+                result = new PdfPlotSettings
+                {
+                    PaperSize = ((paperCombo.SelectedItem as string) == "A3") ? PdfPaperSize.A3 : PdfPaperSize.A4,
+                    SelectedKeys = selected
+                };
+                // Keep the export options window open after exporting so the current state stays intact.
+            };
+
+            cancelButton.Click += (s, e) =>
+            {
+                optionWindow.DialogResult = false;
+                optionWindow.Close();
+            };
+
+            var dialogResult = optionWindow.ShowDialog();
+            return dialogResult == true ? result : null;
+        }
+
+        private void ShowPdfExportReviewWindow(Window owner, IReadOnlyList<PdfExportSource> selectedSources, string paper)
+        {
+            // Khung review theo tỷ lệ A4 dọc để dễ quan sát đúng bố cục trang in.
+            const double a4FrameWidth = 700;
+            const double a4FrameHeight = a4FrameWidth * 297.0 / 210.0;
+
+            var reviewWindow = new Window
+            {
+                Owner = owner,
+                Title = "Review nội dung sẽ xuất PDF",
+                Width = 1180,
+                Height = 1150,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                ResizeMode = ResizeMode.CanResize,
+                Background = Brushes.White
+            };
+
+            var root = new Grid { Margin = new Thickness(16) };
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            //root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            //root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            reviewWindow.Content = root;
+
+            var header = new TextBlock
+            {
+                Text = "Review bản vẽ sẽ xuất ra PDF",
+                FontSize = 20,
+                FontWeight = FontWeights.Bold,
+                Margin = new Thickness(0, 0, 0, 8)
+            };
+            root.Children.Add(header);
+
+            //var summary = new TextBlock
+            //{
+            //    Text = $"Khổ giấy xuất: {paper} | Số bản vẽ sẽ xuất: {selectedSources.Count}",
+            //    FontSize = 14,
+            //    Foreground = Brushes.Black,
+            //    Margin = new Thickness(0, 0, 0, 8)
+            //};
+            //Grid.SetRow(summary, 1);
+            //root.Children.Add(summary);
+
+            UIElement reviewBody;
+            if (selectedSources.Count == 0)
+            {
+                reviewBody = new Border
+                {
+                    BorderBrush = Brushes.Silver,
+                    BorderThickness = new Thickness(1),
+                    Padding = new Thickness(16),
+                    Child = new TextBlock
+                    {
+                        Text = "(Chưa chọn bản vẽ nào để xuất)",
+                        FontSize = 14,
+                        Foreground = Brushes.Black
+                    }
+                };
+            }
+            else
+            {
+                var bodyGrid = new Grid();
+                bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(280) });
+                bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+                var sourceList = new ListBox
+                {
+                    BorderBrush = Brushes.Silver,
+                    BorderThickness = new Thickness(1),
+                    FontSize = 13,
+                    Margin = new Thickness(0, 0, 12, 0)
+                };
+                foreach (var src in selectedSources)
+                {
+                    sourceList.Items.Add(src.Key);
+                }
+                sourceList.SelectedIndex = 0;
+                bodyGrid.Children.Add(sourceList);
+
+                var previewPanel = new StackPanel();
+                Grid.SetColumn(previewPanel, 1);
+                bodyGrid.Children.Add(previewPanel);
+
+                var pageTitle = new TextBlock
+                {
+                    FontSize = 14,
+                    FontWeight = FontWeights.SemiBold,
+                    Margin = new Thickness(0, 0, 0, 8)
+                };
+                previewPanel.Children.Add(pageTitle);
+
+                var a4Frame = new Border
+                {
+                    BorderBrush = Brushes.Black,
+                    BorderThickness = new Thickness(1.5),
+                    Width = a4FrameWidth,
+                    Height = a4FrameHeight,
+                    Background = Brushes.White,
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    VerticalAlignment = VerticalAlignment.Top,
+                    SnapsToDevicePixels = true
+                };
+                var previewImage = new Image
+                {
+                    Stretch = Stretch.Uniform,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    SnapsToDevicePixels = true
+                };
+                a4Frame.Child = previewImage;
+                previewPanel.Children.Add(a4Frame);
+
+                var note = new TextBlock
+                {
+                    Text = "Khung review theo tỷ lệ A4 để dễ đối chiếu khi xuất PDF.",
+                    FontSize = 12,
+                    Foreground = Brushes.Black,
+                    Margin = new Thickness(0, 8, 0, 0)
+                };
+                previewPanel.Children.Add(note);
+
+                void UpdatePreview(int index)
+                {
+                    if (index < 0 || index >= selectedSources.Count)
+                    {
+                        pageTitle.Text = "";
+                        previewImage.Source = null;
+                        return;
+                    }
+
+                    var src = selectedSources[index];
+                    pageTitle.Text = $"Xem trước: {src.Key}";
+
+                    // Đồng bộ với dữ liệu đang dùng khi xuất PDF để đảm bảo review phản ánh nội dung xuất.
+                    if (!_sceneByItem.TryGetValue(src.Item, out var scene) || scene == null || scene.Count == 0)
+                    {
+                        try { Redraw(src.Canvas, src.Item); }
+                        catch { }
+                    }
+
+                    var imageSource = CreatePdfReviewImageSource(src, paper);
+                    previewImage.Source = imageSource;
+                }
+
+                sourceList.SelectionChanged += (s, e) => UpdatePreview(sourceList.SelectedIndex);
+                UpdatePreview(sourceList.SelectedIndex);
+
+                reviewBody = bodyGrid;
+            }
+
+            Grid.SetRow(reviewBody, 2);
+            root.Children.Add(reviewBody);
+
+            //var closeButton = new Button
+            //{
+            //    Content = "Đóng",
+            //    Width = 90,
+            //    Height = 30,
+            //    HorizontalAlignment = HorizontalAlignment.Right,
+            //    Margin = new Thickness(0, 10, 0, 0)
+            //};
+            //closeButton.Click += (_, __) => reviewWindow.Close();
+            //Grid.SetRow(closeButton, 3);
+            //root.Children.Add(closeButton);
+
+            reviewWindow.ShowDialog();
+        }
+
+        private ImageSource CreatePdfReviewImageSource(PdfExportSource src, string paper)
+        {
+            if (src == null)
+            {
+                return null;
+            }
+
+            var canvasImage = CreateCanvasPreviewImageSource(src.Canvas);
+            if (canvasImage == null)
+                return null;
+
+            const double mmToPx = 96.0 / 25.4;
+
+            var paperSize = string.Equals(paper, "A3", StringComparison.OrdinalIgnoreCase) ? PdfPaperSize.A3 : PdfPaperSize.A4;
+            var layout = CreateDefaultPdfPageLayout(paperSize, PdfPaperOrientation.Landscape, DefaultPdfInnerFrameOffsetMm);
+            int pixelWidth = Math.Max(1, (int)Math.Round(layout.PageWidthMm * mmToPx));
+            int pixelHeight = Math.Max(1, (int)Math.Round(layout.PageHeightMm * mmToPx));
+
+            var visual = new DrawingVisual();
+            using (var dc = visual.RenderOpen())
+            {
+                dc.DrawRectangle(Brushes.White, null, new Rect(0, 0, pixelWidth, pixelHeight));
+                DrawPdfPlotPreviewFrame(dc, layout, null, "-", mmToPx);
+                var contentRect = PdfRectMmToPreviewPx(
+                    layout.ContentLeftMm,
+                    layout.ContentBottomMm,
+                    layout.ContentWidthMm,
+                    layout.ContentHeightMm,
+                    layout.PageHeightMm,
+                    mmToPx);
+                double sourceWidth = canvasImage.Width;
+                double sourceHeight = canvasImage.Height;
+                if (sourceWidth > 1 && sourceHeight > 1)
+                {
+                    double fitScale = Math.Min(contentRect.Width / sourceWidth, contentRect.Height / sourceHeight);
+                    if (double.IsNaN(fitScale) || double.IsInfinity(fitScale) || fitScale <= 0)
+                        fitScale = 1.0;
+
+                    double drawWidth = sourceWidth * fitScale;
+                    double drawHeight = sourceHeight * fitScale;
+                    var imageRect = new Rect(
+                        contentRect.X + (contentRect.Width - drawWidth) / 2.0,
+                        contentRect.Y + (contentRect.Height - drawHeight) / 2.0,
+                        drawWidth,
+                        drawHeight);
+
+                    dc.PushClip(new RectangleGeometry(contentRect));
+                    dc.DrawImage(canvasImage, imageRect);
+                    dc.Pop();
+                }
+            }
+
+            var rtb = new RenderTargetBitmap(pixelWidth, pixelHeight, 96, 96, PixelFormats.Pbgra32);
+            rtb.Render(visual);
+            return rtb;
+        }
+
+        private PdfPlotSettings ShowPdfPlotDialog(IReadOnlyList<PdfExportSource> sources)
+        {
+            var optionWindow = new Window
+            {
+                Owner = this,
+                Title = "Print / Plot PDF",
+                Width = 1180,
+                Height = 1000,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                ResizeMode = ResizeMode.NoResize, // 👈 KHÓA
+                Background = Brushes.White
+            };
+
+            var root = new Grid { Margin = new Thickness(16) };
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            optionWindow.Content = root;
+
+            var title = new TextBlock
+            {
+                Text = "Print / Plot PDF",
+                FontSize = 22,
+                FontWeight = FontWeights.Bold,
+                Margin = new Thickness(0, 0, 0, 12)
+            };
+            root.Children.Add(title);
+
+            var controlPanel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 12) };
+            Grid.SetRow(controlPanel, 1);
+
+            controlPanel.Children.Add(new TextBlock
+            {
+                Text = "Khổ giấy:",
+                Width = 80,
+                VerticalAlignment = VerticalAlignment.Center,
+                FontSize = 14
+            });
+
+            var paperCombo = new ComboBox { Width = 120, FontSize = 14, Margin = new Thickness(0, 0, 20, 0) };
+            paperCombo.Items.Add("A4");
+            paperCombo.Items.Add("A3");
+            paperCombo.SelectedItem = _projectData?.Kesan?.Printsize2 == true ? "A3" : "A4";
+            controlPanel.Children.Add(paperCombo);
+            controlPanel.Children.Add(new TextBlock
+            {
+                Text = "Hướng:",
+                Width = 65,
+                VerticalAlignment = VerticalAlignment.Center,
+                FontSize = 14
+            });
+
+            var orientationCombo = new ComboBox { Width = 110, FontSize = 14, Margin = new Thickness(0, 0, 20, 0) };
+            orientationCombo.Items.Add("Ngang");
+            orientationCombo.Items.Add("Dọc");
+            orientationCombo.SelectedItem = "Ngang";
+            controlPanel.Children.Add(orientationCombo);
+
+            controlPanel.Children.Add(new TextBlock
+            {
+                Text = "Tỉ lệ:",
+                Width = 50,
+                VerticalAlignment = VerticalAlignment.Center,
+                FontSize = 14
+            });
+
+            var scaleCombo = new ComboBox { Width = 150, FontSize = 14 };
+            scaleCombo.Items.Add("Custom...");
+            scaleCombo.Items.Add("Fit to page (Width)");
+            scaleCombo.Items.Add("Fit to page (Height)");
+            scaleCombo.Items.Add("1:1");
+            scaleCombo.Items.Add("1:2");
+            scaleCombo.Items.Add("1:5");
+            scaleCombo.Items.Add("1:10");
+            scaleCombo.Items.Add("1:20");
+            scaleCombo.Items.Add("1:25");
+            scaleCombo.Items.Add("1:50");
+            scaleCombo.Items.Add("1:100");
+            scaleCombo.Items.Add("1:200");
+            scaleCombo.SelectedItem = "Fit to page (Width)";
+            controlPanel.Children.Add(scaleCombo);
+
+            controlPanel.Children.Add(new TextBlock
+            {
+                Text = "Horizontal:",
+                Width = 78,
+                Margin = new Thickness(20, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                FontSize = 14
+            });
+
+            var horizontalCombo = new ComboBox { Width = 95, FontSize = 14, Margin = new Thickness(0, 0, 20, 0) };
+            horizontalCombo.Items.Add("Phải");
+            horizontalCombo.Items.Add("Giữa");
+            horizontalCombo.Items.Add("Trái");
+            horizontalCombo.SelectedItem = "Giữa";
+            controlPanel.Children.Add(horizontalCombo);
+
+            controlPanel.Children.Add(new TextBlock
+            {
+                Text = "Vertical:",
+                Width = 62,
+                VerticalAlignment = VerticalAlignment.Center,
+                FontSize = 14
+            });
+
+            var verticalCombo = new ComboBox { Width = 95, FontSize = 14 };
+            verticalCombo.Items.Add("Trên");
+            verticalCombo.Items.Add("Giữa");
+            verticalCombo.Items.Add("Dưới");
+            verticalCombo.SelectedItem = "Giữa";
+            controlPanel.Children.Add(verticalCombo);
+
+            controlPanel.Children.Add(new TextBlock
+            {
+                Text = "Offset:",
+                Width = 58,
+                Margin = new Thickness(16, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                FontSize = 14
+            });
+
+            var offsetFrameBox = new TextBox
+            {
+                Width = 30,
+                FontSize = 14,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Text = DefaultPdfInnerFrameOffsetMm.ToString("0.##", CultureInfo.InvariantCulture),
+            };
+            controlPanel.Children.Add(offsetFrameBox);
+
+            controlPanel.Children.Add(new TextBlock
+            {
+                Text = "mm",
+                Margin = new Thickness(4, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                FontSize = 14
+            });
+
+            var customScalePrefix = new TextBlock
+            {
+                Text = "1:",
+                Margin = new Thickness(12, 0, 4, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                FontSize = 14,
+                Visibility = System.Windows.Visibility.Collapsed
+            };
+            controlPanel.Children.Add(customScalePrefix);
+
+            var customScaleBox = new TextBox
+            {
+                Width = 90,
+                FontSize = 14,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                Visibility = System.Windows.Visibility.Collapsed,
+                ToolTip = "Nhập mẫu số tỉ lệ"
+            };
+            controlPanel.Children.Add(customScaleBox);
+
+            root.Children.Add(controlPanel);
+
+            var bodyGrid = new Grid();
+            bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(280) });
+            bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            Grid.SetRow(bodyGrid, 2);
+            root.Children.Add(bodyGrid);
+
+            var positionPanel = new Grid();
+            positionPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            positionPanel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            bodyGrid.Children.Add(positionPanel);
+
+            positionPanel.Children.Add(new TextBlock
+            {
+                Text = "Phạm vi in (theo vị trí chọn):",
+                FontSize = 14,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 6)
+            });
+
+            var positionList = new ListBox
+            {
+                SelectionMode = SelectionMode.Extended,
+                BorderBrush = Brushes.Silver,
+                BorderThickness = new Thickness(1),
+                FontSize = 13
+            };
+            foreach (var src in sources)
+                positionList.Items.Add(src.Key);
+            positionList.SelectAll();
+            positionList.SelectedIndex = positionList.Items.Count > 0 ? 0 : -1;
+            Grid.SetRow(positionList, 1);
+            positionPanel.Children.Add(positionList);
+
+            var previewPanel = new Grid { Margin = new Thickness(16, 0, 0, 0) };
+            previewPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            previewPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            previewPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            previewPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            Grid.SetColumn(previewPanel, 1);
+            bodyGrid.Children.Add(previewPanel);
+
+            var previewTitle = new TextBlock
+            {
+                Text = "Preview",
+                FontSize = 14,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 8)
+            };
+            previewPanel.Children.Add(previewTitle);
+
+            const double previewHostWidth = 810.0;
+            const double previewHostHeight = 740.0;
+            const double previewHostPadding = 16.0;
+
+            var previewHost = new Border
+            {
+                BorderBrush = Brushes.Silver,
+                BorderThickness = new Thickness(1),
+                Background = new SolidColorBrush(Color.FromRgb(245, 247, 249)),
+                Width = previewHostWidth,
+                Height = previewHostHeight,
+                Padding = new Thickness(previewHostPadding),
+                HorizontalAlignment = HorizontalAlignment.Left
+            };
+            Grid.SetRow(previewHost, 1);
+            previewPanel.Children.Add(previewHost);
+
+            var previewCanvas = new Grid
+            {
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            previewHost.Child = previewCanvas;
+
+            var previewPageFrame = new Border
+            {
+                Background = Brushes.White,
+                BorderBrush = Brushes.Black,
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(1),
+                Margin = new Thickness(2),
+                UseLayoutRounding = true,
+                SnapsToDevicePixels = true
+            };
+            var previewImage = new Image
+            {
+                Stretch = Stretch.Fill,
+                SnapsToDevicePixels = true
+            };
+            previewPageFrame.Child = previewImage;
+            previewCanvas.Children.Add(previewPageFrame);
+            var previewNavPanel = new Grid
+            {
+                Margin = new Thickness(0, 8, 0, 0),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Visibility = System.Windows.Visibility.Collapsed
+            };
+            previewNavPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            previewNavPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            previewNavPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetRow(previewNavPanel, 2);
+            previewPanel.Children.Add(previewNavPanel);
+
+            var prevPageButton = new Button
+            {
+                Content = "<",
+                Width = 34,
+                Height = 28,
+                Margin = new Thickness(0, 0, 8, 0),
+                IsEnabled = false
+            };
+            previewNavPanel.Children.Add(prevPageButton);
+
+            var previewPageText = new TextBlock
+            {
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0),
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold
+            };
+            Grid.SetColumn(previewPageText, 1);
+            previewNavPanel.Children.Add(previewPageText);
+
+            var nextPageButton = new Button
+            {
+                Content = ">",
+                Width = 34,
+                Height = 28,
+                IsEnabled = false
+            };
+            Grid.SetColumn(nextPageButton, 2);
+            previewNavPanel.Children.Add(nextPageButton);
+
+            var previewInfo = new TextBlock
+            {
+                Text = "Chưa có preview",
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 8, 0, 0)
+            };
+            Grid.SetRow(previewInfo, 3);
+            previewPanel.Children.Add(previewInfo);
+
+            var footer = new Grid { Margin = new Thickness(0, 12, 0, 0) };
+            footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetRow(footer, 3);
+            root.Children.Add(footer);
+
+            var summaryText = new TextBlock
+            {
+                VerticalAlignment = VerticalAlignment.Center,
+                Foreground = Brushes.Black,
+                Margin = new Thickness(0, 0, 10, 0),
+                TextWrapping = TextWrapping.Wrap
+            };
+            footer.Children.Add(summaryText);
+
+            var exportButton = new Button { Content = "Xuất", Width = 90, Height = 30, Margin = new Thickness(0, 0, 8, 0) };
+            Grid.SetColumn(exportButton, 1);
+            footer.Children.Add(exportButton);
+
+            var cancelButton = new Button { Content = "Hủy", Width = 90, Height = 30 };
+            Grid.SetColumn(cancelButton, 2);
+            footer.Children.Add(cancelButton);
+
+            PdfPlotSettings result = null;
+            int currentPreviewPageIndex = 0;
+            string previousScaleSelection = (scaleCombo.SelectedItem as string) ?? "Fit to page (Width)";
+            bool scaleSelectionChangedWhileOpen = false;
+
+            bool IsAllowedNonNegativeNumberCandidate(string text)
+            {
+                if (text == null)
+                    return false;
+
+                text = text.Trim();
+                if (text.IndexOf('-') >= 0)
+                    return false;
+
+                bool hasDecimalSeparator = false;
+                foreach (char ch in text)
+                {
+                    if (char.IsDigit(ch))
+                        continue;
+
+                    if (ch == '.')
+                    {
+                        if (hasDecimalSeparator)
+                            return false;
+
+                        hasDecimalSeparator = true;
+                        continue;
+                    }
+
+                    return false;
+                }
+
+                return true;
+            }
+
+            string BuildCandidateText(TextBox box, string incomingText)
+            {
+                var currentText = box.Text ?? string.Empty;
+                int selectionStart = Math.Max(0, box.SelectionStart);
+                int selectionLength = Math.Max(0, box.SelectionLength);
+                if (selectionStart > currentText.Length)
+                    selectionStart = currentText.Length;
+                if (selectionStart + selectionLength > currentText.Length)
+                    selectionLength = currentText.Length - selectionStart;
+
+                return currentText.Remove(selectionStart, selectionLength).Insert(selectionStart, incomingText ?? string.Empty);
+            }
+
+            void SetTextBoxValidationState(TextBox box, bool isValid, Brush normalBorderBrush, Thickness normalBorderThickness)
+            {
+                if (box == null)
+                    return;
+
+                var effectiveNormalBrush = normalBorderBrush ?? Brushes.Gray;
+                var effectiveNormalThickness = new Thickness(
+                    Math.Max(1.0, normalBorderThickness.Left),
+                    Math.Max(1.0, normalBorderThickness.Top),
+                    Math.Max(1.0, normalBorderThickness.Right),
+                    Math.Max(1.0, normalBorderThickness.Bottom));
+
+                box.BorderBrush = isValid ? effectiveNormalBrush : Brushes.Red;
+                box.BorderThickness = isValid
+                    ? effectiveNormalThickness
+                    : new Thickness(
+                        Math.Max(1.0, effectiveNormalThickness.Left),
+                        Math.Max(1.0, effectiveNormalThickness.Top),
+                        Math.Max(1.0, effectiveNormalThickness.Right),
+                        Math.Max(1.0, effectiveNormalThickness.Bottom));
+            }
+
+            void AttachNonNegativeNumberInputGuard(TextBox box, Brush normalBorderBrush, Thickness normalBorderThickness)
+            {
+                if (box == null)
+                    return;
+
+                box.PreviewTextInput += (_, e) =>
+                {
+                    var candidateText = BuildCandidateText(box, e.Text);
+                    bool isAllowed = IsAllowedNonNegativeNumberCandidate(candidateText);
+                    if (!isAllowed)
+                    {
+                        SetTextBoxValidationState(box, false, normalBorderBrush, normalBorderThickness);
+                        e.Handled = true;
+                        return;
+                    }
+
+                    SetTextBoxValidationState(box, true, normalBorderBrush, normalBorderThickness);
+                };
+
+                box.PreviewKeyDown += (_, e) =>
+                {
+                    if (e.Key == Key.Space || e.Key == Key.Subtract || e.Key == Key.OemMinus)
+                    {
+                        SetTextBoxValidationState(box, false, normalBorderBrush, normalBorderThickness);
+                        e.Handled = true;
+                    }
+                };
+
+                DataObject.AddPastingHandler(box, new DataObjectPastingEventHandler((_, e) =>
+                {
+                    if (!e.SourceDataObject.GetDataPresent(DataFormats.Text))
+                    {
+                        SetTextBoxValidationState(box, false, normalBorderBrush, normalBorderThickness);
+                        e.CancelCommand();
+                        return;
+                    }
+
+                    var pastedText = e.SourceDataObject.GetData(DataFormats.Text) as string ?? string.Empty;
+                    var candidateText = BuildCandidateText(box, pastedText);
+                    if (!IsAllowedNonNegativeNumberCandidate(candidateText))
+                    {
+                        SetTextBoxValidationState(box, false, normalBorderBrush, normalBorderThickness);
+                        e.CancelCommand();
+                        return;
+                    }
+
+                    SetTextBoxValidationState(box, true, normalBorderBrush, normalBorderThickness);
+                }));
+
+                box.TextChanged += (_, __) =>
+                {
+                    if (IsAllowedNonNegativeNumberCandidate(box.Text ?? string.Empty))
+                        SetTextBoxValidationState(box, true, normalBorderBrush, normalBorderThickness);
+                };
+
+                box.Loaded += (_, __) => SetTextBoxValidationState(box, true, normalBorderBrush, normalBorderThickness);
+                box.GotKeyboardFocus += (_, __) => SetTextBoxValidationState(box, true, normalBorderBrush, normalBorderThickness);
+            }
+
+            bool IsCustomScaleSelected()
+                => string.Equals(scaleCombo.SelectedItem as string, "Custom...", StringComparison.OrdinalIgnoreCase);
+
+            string GetSuggestedCustomScaleText()
+            {
+                if (IsCustomScaleSelected() && !string.IsNullOrWhiteSpace(customScaleBox.Text))
+                    return customScaleBox.Text.Trim();
+
+                var selectedScaleText = IsCustomScaleSelected()
+                    ? previousScaleSelection
+                    : ((scaleCombo.SelectedItem as string) ?? previousScaleSelection ?? "Fit to page (Width)");
+
+                if (!string.IsNullOrWhiteSpace(selectedScaleText) &&
+                    selectedScaleText.StartsWith("1:", StringComparison.OrdinalIgnoreCase) &&
+                    double.TryParse(selectedScaleText.Substring(2).Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var presetScale) &&
+                    presetScale > 0)
+                {
+                    return presetScale.ToString("0.##", CultureInfo.InvariantCulture);
+                }
+
+                if (string.Equals(selectedScaleText, "Fit to page (Width)", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(selectedScaleText, "Fit to page (Height)", StringComparison.OrdinalIgnoreCase))
+                {
+                    var currentKey = positionList.SelectedItem as string;
+                    if (string.IsNullOrWhiteSpace(currentKey))
+                        currentKey = positionList.SelectedItems.Cast<string>().FirstOrDefault() ?? sources.FirstOrDefault()?.Key;
+
+                    var currentSource = sources.FirstOrDefault(src => string.Equals(src.Key, currentKey, StringComparison.Ordinal));
+                    if (currentSource != null)
+                    {
+                        try
+                        {
+                            var currentScene = CaptureSceneForPdfExport(currentSource.Item, currentSource.Key);
+                            if (currentScene != null &&
+                                TryGetSceneBounds(currentScene, PlotRenderTextTarget, out double minX, out double minY, out double maxX, out double maxY))
+                            {
+                                var fitLayout = ResolvePdfPageLayout(
+                                    ((paperCombo.SelectedItem as string) == "A3") ? PdfPaperSize.A3 : PdfPaperSize.A4,
+                                    ((orientationCombo.SelectedItem as string) == "Dọc") ? PdfPaperOrientation.Portrait : PdfPaperOrientation.Landscape,
+                                    maxX - minX,
+                                    maxY - minY,
+                                    scaleDenominator: null,
+                                    fitMode: GetSelectedFitMode(),
+                                    ((horizontalCombo.SelectedItem as string) == "Trái") ? PdfHorizontalAlignment.Left : ((horizontalCombo.SelectedItem as string) == "Phải") ? PdfHorizontalAlignment.Right : PdfHorizontalAlignment.Center,
+                                    ((verticalCombo.SelectedItem as string) == "Trên") ? PdfVerticalAlignment.Top : ((verticalCombo.SelectedItem as string) == "Dưới") ? PdfVerticalAlignment.Bottom : PdfVerticalAlignment.Middle,
+                                    TryGetInnerFrameOffsetMm(out var offsetMm) ? offsetMm : DefaultPdfInnerFrameOffsetMm);
+
+                                if (fitLayout?.ScaleMmPerMm > 0)
+                                {
+                                    double fitDenominator = 1.0 / fitLayout.ScaleMmPerMm;
+                                    if (!double.IsNaN(fitDenominator) && !double.IsInfinity(fitDenominator) && fitDenominator > 0)
+                                        return fitDenominator.ToString("0.##", CultureInfo.InvariantCulture);
+                                }
+                            }
+                        }
+                        catch
+                        {
+                        }
+                    }
+                }
+
+                return string.IsNullOrWhiteSpace(customScaleBox.Text)
+                    ? string.Empty
+                    : customScaleBox.Text.Trim();
+            }
+
+            bool ShowCustomScaleInputDialog(out double customScale)
+            {
+                customScale = 0;
+                double committedScale = 0;
+
+                var dialog = new Window
+                {
+                    Owner = optionWindow,
+                    Title = "Nhập tỉ lệ custom",
+                    Width = 200,
+                    Height = 180,
+                    WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                    ResizeMode = ResizeMode.NoResize,
+                    Background = Brushes.White
+                };
+
+                var panel = new Grid { Margin = new Thickness(16) };
+                panel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                panel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                panel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                dialog.Content = panel;
+
+                panel.Children.Add(new TextBlock
+                {
+                    Text = "Nhập mẫu số tỉ lệ",
+                    FontSize = 14,
+                    Margin = new Thickness(0, 0, 0, 10),
+                    HorizontalAlignment = HorizontalAlignment.Center
+                });
+
+                var inputPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
+                Grid.SetRow(inputPanel, 1);
+                inputPanel.Children.Add(new TextBlock
+                {
+                    Text = "1:",
+                    VerticalAlignment = VerticalAlignment.Center,
+                    FontSize = 16,
+                    Margin = new Thickness(0, 0, 6, 0)
+                });
+
+                var inputBox = new TextBox
+                {
+                    Width = 50,
+                    FontSize = 16,
+                    VerticalContentAlignment = VerticalAlignment.Center,
+                    Text = GetSuggestedCustomScaleText()
+                };
+                var inputBoxNormalBorderBrush = inputBox.BorderBrush;
+                var inputBoxNormalBorderThickness = inputBox.BorderThickness;
+
+                bool TryGetPopupScaleValue(out double parsedScale)
+                {
+                    return double.TryParse((inputBox.Text ?? string.Empty).Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out parsedScale)
+                        && parsedScale > 0;
+                }
+
+                void RefreshPopupScaleValidationState()
+                {
+                    var rawText = (inputBox.Text ?? string.Empty).Trim();
+                    bool isValid = string.IsNullOrWhiteSpace(rawText) || TryGetPopupScaleValue(out _);
+                    SetTextBoxValidationState(inputBox, isValid, inputBoxNormalBorderBrush, inputBoxNormalBorderThickness);
+                }
+
+                AttachNonNegativeNumberInputGuard(inputBox, inputBoxNormalBorderBrush, inputBoxNormalBorderThickness);
+                inputBox.TextChanged += (_, __) => RefreshPopupScaleValidationState();
+                inputPanel.Children.Add(inputBox);
+                panel.Children.Add(inputPanel);
+
+                var footerPanel = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Margin = new Thickness(0, 12, 0, 0)
+                };
+                Grid.SetRow(footerPanel, 2);
+
+                var okButton = new Button { Content = "OK", Width = 50, Height = 28, Margin = new Thickness(0, 0, 8, 0) };
+                var cancelPopupButton = new Button { Content = "Hủy", Width = 50, Height = 28 };
+                footerPanel.Children.Add(okButton);
+                footerPanel.Children.Add(cancelPopupButton);
+                panel.Children.Add(footerPanel);
+
+                bool committed = false;
+                void TryCommitAndClose()
+                {
+                    if (!TryGetPopupScaleValue(out var parsedScale))
+                    {
+                        RefreshPopupScaleValidationState();
+                        inputBox.Focus();
+                        inputBox.SelectAll();
+                        return;
+                    }
+
+                    committedScale = parsedScale;
+                    committed = true;
+                    dialog.DialogResult = true;
+                    dialog.Close();
+                }
+
+                okButton.Click += (_, __) => TryCommitAndClose();
+                cancelPopupButton.Click += (_, __) =>
+                {
+                    dialog.DialogResult = false;
+                    dialog.Close();
+                };
+                inputBox.KeyDown += (_, e) =>
+                {
+                    if (e.Key != Key.Enter)
+                        return;
+
+                    TryCommitAndClose();
+                    e.Handled = true;
+                };
+
+                dialog.Loaded += (_, __) =>
+                {
+                    RefreshPopupScaleValidationState();
+                    inputBox.Focus();
+                    inputBox.SelectAll();
+                };
+
+                dialog.ShowDialog();
+                if (committed)
+                    customScale = committedScale;
+                return committed;
+            }
+
+            bool TryGetSelectedScaleDenominator(out double? scaleDenominator)
+            {
+                scaleDenominator = null;
+                var selectedScale = (scaleCombo.SelectedItem as string) ?? "Fit to page (Width)";
+
+                if (string.Equals(selectedScale, "Fit to page (Width)", StringComparison.OrdinalIgnoreCase))
+                    return true;
+
+                if (string.Equals(selectedScale, "Fit to page (Height)", StringComparison.OrdinalIgnoreCase))
+                    return true;
+
+                if (string.Equals(selectedScale, "Custom...", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (double.TryParse((customScaleBox.Text ?? string.Empty).Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var customScale) &&
+                        customScale > 0)
+                    {
+                        scaleDenominator = customScale;
+                        return true;
+                    }
+
+                    return false;
+                }
+
+                if (selectedScale.StartsWith("1:", StringComparison.OrdinalIgnoreCase) &&
+                    double.TryParse(selectedScale.Substring(2), NumberStyles.Float, CultureInfo.InvariantCulture, out var scaleValue) &&
+                    scaleValue > 0)
+                {
+                    scaleDenominator = scaleValue;
+                    return true;
+                }
+
+                return false;
+            }
+
+            PdfFitMode GetSelectedFitMode()
+            {
+                var selectedScale = (scaleCombo.SelectedItem as string) ?? "Fit to page (Width)";
+                return string.Equals(selectedScale, "Fit to page (Height)", StringComparison.OrdinalIgnoreCase)
+                    ? PdfFitMode.Height
+                    : PdfFitMode.Width;
+            }
+
+            bool TryGetInnerFrameOffsetMm(out double innerFrameOffsetMm)
+            {
+                innerFrameOffsetMm = DefaultPdfInnerFrameOffsetMm;
+                var rawText = (offsetFrameBox.Text ?? string.Empty).Trim();
+                if (string.IsNullOrWhiteSpace(rawText))
+                    return true;
+
+                return double.TryParse(rawText, NumberStyles.Float, CultureInfo.InvariantCulture, out innerFrameOffsetMm)
+                    && innerFrameOffsetMm >= 0;
+            }
+
+            var offsetFrameNormalBorderBrush = offsetFrameBox.BorderBrush;
+            var offsetFrameNormalBorderThickness = offsetFrameBox.BorderThickness;
+
+            void RefreshOffsetFrameValidationState()
+            {
+                bool isValid = TryGetInnerFrameOffsetMm(out _);
+                SetTextBoxValidationState(offsetFrameBox, isValid, offsetFrameNormalBorderBrush, offsetFrameNormalBorderThickness);
+            }
+
+            PdfPlotSettings BuildCurrentSettings()
+            {
+                TryGetSelectedScaleDenominator(out var scaleDenominator);
+                TryGetInnerFrameOffsetMm(out var innerFrameOffsetMm);
+                string floor = _currentSecoList?.階を選択 ?? string.Empty;
+                string axis = _currentSecoList?.通を選択 ?? string.Empty;
+                string titleText = string.Join(" ", new[] { floor, axis, "梁配筋図" }.Where(s => !string.IsNullOrWhiteSpace(s)));
+                return new PdfPlotSettings
+                {
+                    PaperSize = ((paperCombo.SelectedItem as string) == "A3") ? PdfPaperSize.A3 : PdfPaperSize.A4,
+                    Orientation = ((orientationCombo.SelectedItem as string) == "Dọc") ? PdfPaperOrientation.Portrait : PdfPaperOrientation.Landscape,
+                    ScaleDenominator = scaleDenominator,
+                    FitMode = GetSelectedFitMode(),
+                    HorizontalAlignment = ((horizontalCombo.SelectedItem as string) == "Trái") ? PdfHorizontalAlignment.Left : ((horizontalCombo.SelectedItem as string) == "Phải") ? PdfHorizontalAlignment.Right : PdfHorizontalAlignment.Center,
+                    VerticalAlignment = ((verticalCombo.SelectedItem as string) == "Trên") ? PdfVerticalAlignment.Top : ((verticalCombo.SelectedItem as string) == "Dưới") ? PdfVerticalAlignment.Bottom : PdfVerticalAlignment.Middle,
+                    InnerFrameOffsetMm = innerFrameOffsetMm,
+                    TitleText = string.IsNullOrWhiteSpace(titleText) ? "梁配筋図" : titleText,
+                    DateText = DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                    SelectedKeys = positionList.SelectedItems.Cast<string>().ToList()
+                };
+            }
+
+            void UpdatePreview()
+            {
+                if (_projectData?.Kesan != null)
+                {
+                    var selectedPaper = (paperCombo.SelectedItem as string) ?? "A4";
+                    _projectData.Kesan.Printsize1 = selectedPaper == "A4";
+                    _projectData.Kesan.Printsize2 = selectedPaper == "A3";
+                }
+
+                customScalePrefix.Visibility = System.Windows.Visibility.Collapsed;
+                customScaleBox.Visibility = System.Windows.Visibility.Collapsed;
+                RefreshOffsetFrameValidationState();
+
+                var currentSettings = BuildCurrentSettings();
+                bool hasValidScale = TryGetSelectedScaleDenominator(out var validatedScale);
+                bool hasValidOffset = TryGetInnerFrameOffsetMm(out var validatedOffset);
+                currentSettings.ScaleDenominator = validatedScale;
+                currentSettings.InnerFrameOffsetMm = validatedOffset;
+                exportButton.IsEnabled = hasValidScale && hasValidOffset;
+                summaryText.Text = $"Khổ {GetPdfPaperDisplayText(currentSettings.PaperSize)} {GetPdfOrientationDisplayText(currentSettings.Orientation)} | Scale {GetPdfScaleDisplayText(currentSettings)} | H: {GetPdfHorizontalAlignmentDisplayText(currentSettings.HorizontalAlignment)} | V: {GetPdfVerticalAlignmentDisplayText(currentSettings.VerticalAlignment)} | Offset: {currentSettings.InnerFrameOffsetMm:0.##} mm | Chọn {currentSettings.SelectedKeys.Count}/{sources.Count} vị trí";
+                var currentKey = positionList.SelectedItem as string;
+                if (string.IsNullOrWhiteSpace(currentKey))
+                    currentKey = currentSettings.SelectedKeys.FirstOrDefault();
+
+                var currentSource = sources.FirstOrDefault(src => string.Equals(src.Key, currentKey, StringComparison.Ordinal));
+                if (currentSource == null)
+                {
+                    previewTitle.Text = "Preview";
+                    previewImage.Source = null;
+                    previewNavPanel.Visibility = System.Windows.Visibility.Collapsed;
+                    previewPageText.Text = string.Empty;
+                    prevPageButton.IsEnabled = false;
+                    nextPageButton.IsEnabled = false;
+                    previewInfo.Text = "Chọn một vị trí để xem preview.";
+                    return;
+                }
+
+                if (!hasValidOffset)
+                {
+                    previewTitle.Text = $"Preview: {currentSource.Key}";
+                    previewImage.Source = null;
+                    previewNavPanel.Visibility = System.Windows.Visibility.Collapsed;
+                    previewPageText.Text = string.Empty;
+                    prevPageButton.IsEnabled = false;
+                    nextPageButton.IsEnabled = false;
+                    previewInfo.Text = "Offset chưa hợp lệ. Nhập số mm >= 0, ví dụ 5.";
+                    return;
+                }
+
+                if (!hasValidScale)
+                {
+                    previewTitle.Text = $"Preview: {currentSource.Key}";
+                    previewImage.Source = null;
+                    previewNavPanel.Visibility = System.Windows.Visibility.Collapsed;
+                    previewPageText.Text = string.Empty;
+                    prevPageButton.IsEnabled = false;
+                    nextPageButton.IsEnabled = false;
+                    previewInfo.Text = "Scale custom chưa hợp lệ. Nhập mẫu số dương, ví dụ 75 cho 1:75.";
+                    return;
+                }
+
+                IReadOnlyList<object> currentScene = null;
+                try
+                {
+                    currentScene = CaptureSceneForPdfExport(currentSource.Item, currentSource.Key);
+                }
+                catch { }
+
+                var viewportWindows = BuildPdfViewportWindows(currentSettings.PaperSize, currentSettings.Orientation, currentSettings.ScaleDenominator, currentScene, currentSettings.FitToPage, currentSettings.InnerFrameOffsetMm, currentSettings.FitMode).ToList();
+                if (viewportWindows.Count == 0)
+                {
+                    viewportWindows.Add(new PdfViewportWindow
+                    {
+                        PageIndex = 0,
+                        PageCount = 1
+                    });
+                }
+
+                if (currentPreviewPageIndex >= viewportWindows.Count)
+                    currentPreviewPageIndex = viewportWindows.Count - 1;
+                if (currentPreviewPageIndex < 0)
+                    currentPreviewPageIndex = 0;
+
+                currentSettings.ViewportWindow = viewportWindows[currentPreviewPageIndex];
+                previewTitle.Text = $"Preview: {currentSource.Key}";
+                var previewSource = CreatePdfPlotPreviewImageSource(currentSource, currentSettings, out var layout);
+                previewImage.Source = previewSource;
+                previewNavPanel.Visibility = viewportWindows.Count > 1 ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+                previewPageText.Text = currentSettings.ViewportWindow?.Label ?? "Trang 1/1";
+                prevPageButton.IsEnabled = currentPreviewPageIndex > 0;
+                nextPageButton.IsEnabled = currentPreviewPageIndex < viewportWindows.Count - 1;
+                summaryText.Text = $"Khổ {GetPdfPaperDisplayText(currentSettings.PaperSize)} {GetPdfOrientationDisplayText(currentSettings.Orientation)} | Scale {GetPdfScaleDisplayText(currentSettings, layout)} | H: {GetPdfHorizontalAlignmentDisplayText(currentSettings.HorizontalAlignment)} | V: {GetPdfVerticalAlignmentDisplayText(currentSettings.VerticalAlignment)} | Offset: {currentSettings.InnerFrameOffsetMm:0.##} mm | Chọn {currentSettings.SelectedKeys.Count}/{sources.Count} vị trí";
+                previewInfo.Text = BuildPdfPlotStatusText(currentSettings, layout);
+
+                const double previewFrameSafetyInset = 6.0;
+                double maxFrameWidth = previewHostWidth - (previewHostPadding * 2.0) - previewFrameSafetyInset;
+                double maxFrameHeight = previewHostHeight - (previewHostPadding * 2.0) - previewFrameSafetyInset;
+                double previewScale = Math.Min(maxFrameWidth / Math.Max(1.0, layout.PageWidthMm),
+                                               maxFrameHeight / Math.Max(1.0, layout.PageHeightMm));
+                if (double.IsNaN(previewScale) || double.IsInfinity(previewScale) || previewScale <= 0)
+                    previewScale = 1.0;
+
+                previewPageFrame.Width = layout.PageWidthMm * previewScale;
+                previewPageFrame.Height = layout.PageHeightMm * previewScale;
+            }
+
+            void CommitOffsetFrameInput(bool moveFocusAway = false)
+            {
+                if (TryGetInnerFrameOffsetMm(out var committedOffset))
+                {
+                    string normalizedText = committedOffset.ToString("0.##", CultureInfo.InvariantCulture);
+                    if (!string.Equals(offsetFrameBox.Text, normalizedText, StringComparison.Ordinal))
+                        offsetFrameBox.Text = normalizedText;
+                }
+
+                RefreshOffsetFrameValidationState();
+
+                UpdatePreview();
+
+                if (moveFocusAway)
+                    Keyboard.ClearFocus();
+            }
+
+            exportButton.Click += (s, e) =>
+            {
+                var selected = positionList.SelectedItems.Cast<string>().ToList();
+                if (selected.Count == 0)
+                {
+                    MessageBox.Show(optionWindow, "Vui lòng chọn ít nhất 1 vị trí để in.");
+                    return;
+                }
+
+                result = BuildCurrentSettings();
+                if (!TryGetSelectedScaleDenominator(out var validatedScale))
+                {
+                    MessageBox.Show(optionWindow, "Scale custom chưa hợp lệ. Nhập mẫu số dương, ví dụ 75 cho 1:75.");
+                    return;
+                }
+                if (!TryGetInnerFrameOffsetMm(out var validatedOffset))
+                {
+                    MessageBox.Show(optionWindow, "Offset khung chưa hợp lệ. Nhập số mm >= 0, ví dụ 5.");
+                    return;
+                }
+                result.ScaleDenominator = validatedScale;
+                result.InnerFrameOffsetMm = validatedOffset;
+
+                if (!result.FitToPage)
+                {
+                    var clippedKeys = new List<string>();
+                    foreach (var src in sources.Where(source => selected.Contains(source.Key)))
+                    {
+                        try
+                        {
+                            var scene = CaptureSceneForPdfExport(src.Item, src.Key);
+                            if (TryGetSceneBounds(scene, PlotRenderTextTarget, out double minX, out double minY, out double maxX, out double maxY))
+                            {
+                                ApplyPdfAlignmentToVisibleBounds(result, ref minX, ref minY, ref maxX, ref maxY);
+                                var layout = ResolvePdfPageLayout(result.PaperSize, result.Orientation, maxX - minX, maxY - minY, result.ScaleDenominator, result.FitMode, result.HorizontalAlignment, result.VerticalAlignment, result.InnerFrameOffsetMm);
+                                if (layout.IsClipped)
+                                    clippedKeys.Add(src.Key);
+                            }
+                        }
+                        catch
+                        {
+                            clippedKeys.Add(src.Key);
+                        }
+                    }
+
+                    if (clippedKeys.Count > 0)
+                    {
+                        var warning = "Một số bản vẽ không vừa khổ giấy ở scale đã chọn và sẽ bị cắt:\n- "
+                                      + string.Join("\n- ", clippedKeys.Take(5))
+                                      + (clippedKeys.Count > 5 ? $"\n... và {clippedKeys.Count - 5} bản vẽ khác" : "")
+                                      + "\n\nTiếp tục xuất PDF?";
+                        if (MessageBox.Show(optionWindow, warning, "Cảnh báo plot", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+                            return;
+                    }
+                }
+
+                var dlg = new SaveFileDialog
+                {
+                    Filter = "PDF files (*.pdf)|*.pdf",
+                    FileName = $"{_currentSecoList.階を選択}_{_currentSecoList.通を選択}.pdf"
+                };
+                if (dlg.ShowDialog() != true)
+                    return;
+
+                try
+                {
+                    var scenePages = BuildPdfScenePages(sources, result);
+                    PdfExporter.Export(
+                        dlg.FileName,
+                        scenePages,
+                        FontFamily?.Source ?? "Yu Mincho",
+                        result);
+
+                    MessageBox.Show(optionWindow, "PDF exported!");
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(optionWindow, $"Xuất PDF thất bại: {ex.Message}");
+                }
+            };
+
+            cancelButton.Click += (s, e) =>
+            {
+                optionWindow.DialogResult = false;
+                optionWindow.Close();
+            };
+
+            prevPageButton.Click += (_, __) =>
+            {
+                if (currentPreviewPageIndex <= 0)
+                    return;
+
+                currentPreviewPageIndex--;
+                UpdatePreview();
+            };
+
+            nextPageButton.Click += (_, __) =>
+            {
+                currentPreviewPageIndex++;
+                UpdatePreview();
+            };
+
+            paperCombo.SelectionChanged += (_, __) =>
+            {
+                currentPreviewPageIndex = 0;
+                UpdatePreview();
+            };
+            orientationCombo.SelectionChanged += (_, __) =>
+            {
+                currentPreviewPageIndex = 0;
+                UpdatePreview();
+            };
+            scaleCombo.DropDownOpened += (_, __) => scaleSelectionChangedWhileOpen = false;
+            scaleCombo.SelectionChanged += (_, __) =>
+            {
+                if (scaleCombo.IsDropDownOpen)
+                    scaleSelectionChangedWhileOpen = true;
+
+                if (IsCustomScaleSelected())
+                    return;
+
+                if (!IsCustomScaleSelected())
+                    previousScaleSelection = (scaleCombo.SelectedItem as string) ?? "Fit to page (Width)";
+
+                UpdatePreview();
+            };
+            scaleCombo.DropDownClosed += (_, __) =>
+            {
+                if (!IsCustomScaleSelected())
+                    return;
+
+                if (ShowCustomScaleInputDialog(out var customScale))
+                {
+                    customScaleBox.Text = customScale.ToString("0.##", CultureInfo.InvariantCulture);
+                }
+                else if (scaleSelectionChangedWhileOpen && !string.Equals(previousScaleSelection, "Custom...", StringComparison.OrdinalIgnoreCase))
+                {
+                    scaleCombo.SelectedItem = previousScaleSelection;
+                    return;
+                }
+
+                UpdatePreview();
+            };
+            horizontalCombo.SelectionChanged += (_, __) => UpdatePreview();
+            verticalCombo.SelectionChanged += (_, __) => UpdatePreview();
+            AttachNonNegativeNumberInputGuard(offsetFrameBox, offsetFrameNormalBorderBrush, offsetFrameNormalBorderThickness);
+            offsetFrameBox.TextChanged += (_, __) => RefreshOffsetFrameValidationState();
+            offsetFrameBox.KeyDown += (_, e) =>
+            {
+                if (e.Key != Key.Enter)
+                    return;
+
+                CommitOffsetFrameInput(moveFocusAway: true);
+                e.Handled = true;
+            };
+            offsetFrameBox.LostKeyboardFocus += (_, __) => CommitOffsetFrameInput();
+            optionWindow.PreviewMouseDown += (_, e) =>
+            {
+                if (!offsetFrameBox.IsKeyboardFocusWithin)
+                    return;
+
+                if (e.OriginalSource is DependencyObject source && !IsDescendantOf(source, offsetFrameBox))
+                    Keyboard.ClearFocus();
+            };
+            positionList.SelectionChanged += (_, __) =>
+            {
+                currentPreviewPageIndex = 0;
+                UpdatePreview();
+            };
+
+            UpdatePreview();
+
+            var dialogResult = optionWindow.ShowDialog();
+            return dialogResult == true ? result : null;
+        }
+
+        private ImageSource CreatePdfPlotPreviewImageSource(PdfExportSource src, PdfPlotSettings settings, out PdfPageLayoutPlan layout)
+        {
+            layout = CreateDefaultPdfPageLayout(
+                settings?.PaperSize ?? PdfPaperSize.A4,
+                settings?.Orientation ?? PdfPaperOrientation.Landscape,
+                settings?.InnerFrameOffsetMm ?? DefaultPdfInnerFrameOffsetMm);
+
+            if (src == null || settings == null)
+                return null;
+
+            IReadOnlyList<object> scene;
+            try
+            {
+                scene = CaptureSceneForPdfExport(src.Item, src.Key);
+            }
+            catch
+            {
+                return CreateCanvasPreviewImageSource(src.Canvas);
+            }
+
+            if (scene == null || !TryGetSceneBounds(scene, PlotRenderTextTarget, out double minX, out double minY, out double maxX, out double maxY))
+                return CreateCanvasPreviewImageSource(src.Canvas);
+
+            var viewportWindow = settings.ViewportWindow;
+            if (viewportWindow != null && viewportWindow.MaxX > viewportWindow.MinX && viewportWindow.MaxY > viewportWindow.MinY)
+            {
+                minX = viewportWindow.MinX;
+                maxX = viewportWindow.MaxX;
+                minY = viewportWindow.MinY;
+                maxY = viewportWindow.MaxY;
+            }
+
+            ApplyPdfAlignmentToVisibleBounds(settings, ref minX, ref minY, ref maxX, ref maxY);
+
+            layout = ResolvePdfPageLayout(settings.PaperSize, settings.Orientation, maxX - minX, maxY - minY, settings.ScaleDenominator, settings.FitMode, settings.HorizontalAlignment, settings.VerticalAlignment, settings.InnerFrameOffsetMm);
+
+            const double mmToPx = 96.0 / 25.4;
+            int pixelWidth = Math.Max(1, (int)Math.Round(layout.PageWidthMm * mmToPx));
+            int pixelHeight = Math.Max(1, (int)Math.Round(layout.PageHeightMm * mmToPx));
+
+            var visual = new DrawingVisual();
+            using (var dc = visual.RenderOpen())
+            {
+                dc.DrawRectangle(Brushes.White, null, new Rect(0, 0, pixelWidth, pixelHeight));
+                DrawPdfPlotPreviewFrame(dc, layout, settings, settings.ViewportWindow != null ? (settings.ViewportWindow.PageIndex + 1).ToString(CultureInfo.InvariantCulture) : "1", mmToPx);
+                var contentRect = PdfRectMmToPreviewPx(
+                    layout.ContentLeftMm,
+                    layout.ContentBottomMm,
+                    layout.ContentWidthMm,
+                    layout.ContentHeightMm,
+                    layout.PageHeightMm,
+                    mmToPx);
+
+                dc.PushClip(new RectangleGeometry(contentRect));
+                foreach (var entity in scene)
+                {
+                    if (entity is SceneLine ln)
+                    {
+                        var pen = new Pen(new SolidColorBrush(ln.StrokeColor), Math.Max(1.0, ln.Thickness));
+                        dc.DrawLine(pen,
+                            WorldToPdfPlotPreviewPoint(ln.X1, ln.Y1, minX, maxY, layout.PageHeightMm, layout.ScaleMmPerMm, layout.MarginLeftMm, layout.MarginBottomMm, mmToPx),
+                            WorldToPdfPlotPreviewPoint(ln.X2, ln.Y2, minX, maxY, layout.PageHeightMm, layout.ScaleMmPerMm, layout.MarginLeftMm, layout.MarginBottomMm, mmToPx));
+                    }
+                    else if (entity is DxfCircle c)
+                    {
+                        var center = WorldToPdfPlotPreviewPoint(c.X, c.Y, minX, maxY, layout.PageHeightMm, layout.ScaleMmPerMm, layout.MarginLeftMm, layout.MarginBottomMm, mmToPx);
+                        double rPx = Math.Max(0.5, c.R * layout.ScaleMmPerMm * mmToPx);
+                        var strokePen = new Pen(new SolidColorBrush(c.StrokeColor), Math.Max(1.0, c.StrokeThicknessPx));
+                        var fillBrush = c.Filled ? new SolidColorBrush(c.FillColor) : null;
+                        dc.DrawEllipse(fillBrush, strokePen, center, rPx, rPx);
+                    }
+                    else if (entity is DxfArc arc)
+                    {
+                        DrawDxfArcToPdfPlotPreview(dc, arc, minX, maxY, layout.PageHeightMm, layout.ScaleMmPerMm, layout.MarginLeftMm, layout.MarginBottomMm, mmToPx);
+                    }
+                    else if (entity is DxfSolid solid)
+                    {
+                        var geo = new StreamGeometry();
+                        using (var gctx = geo.Open())
+                        {
+                            gctx.BeginFigure(WorldToPdfPlotPreviewPoint(solid.X1, solid.Y1, minX, maxY, layout.PageHeightMm, layout.ScaleMmPerMm, layout.MarginLeftMm, layout.MarginBottomMm, mmToPx), true, true);
+                            gctx.LineTo(WorldToPdfPlotPreviewPoint(solid.X2, solid.Y2, minX, maxY, layout.PageHeightMm, layout.ScaleMmPerMm, layout.MarginLeftMm, layout.MarginBottomMm, mmToPx), true, false);
+                            gctx.LineTo(WorldToPdfPlotPreviewPoint(solid.X3, solid.Y3, minX, maxY, layout.PageHeightMm, layout.ScaleMmPerMm, layout.MarginLeftMm, layout.MarginBottomMm, mmToPx), true, false);
+                            gctx.LineTo(WorldToPdfPlotPreviewPoint(solid.X4, solid.Y4, minX, maxY, layout.PageHeightMm, layout.ScaleMmPerMm, layout.MarginLeftMm, layout.MarginBottomMm, mmToPx), true, false);
+                        }
+                        geo.Freeze();
+                        dc.DrawGeometry(new SolidColorBrush(solid.FillColor), null, geo);
+                    }
+                    else if (entity is DxfText tx)
+                    {
+                        DrawDxfTextToPdfPlotPreview(dc, tx, minX, maxY, layout.PageHeightMm, layout.ScaleMmPerMm, layout.MarginLeftMm, layout.MarginBottomMm, mmToPx);
+                    }
+                }
+                dc.Pop();
+            }
+
+            var rtb = new RenderTargetBitmap(pixelWidth, pixelHeight, 96, 96, PixelFormats.Pbgra32);
+            rtb.Render(visual);
+            return rtb;
+        }
+
+        private static Point WorldToPdfPlotPreviewPoint(double x, double y, double minX, double maxY, double pageHeightMm,
+                                                        double scaleMmToMm, double marginLeftMm, double marginBottomMm, double mmToPx)
+        {
+            double pageMmX = marginLeftMm + (x - minX) * scaleMmToMm;
+            double pageMmY = marginBottomMm + (maxY - y) * scaleMmToMm;
+            return new Point(pageMmX * mmToPx, (pageHeightMm - pageMmY) * mmToPx);
+        }
+
+        private static void DrawDxfArcToPdfPlotPreview(DrawingContext dc, DxfArc arc,
+                                                       double minX, double maxY, double pageHeightMm, double scale, double marginLeftMm, double marginBottomMm, double mmToPx)
+        {
+            double startRad = arc.StartDeg * Math.PI / 180.0;
+            double endRad = arc.EndDeg * Math.PI / 180.0;
+
+            Point p0 = WorldToPdfPlotPreviewPoint(arc.X + arc.R * Math.Cos(startRad), arc.Y + arc.R * Math.Sin(startRad), minX, maxY, pageHeightMm, scale, marginLeftMm, marginBottomMm, mmToPx);
+            Point p1 = WorldToPdfPlotPreviewPoint(arc.X + arc.R * Math.Cos(endRad), arc.Y + arc.R * Math.Sin(endRad), minX, maxY, pageHeightMm, scale, marginLeftMm, marginBottomMm, mmToPx);
+
+            double delta = NormalizeDeltaCCW(arc.StartDeg, arc.EndDeg);
+            bool isLarge = delta > 180.0;
+            double rPx = Math.Max(0.5, arc.R * scale * mmToPx);
+
+            var figure = new PathFigure { StartPoint = p0, IsClosed = false, IsFilled = false };
+            figure.Segments.Add(new ArcSegment
+            {
+                Point = p1,
+                Size = new Size(rPx, rPx),
+                SweepDirection = SweepDirection.Clockwise,
+                IsLargeArc = isLarge
+            });
+
+            var geometry = new PathGeometry();
+            geometry.Figures.Add(figure);
+            dc.DrawGeometry(null, new Pen(new SolidColorBrush(arc.StrokeColor), Math.Max(1.0, arc.ThicknessPx)), geometry);
+        }
+
+        private static void DrawDxfTextToPdfPlotPreview(DrawingContext dc, DxfText tx,
+                                                        double minX, double maxY, double pageHeightMm, double scale, double marginLeftMm, double marginBottomMm, double mmToPx)
+        {
+            if (string.IsNullOrEmpty(tx.Value)) return;
+
+            var metrics = MeasureDxfTextLayout(tx, PlotRenderTextTarget, scale * mmToPx);
+            tx = metrics.Text;
+            var ft = new FormattedText(tx.Value,
+                                       CultureInfo.CurrentCulture,
+                                       FlowDirection.LeftToRight,
+                                       metrics.Typeface,
+                                       metrics.FontPx,
+                                       new SolidColorBrush(tx.Color),
+                                       1.0);
+            var anchorWorld = GetPlotRenderTextAnchorWorld(tx);
+            var topLeftWorld = GetPlotRenderTextTopLeftWorld(metrics);
+            var anchor = WorldToPdfPlotPreviewPoint(anchorWorld.X, anchorWorld.Y, minX, maxY, pageHeightMm, scale, marginLeftMm, marginBottomMm, mmToPx);
+            Point drawPoint = WorldToPdfPlotPreviewPoint(topLeftWorld.X, topLeftWorld.Y, minX, maxY, pageHeightMm, scale, marginLeftMm, marginBottomMm, mmToPx);
+            if (Math.Abs(tx.RotationDeg) > 0.01)
+            {
+                dc.PushTransform(new RotateTransform(-tx.RotationDeg, anchor.X, anchor.Y));
+                dc.DrawText(ft, drawPoint);
+                dc.Pop();
+                return;
+            }
+
+            dc.DrawText(ft, drawPoint);
+        }
+
+        private static Point WorldToReviewPoint(double x, double y, double maxX, double minY,
+                                                 double scaleMmToMm, double offsetMmX, double offsetMmY, double mmToPx)
+        {
+            // Map theo hệ trục preview cần hiển thị cùng chiều với canvas review,
+            // tránh bị đảo 180 độ khi scene dùng quy ước trục ngược.
+            double px = ((maxX - x) * scaleMmToMm + offsetMmX) * mmToPx;
+            double py = ((y - minY) * scaleMmToMm + offsetMmY) * mmToPx;
+            return new Point(px, py);
+        }
+
+        private static bool TryGetSceneBounds(IEnumerable<object> scene, TextOutputTarget textTarget, out double minX, out double minY, out double maxX, out double maxY)
+        {
+            minX = double.PositiveInfinity;
+            minY = double.PositiveInfinity;
+            maxX = double.NegativeInfinity;
+            maxY = double.NegativeInfinity;
+
+            if (scene == null) return false;
+
+            foreach (var entity in scene)
+            {
+                if (entity is SceneLine ln)
+                {
+                    if (ln.X1 < minX) minX = ln.X1;
+                    if (ln.Y1 < minY) minY = ln.Y1;
+                    if (ln.X1 > maxX) maxX = ln.X1;
+                    if (ln.Y1 > maxY) maxY = ln.Y1;
+
+                    if (ln.X2 < minX) minX = ln.X2;
+                    if (ln.Y2 < minY) minY = ln.Y2;
+                    if (ln.X2 > maxX) maxX = ln.X2;
+                    if (ln.Y2 > maxY) maxY = ln.Y2;
+                }
+                else if (entity is DxfText tx)
+                {
+                    var textBounds = GetDxfTextBounds(tx, textTarget);
+                    if (textBounds.Left < minX) minX = textBounds.Left;
+                    if (textBounds.Top < minY) minY = textBounds.Top;
+                    if (textBounds.Right > maxX) maxX = textBounds.Right;
+                    if (textBounds.Bottom > maxY) maxY = textBounds.Bottom;
+                }
+                else if (entity is DxfCircle c)
+                {
+                    double x1 = c.X - c.R;
+                    double y1 = c.Y - c.R;
+                    double x2 = c.X + c.R;
+                    double y2 = c.Y + c.R;
+
+                    if (x1 < minX) minX = x1;
+                    if (y1 < minY) minY = y1;
+                    if (x1 > maxX) maxX = x1;
+                    if (y1 > maxY) maxY = y1;
+
+                    if (x2 < minX) minX = x2;
+                    if (y2 < minY) minY = y2;
+                    if (x2 > maxX) maxX = x2;
+                    if (y2 > maxY) maxY = y2;
+                }
+                else if (entity is DxfArc arc)
+                {
+                    double x1 = arc.X - arc.R;
+                    double y1 = arc.Y - arc.R;
+                    double x2 = arc.X + arc.R;
+                    double y2 = arc.Y + arc.R;
+
+                    if (x1 < minX) minX = x1;
+                    if (y1 < minY) minY = y1;
+                    if (x1 > maxX) maxX = x1;
+                    if (y1 > maxY) maxY = y1;
+
+                    if (x2 < minX) minX = x2;
+                    if (y2 < minY) minY = y2;
+                    if (x2 > maxX) maxX = x2;
+                    if (y2 > maxY) maxY = y2;
+                }
+                else if (entity is DxfSolid solid)
+                {
+                    if (solid.X1 < minX) minX = solid.X1;
+                    if (solid.Y1 < minY) minY = solid.Y1;
+                    if (solid.X1 > maxX) maxX = solid.X1;
+                    if (solid.Y1 > maxY) maxY = solid.Y1;
+
+                    if (solid.X2 < minX) minX = solid.X2;
+                    if (solid.Y2 < minY) minY = solid.Y2;
+                    if (solid.X2 > maxX) maxX = solid.X2;
+                    if (solid.Y2 > maxY) maxY = solid.Y2;
+
+                    if (solid.X3 < minX) minX = solid.X3;
+                    if (solid.Y3 < minY) minY = solid.Y3;
+                    if (solid.X3 > maxX) maxX = solid.X3;
+                    if (solid.Y3 > maxY) maxY = solid.Y3;
+
+                    if (solid.X4 < minX) minX = solid.X4;
+                    if (solid.Y4 < minY) minY = solid.Y4;
+                    if (solid.X4 > maxX) maxX = solid.X4;
+                    if (solid.Y4 > maxY) maxY = solid.Y4;
+                }
+            }
+
+            return !(double.IsInfinity(minX) || double.IsInfinity(minY) || double.IsInfinity(maxX) || double.IsInfinity(maxY));
+        }
+
+        private static void DrawDxfArcToReview(DrawingContext dc, DxfArc arc,
+                                               double maxX, double minY, double scale, double offsetX, double offsetY, double mmToPx)
+        {
+            double startRad = arc.StartDeg * Math.PI / 180.0;
+            double endRad = arc.EndDeg * Math.PI / 180.0;
+
+            Point p0 = WorldToReviewPoint(arc.X + arc.R * Math.Cos(startRad), arc.Y + arc.R * Math.Sin(startRad), maxX, minY, scale, offsetX, offsetY, mmToPx);
+            Point p1 = WorldToReviewPoint(arc.X + arc.R * Math.Cos(endRad), arc.Y + arc.R * Math.Sin(endRad), maxX, minY, scale, offsetX, offsetY, mmToPx);
+
+            double delta = NormalizeDeltaCCW(arc.StartDeg, arc.EndDeg);
+            bool isLarge = delta > 180.0;
+            double rPx = Math.Max(0.5, arc.R * scale * mmToPx);
+
+            var figure = new PathFigure { StartPoint = p0, IsClosed = false, IsFilled = false };
+            figure.Segments.Add(new ArcSegment
+            {
+                Point = p1,
+                Size = new Size(rPx, rPx),
+                RotationAngle = 0,
+                IsLargeArc = isLarge,
+                SweepDirection = SweepDirection.Clockwise
+            });
+
+            var geometry = new PathGeometry(new[] { figure });
+            var pen = new Pen(new SolidColorBrush(arc.StrokeColor), Math.Max(1.0, arc.ThicknessPx));
+            dc.DrawGeometry(null, pen, geometry);
+        }
+
+        private static void DrawDxfTextToReview(DrawingContext dc, DxfText tx,
+                                                double maxX, double minY, double scale, double offsetX, double offsetY, double mmToPx,
+                                                TextOutputTarget textTarget)
+        {
+            if (string.IsNullOrEmpty(tx.Value)) return;
+
+            var metrics = MeasureDxfTextLayout(tx, textTarget, scale * mmToPx);
+            tx = metrics.Text;
+            var ft = new FormattedText(tx.Value,
+                                       CultureInfo.CurrentCulture,
+                                       FlowDirection.LeftToRight,
+                                       metrics.Typeface,
+                                       metrics.FontPx,
+                                       new SolidColorBrush(tx.Color),
+                                       1.0);
+
+            var anchor = WorldToReviewPoint(tx.X, tx.Y, maxX, minY, scale, offsetX, offsetY, mmToPx);
+            Point drawPoint = GetDxfTextTopLeft(anchor, metrics.WidthPx, metrics.HeightPx, tx.HAnchor, tx.VAnchor);
+
+            dc.DrawText(ft, drawPoint);
+        }
+
+        private ImageSource CreateCanvasPreviewImageSource(Canvas canvas)
+        {
+            if (canvas == null)
+            {
+                return null;
+            }
+
+            canvas.UpdateLayout();
+
+            double width = canvas.ActualWidth;
+            double height = canvas.ActualHeight;
+            if (width <= 1 || height <= 1)
+            {
+                width = canvas.Width > 1 ? canvas.Width : 1200;
+                height = canvas.Height > 1 ? canvas.Height : 320;
+            }
+
+            int pixelWidth = Math.Max(1, (int)Math.Ceiling(width));
+            int pixelHeight = Math.Max(1, (int)Math.Ceiling(height));
+
+            var rtb = new RenderTargetBitmap(pixelWidth, pixelHeight, 96, 96, PixelFormats.Pbgra32);
+            rtb.Render(canvas);
+            return rtb;
         }
 
         private void ExportItemDxf_Click(object sender, RoutedEventArgs e)
@@ -8486,6 +15005,32 @@ namespace RevitProjectDataAddin
             }
         }
 
+        private enum PdfPaperSize
+        {
+            A4,
+            A3
+        }
+
+        private enum PdfPaperOrientation
+        {
+            Landscape,
+            Portrait
+        }
+
+        private enum PdfHorizontalAlignment
+        {
+            Left,
+            Center,
+            Right
+        }
+
+        private enum PdfVerticalAlignment
+        {
+            Top,
+            Middle,
+            Bottom
+        }
+
         private static class PdfVectorBuilder
         {
             private const double MmToPt = 72.0 / 25.4;
@@ -8494,19 +15039,20 @@ namespace RevitProjectDataAddin
             private const double PageMarginMm = 10.0;
             private const double A4WidthMm = 297.0;
             private const double A4HeightMm = 210.0;
-            private const double LineWidthScale = 1.15;
-            private const double MinLineWidthMm = 0.18;
-            private const double TextFlattenTolerance = 0.02;
-
+            private const double A3WidthMm = 420.0;
+            private const double A3HeightMm = 297.0;
+            private const double LineWidthScale = 2.4;
+            private const double MinLineWidthMm = 0.35;
             public static PdfVectorPage Create(string key,
                                                IEnumerable<DxfLine> lines,
                                                IEnumerable<DxfText> texts,
                                                IEnumerable<DxfCircle> circles,
                                                IEnumerable<DxfArc> arcs,
                                                IEnumerable<DxfSolid> solids,
-                                               string fallbackFont)
+                                               string fallbackFont,
+                                               PdfPlotSettings plotSettings)
             {
-                var builder = new PdfVectorContentBuilder(fallbackFont);
+                var builder = new PdfVectorContentBuilder(fallbackFont, plotSettings);
                 builder.AddLines(lines);
                 builder.AddCircles(circles);
                 builder.AddArcs(arcs);
@@ -8519,14 +15065,16 @@ namespace RevitProjectDataAddin
             {
                 private readonly List<Action<StringBuilder, PdfDrawState>> _actions = new List<Action<StringBuilder, PdfDrawState>>();
                 private readonly string _fallbackFont;
+                private readonly PdfPlotSettings _plotSettings;
                 private double _minX = double.PositiveInfinity;
                 private double _minY = double.PositiveInfinity;
                 private double _maxX = double.NegativeInfinity;
                 private double _maxY = double.NegativeInfinity;
 
-                public PdfVectorContentBuilder(string fallbackFont)
+                public PdfVectorContentBuilder(string fallbackFont, PdfPlotSettings plotSettings)
                 {
                     _fallbackFont = string.IsNullOrWhiteSpace(fallbackFont) ? "Yu Mincho" : fallbackFont;
+                    _plotSettings = plotSettings ?? throw new ArgumentNullException(nameof(plotSettings));
                 }
 
                 public void AddLines(IEnumerable<DxfLine> lines)
@@ -8647,22 +15195,17 @@ namespace RevitProjectDataAddin
                         if (string.IsNullOrWhiteSpace(txt.Value))
                             continue;
 
-                        double fontPx;
-                        if (txt.FontPx > 0)
-                        {
-                            fontPx = txt.FontPx;
-                        }
-                        else if (txt.Height > 0)
-                        {
-                            fontPx = txt.Height * MmToPx;
-                        }
-                        else
-                        {
-                            fontPx = 12.0;
-                        }
-                        var fontFamily = new FontFamily(string.IsNullOrWhiteSpace(txt.FontFamily) ? _fallbackFont : txt.FontFamily);
-                        var typeface = new Typeface(fontFamily, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
-                        var geometryPx = BuildTextGeometryPixels(txt, typeface, fontPx);
+                        var metrics = MeasureDxfTextLayout(txt, PlotRenderTextTarget, MmToPx);
+                        var exportText = metrics.Text;
+                        var formatted = new FormattedText(
+                            exportText.Value,
+                            CultureInfo.CurrentCulture,
+                            FlowDirection.LeftToRight,
+                            metrics.Typeface,
+                            metrics.FontPx,
+                            Brushes.Black,
+                            1.0);
+                        var geometryPx = formatted.BuildGeometry(new Point(0, 0));
                         if (geometryPx == null)
                             continue;
 
@@ -8671,45 +15214,28 @@ namespace RevitProjectDataAddin
                         if (boundsPx.IsEmpty || boundsPx.Width <= 0 || boundsPx.Height <= 0)
                             continue;
 
-                        double widthMm = boundsPx.Width * PxToMm;
-                        double heightMm = boundsPx.Height * PxToMm;
-                        double heightScale = 1.0;
-                        if (txt.Height > 0 && heightMm > 0)
-                        {
-                            heightScale = txt.Height / heightMm;
-                            widthMm *= heightScale;
-                            heightMm = txt.Height;
-                        }
-
-                        double anchorDx = 0;
-                        if (txt.HAnchor == HAnchor.Center) anchorDx = -widthMm / 2.0;
-                        else if (txt.HAnchor == HAnchor.Right) anchorDx = -widthMm;
-
-                        double anchorDy = 0;
-                        if (txt.VAnchor == VAnchor.Middle) anchorDy = -heightMm / 2.0;
-                        else if (txt.VAnchor == VAnchor.Bottom) anchorDy = -heightMm;
+                        Point topLeftWorld = GetPlotRenderTextTopLeftWorld(metrics);
+                        Vector anchorOffsetMm = GetDxfTextAnchorOffset(metrics.WidthMm, metrics.HeightMm, exportText.HAnchor, exportText.VAnchor);
 
                         var transform = new TransformGroup();
-                        transform.Children.Add(new TranslateTransform(-boundsPx.X, -boundsPx.Y));
-                        transform.Children.Add(new ScaleTransform(PxToMm * heightScale, PxToMm * heightScale));
-                        transform.Children.Add(new TranslateTransform(anchorDx, anchorDy));
-                        if (Math.Abs(txt.RotationDeg) > 0.001)
+                        transform.Children.Add(new ScaleTransform(PxToMm, PxToMm));
+                        if (Math.Abs(exportText.RotationDeg) > 0.001)
                         {
-                            transform.Children.Add(new RotateTransform(-txt.RotationDeg));
+                            transform.Children.Add(new RotateTransform(-exportText.RotationDeg, anchorOffsetMm.X, anchorOffsetMm.Y));
                         }
-                        transform.Children.Add(new TranslateTransform(txt.X, txt.Y));
+                        transform.Children.Add(new TranslateTransform(topLeftWorld.X, topLeftWorld.Y));
 
                         geometryPx.Transform = transform;
-                        var flattened = geometryPx.GetFlattenedPathGeometry(TextFlattenTolerance, ToleranceType.Relative);
-                        var finalBounds = flattened.Bounds;
+                        var pathGeometry = PathGeometry.CreateFromGeometry(geometryPx);
+                        var finalBounds = pathGeometry.Bounds;
                         if (!finalBounds.IsEmpty)
                             Extend(finalBounds);
 
-                        var path = BuildGeometryPath(flattened);
+                        var path = BuildGeometryPath(pathGeometry);
                         if (string.IsNullOrEmpty(path))
                             continue;
 
-                        var fillColor = txt.Color;
+                        var fillColor = exportText.Color;
                         _actions.Add((sb, state) =>
                         {
                             SetFillColor(sb, state, fillColor);
@@ -8719,50 +15245,74 @@ namespace RevitProjectDataAddin
                     }
                 }
 
-                private static Geometry BuildTextGeometryPixels(DxfText txt, Typeface typeface, double fontPx)
+                private static GlyphTypeface ResolveGlyphTypeface(string fontFamilyName)
                 {
-                    Geometry geometry = null;
-                    try
+                    if (string.IsNullOrWhiteSpace(fontFamilyName))
+                        throw new InvalidOperationException("PDF outline export requires a concrete font family name.");
+
+                    var requested = fontFamilyName.Trim();
+                    var typeface = new Typeface(new FontFamily(requested), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+                    if (typeface.TryGetGlyphTypeface(out var glyphTypeface) &&
+                        GlyphTypefaceMatchesFamily(glyphTypeface, requested))
                     {
-                        double pixelsPerDip = 1.0;
-                        var app = Application.Current;
-                        if (app != null)
+                        return glyphTypeface;
+                    }
+
+                    foreach (var family in Fonts.SystemFontFamilies)
+                    {
+                        if (!string.Equals(family.Source, requested, StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        var exactTypeface = new Typeface(family, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+                        if (exactTypeface.TryGetGlyphTypeface(out glyphTypeface) &&
+                            GlyphTypefaceMatchesFamily(glyphTypeface, requested))
                         {
-                            var window = app.MainWindow;
-                            if (window != null)
-                            {
-                                pixelsPerDip = VisualTreeHelper.GetDpi(window).PixelsPerDip;
-                            }
-                        }
-
-                        geometry = new System.Windows.Media.FormattedText(txt.Value, CultureInfo.CurrentCulture,
-                            FlowDirection.LeftToRight, typeface, fontPx, Brushes.Black, null,
-                            TextFormattingMode.Display, pixelsPerDip).BuildGeometry(new Point(0, 0));
-                    }
-                    catch
-                    {
-                        geometry = null;
-                    }
-
-                    if (geometry != null && !geometry.Bounds.IsEmpty && geometry.Bounds.Width > 0 && geometry.Bounds.Height > 0)
-                    {
-                        return geometry;
-                    }
-
-                    if (typeface != null && typeface.TryGetGlyphTypeface(out var glyphTypeface))
-                    {
-                        var glyphGeometry = BuildGlyphGeometryFromTypeface(txt.Value, glyphTypeface, fontPx);
-                        if (glyphGeometry != null && !glyphGeometry.Bounds.IsEmpty &&
-                            glyphGeometry.Bounds.Width > 0 && glyphGeometry.Bounds.Height > 0)
-                        {
-                            return glyphGeometry;
+                            return glyphTypeface;
                         }
                     }
 
-                    return geometry;
+                    throw new InvalidOperationException($"PDF outline export requires installed font '{requested}'.");
                 }
 
-                private static Geometry BuildGlyphGeometryFromTypeface(string text, GlyphTypeface glyphTypeface, double fontPx)
+                private static bool GlyphTypefaceMatchesFamily(GlyphTypeface glyphTypeface, string requestedFamily)
+                {
+                    if (glyphTypeface == null || string.IsNullOrWhiteSpace(requestedFamily))
+                        return false;
+
+                    var requested = requestedFamily.Trim();
+
+                    bool Match(IDictionary<CultureInfo, string> names)
+                    {
+                        if (names == null) return false;
+                        foreach (var entry in names.Values)
+                        {
+                            if (string.Equals(entry, requested, StringComparison.OrdinalIgnoreCase))
+                                return true;
+                        }
+                        return false;
+                    }
+
+                    return Match(glyphTypeface.FamilyNames) || Match(glyphTypeface.Win32FamilyNames);
+                }
+
+                private static Geometry BuildTextGeometryPixels(string text, GlyphTypeface glyphTypeface, double fontPx, string fontFamilyName)
+                {
+                    var geometry = BuildGlyphGeometryFromTypeface(text, glyphTypeface, fontPx, fontFamilyName);
+                    if (geometry != null && !geometry.Bounds.IsEmpty && geometry.Bounds.Width > 0 && geometry.Bounds.Height > 0)
+                        return geometry;
+
+                    return null;
+                }
+
+                private static int CountTextLines(string text)
+                {
+                    if (string.IsNullOrEmpty(text))
+                        return 1;
+
+                    return text.Replace("\r\n", "\n").Split('\n').Length;
+                }
+
+                private static Geometry BuildGlyphGeometryFromTypeface(string text, GlyphTypeface glyphTypeface, double fontPx, string fontFamilyName)
                 {
                     if (glyphTypeface == null || string.IsNullOrEmpty(text) || fontPx <= 0)
                         return null;
@@ -8790,8 +15340,8 @@ namespace RevitProjectDataAddin
                         {
                             if (!glyphTypeface.CharacterToGlyphMap.TryGetValue(ch, out var glyphIndex))
                             {
-                                if (!glyphTypeface.CharacterToGlyphMap.TryGetValue('?', out glyphIndex))
-                                    continue;
+                                throw new InvalidOperationException(
+                                    $"Font '{fontFamilyName}' does not contain glyph for '{ch}' (U+{((int)ch):X4}).");
                             }
 
                             glyphIndices.Add(glyphIndex);
@@ -8853,6 +15403,67 @@ namespace RevitProjectDataAddin
                     return hasGeometry ? group : null;
                 }
 
+                private void DrawPageLayout(StringBuilder sb, PdfDrawState state, PdfPageLayoutPlan page, string key)
+                {
+                    var black = MediaColor.FromRgb(0, 0, 0);
+                    double pageWidthPt = page.PageWidthMm * MmToPt;
+                    double pageHeightPt = page.PageHeightMm * MmToPt;
+                    double frameLeftPt = page.FrameLeftMm * MmToPt;
+                    double frameBottomPt = page.FrameBottomMm * MmToPt;
+                    double frameWidthPt = page.FrameWidthMm * MmToPt;
+                    double frameHeightPt = page.FrameHeightMm * MmToPt;
+                    SetStrokeColor(sb, state, black);
+                    SetLineWidth(sb, state, 0.2 * MmToPt);
+                    sb.AppendFormat(CultureInfo.InvariantCulture, "0 0 {0} {1} re\nS\n", FormatDouble(pageWidthPt), FormatDouble(pageHeightPt));
+                    sb.AppendFormat(CultureInfo.InvariantCulture, "{0} {1} {2} {3} re\nS\n",
+                        FormatDouble(frameLeftPt),
+                        FormatDouble(frameBottomPt),
+                        FormatDouble(frameWidthPt),
+                        FormatDouble(frameHeightPt));
+                    SetStrokeColor(sb, state, black);
+                    SetLineWidth(sb, state, 0.2 * MmToPt);
+                }
+
+                private void AppendPageTextOutline(StringBuilder sb, PdfDrawState state, string text, double targetHeightMm, double leftMm, double topMm, double maxWidthMm)
+                {
+                    if (string.IsNullOrWhiteSpace(text) || targetHeightMm <= 0)
+                        return;
+
+                    string fontFamilyName = string.IsNullOrWhiteSpace(_fallbackFont) ? "Yu Mincho" : _fallbackFont;
+                    var glyphTypeface = ResolveGlyphTypeface(fontFamilyName);
+                    const double fontPx = 100.0;
+                    var geometryPx = BuildTextGeometryPixels(text, glyphTypeface, fontPx, fontFamilyName);
+                    if (geometryPx == null)
+                        return;
+
+                    geometryPx = geometryPx.CloneCurrentValue();
+                    var boundsPx = geometryPx.Bounds;
+                    if (boundsPx.IsEmpty || boundsPx.Width <= 0 || boundsPx.Height <= 0)
+                        return;
+
+                    double metricHeightPx = Math.Max(glyphTypeface.Height * fontPx, 1.0);
+                    double scaleMmPerPx = targetHeightMm / metricHeightPx;
+                    double widthMm = boundsPx.Width * scaleMmPerPx;
+                    if (maxWidthMm > 0 && widthMm > maxWidthMm)
+                    {
+                        scaleMmPerPx *= maxWidthMm / widthMm;
+                    }
+
+                    var transform = new TransformGroup();
+                    transform.Children.Add(new TranslateTransform(-boundsPx.X, -boundsPx.Y));
+                    transform.Children.Add(new ScaleTransform(scaleMmPerPx * MmToPt, scaleMmPerPx * MmToPt));
+                    transform.Children.Add(new TranslateTransform(leftMm * MmToPt, topMm * MmToPt));
+                    geometryPx.Transform = transform;
+
+                    var path = BuildGeometryPath(PathGeometry.CreateFromGeometry(geometryPx));
+                    if (string.IsNullOrEmpty(path))
+                        return;
+
+                    SetFillColor(sb, state, MediaColor.FromRgb(0, 0, 0));
+                    sb.Append(path);
+                    sb.AppendLine("f*");
+                }
+
                 public PdfVectorPage Build(string key)
                 {
                     if (_actions.Count == 0 || double.IsInfinity(_minX) || double.IsInfinity(_minY) ||
@@ -8866,65 +15477,53 @@ namespace RevitProjectDataAddin
                     double maxX = _maxX;
                     double maxY = _maxY;
 
+                    var viewportWindow = _plotSettings.ViewportWindow;
+                    if (viewportWindow != null
+                        && viewportWindow.MaxX > viewportWindow.MinX
+                        && viewportWindow.MaxY > viewportWindow.MinY)
+                    {
+                        minX = viewportWindow.MinX;
+                        maxX = viewportWindow.MaxX;
+                        minY = viewportWindow.MinY;
+                        maxY = viewportWindow.MaxY;
+                    }
+
                     if (maxX <= minX) maxX = minX + 1;
                     if (maxY <= minY) maxY = minY + 1;
+
+                    ApplyPdfAlignmentToVisibleBounds(_plotSettings, ref minX, ref minY, ref maxX, ref maxY);
 
                     double contentWidth = maxX - minX;
                     double contentHeight = maxY - minY;
 
-                    (bool valid, double pageWidthMm, double pageHeightMm, double scale,
-                        double marginLeftMm, double marginBottomMm) SelectBestPage()
-                    {
-                        (bool valid, double pageWidthMm, double pageHeightMm, double scale,
-                            double marginLeftMm, double marginBottomMm) Evaluate(double pageWidthMm, double pageHeightMm)
-                        {
-                            double availableWidth = pageWidthMm - PageMarginMm * 2.0;
-                            double availableHeight = pageHeightMm - PageMarginMm * 2.0;
-                            if (availableWidth <= 0 || availableHeight <= 0)
-                                return (false, 0, 0, 0, 0, 0);
+                    var page = ResolvePdfPageLayout(_plotSettings.PaperSize, _plotSettings.Orientation, contentWidth, contentHeight, _plotSettings.ScaleDenominator, _plotSettings.FitMode, _plotSettings.HorizontalAlignment, _plotSettings.VerticalAlignment, _plotSettings.InnerFrameOffsetMm);
 
-                            double scaleCandidate = Math.Min(availableWidth / contentWidth, availableHeight / contentHeight);
-                            if (scaleCandidate <= 0)
-                                return (false, 0, 0, 0, 0, 0);
-
-                            double usedWidth = contentWidth * scaleCandidate;
-                            double usedHeight = contentHeight * scaleCandidate;
-                            double marginLeft = (pageWidthMm - usedWidth) / 2.0;
-                            double marginBottom = (pageHeightMm - usedHeight) / 2.0;
-                            return (true, pageWidthMm, pageHeightMm, scaleCandidate, marginLeft, marginBottom);
-                        }
-
-                        var landscape = Evaluate(A4WidthMm, A4HeightMm);
-                        var portrait = Evaluate(A4HeightMm, A4WidthMm);
-
-                        var best = landscape;
-                        if (!best.valid || (portrait.valid && portrait.scale > best.scale))
-                        {
-                            best = portrait;
-                        }
-
-                        if (!best.valid)
-                        {
-                            double fallbackWidthMm = contentWidth + PageMarginMm * 2.0;
-                            double fallbackHeightMm = contentHeight + PageMarginMm * 2.0;
-                            return (true, fallbackWidthMm, fallbackHeightMm, 1.0,
-                                    PageMarginMm, PageMarginMm);
-                        }
-
-                        return best;
-                    }
-
-                    var page = SelectBestPage();
-
-                    double pageWidthPoints = page.pageWidthMm * MmToPt;
-                    double pageHeightPoints = page.pageHeightMm * MmToPt;
-
-                    double scalePt = page.scale * MmToPt;
-                    double translateXPt = (page.marginLeftMm - minX * page.scale) * MmToPt;
-                    double translateYPt = (page.marginBottomMm + maxY * page.scale) * MmToPt;
+                    double pageWidthPoints = page.PageWidthMm * MmToPt;
+                    double pageHeightPoints = page.PageHeightMm * MmToPt;
+                    double contentLeftPoints = page.ContentLeftMm * MmToPt;
+                    double contentBottomPoints = page.ContentBottomMm * MmToPt;
+                    double contentWidthPoints = page.ContentWidthMm * MmToPt;
+                    double contentHeightPoints = page.ContentHeightMm * MmToPt;
+                    double scalePt = page.ScaleMmPerMm * MmToPt;
+                    double translateXPt = (page.MarginLeftMm - minX * page.ScaleMmPerMm) * MmToPt;
+                    double translateYPt = (page.MarginBottomMm + maxY * page.ScaleMmPerMm) * MmToPt;
 
                     var sb = new StringBuilder();
                     sb.AppendLine("q");
+                    var state = new PdfDrawState { LineWidth = double.NaN };
+                    DrawPageLayout(sb, state, page, key);
+                    SetStrokeColor(sb, state, MediaColor.FromRgb(120, 120, 120));
+                    SetLineWidth(sb, state, 0.18 * MmToPt);
+                    //sb.AppendFormat(CultureInfo.InvariantCulture, "{0} {1} {2} {3} re\nS\n",
+                    //                FormatDouble(contentLeftPoints),
+                    //                FormatDouble(contentBottomPoints),
+                    //                FormatDouble(contentWidthPoints),
+                    //                FormatDouble(contentHeightPoints));
+                    sb.AppendFormat(CultureInfo.InvariantCulture, "{0} {1} {2} {3} re W n\n",
+                                    FormatDouble(contentLeftPoints),
+                                    FormatDouble(contentBottomPoints),
+                                    FormatDouble(contentWidthPoints),
+                                    FormatDouble(contentHeightPoints));
                     sb.AppendFormat(CultureInfo.InvariantCulture, "{0} 0 0 {1} {2} {3} cm\n",
                                     FormatDouble(scalePt),
                                     FormatDouble(-scalePt),
@@ -8933,13 +15532,10 @@ namespace RevitProjectDataAddin
                     sb.AppendLine("1 J");
                     sb.AppendLine("1 j");
                     sb.AppendLine("[] 0 d");
-
-                    var state = new PdfDrawState { LineWidth = double.NaN };
                     foreach (var action in _actions)
                     {
                         action(sb, state);
                     }
-
                     sb.AppendLine("Q");
 
                     var content = Encoding.ASCII.GetBytes(sb.ToString());
@@ -8983,8 +15579,22 @@ namespace RevitProjectDataAddin
                     return value.ToString("0.######", CultureInfo.InvariantCulture);
                 }
 
+                private static MediaColor NormalizePdfPrintColor(MediaColor color)
+                {
+                    double luminance = (0.299 * color.R) + (0.587 * color.G) + (0.114 * color.B);
+                    if (luminance <= 0.0)
+                        return color;
+
+                    double factor = 100.0 / luminance;
+                    byte r = (byte)Math.Max(0, Math.Min(255, Math.Round(color.R * factor)));
+                    byte g = (byte)Math.Max(0, Math.Min(255, Math.Round(color.G * factor)));
+                    byte b = (byte)Math.Max(0, Math.Min(255, Math.Round(color.B * factor)));
+                    return MediaColor.FromRgb(r, g, b);
+                }
+
                 private static void SetStrokeColor(StringBuilder sb, PdfDrawState state, MediaColor color)
                 {
+                    color = NormalizePdfPrintColor(color);
                     if (!state.StrokeColor.HasValue || state.StrokeColor.Value != color)
                     {
                         sb.AppendFormat(CultureInfo.InvariantCulture, "{0} {1} {2} RG\n",
@@ -8997,6 +15607,7 @@ namespace RevitProjectDataAddin
 
                 private static void SetFillColor(StringBuilder sb, PdfDrawState state, MediaColor color)
                 {
+                    color = NormalizePdfPrintColor(color);
                     if (!state.FillColor.HasValue || state.FillColor.Value != color)
                     {
                         sb.AppendFormat(CultureInfo.InvariantCulture, "{0} {1} {2} rg\n",
@@ -9064,7 +15675,8 @@ namespace RevitProjectDataAddin
                     var sb = new StringBuilder();
                     foreach (var fig in geometry.Figures)
                     {
-                        if (fig.Segments.Count == 0) continue;
+                        if (fig == null || fig.Segments.Count == 0) continue;
+                        Point currentPoint = fig.StartPoint;
                         sb.AppendFormat(CultureInfo.InvariantCulture, "{0} {1} m\n", FormatDouble(fig.StartPoint.X), FormatDouble(fig.StartPoint.Y));
                         foreach (var seg in fig.Segments)
                         {
@@ -9073,11 +15685,13 @@ namespace RevitProjectDataAddin
                                 foreach (var pt in poly.Points)
                                 {
                                     sb.AppendFormat(CultureInfo.InvariantCulture, "{0} {1} l\n", FormatDouble(pt.X), FormatDouble(pt.Y));
+                                    currentPoint = pt;
                                 }
                             }
                             else if (seg is System.Windows.Media.LineSegment line)
                             {
                                 sb.AppendFormat(CultureInfo.InvariantCulture, "{0} {1} l\n", FormatDouble(line.Point.X), FormatDouble(line.Point.Y));
+                                currentPoint = line.Point;
                             }
                             else if (seg is BezierSegment bezier)
                             {
@@ -9085,11 +15699,56 @@ namespace RevitProjectDataAddin
                                     FormatDouble(bezier.Point1.X), FormatDouble(bezier.Point1.Y),
                                     FormatDouble(bezier.Point2.X), FormatDouble(bezier.Point2.Y),
                                     FormatDouble(bezier.Point3.X), FormatDouble(bezier.Point3.Y));
+                                currentPoint = bezier.Point3;
+                            }
+                            else if (seg is PolyBezierSegment polyBezier)
+                            {
+                                for (int i = 0; i + 2 < polyBezier.Points.Count; i += 3)
+                                {
+                                    var p1 = polyBezier.Points[i];
+                                    var p2 = polyBezier.Points[i + 1];
+                                    var p3 = polyBezier.Points[i + 2];
+                                    sb.AppendFormat(CultureInfo.InvariantCulture, "{0} {1} {2} {3} {4} {5} c\n",
+                                        FormatDouble(p1.X), FormatDouble(p1.Y),
+                                        FormatDouble(p2.X), FormatDouble(p2.Y),
+                                        FormatDouble(p3.X), FormatDouble(p3.Y));
+                                    currentPoint = p3;
+                                }
+                            }
+                            else if (seg is QuadraticBezierSegment quadratic)
+                            {
+                                AppendQuadraticAsCubic(sb, currentPoint, quadratic.Point1, quadratic.Point2);
+                                currentPoint = quadratic.Point2;
+                            }
+                            else if (seg is PolyQuadraticBezierSegment polyQuadratic)
+                            {
+                                for (int i = 0; i + 1 < polyQuadratic.Points.Count; i += 2)
+                                {
+                                    var control = polyQuadratic.Points[i];
+                                    var end = polyQuadratic.Points[i + 1];
+                                    AppendQuadraticAsCubic(sb, currentPoint, control, end);
+                                    currentPoint = end;
+                                }
                             }
                         }
                         sb.AppendLine("h");
                     }
                     return sb.ToString();
+                }
+
+                private static void AppendQuadraticAsCubic(StringBuilder sb, Point start, Point control, Point end)
+                {
+                    var cubic1 = new Point(
+                        start.X + ((control.X - start.X) * 2.0 / 3.0),
+                        start.Y + ((control.Y - start.Y) * 2.0 / 3.0));
+                    var cubic2 = new Point(
+                        end.X + ((control.X - end.X) * 2.0 / 3.0),
+                        end.Y + ((control.Y - end.Y) * 2.0 / 3.0));
+
+                    sb.AppendFormat(CultureInfo.InvariantCulture, "{0} {1} {2} {3} {4} {5} c\n",
+                        FormatDouble(cubic1.X), FormatDouble(cubic1.Y),
+                        FormatDouble(cubic2.X), FormatDouble(cubic2.Y),
+                        FormatDouble(end.X), FormatDouble(end.Y));
                 }
 
                 private static List<Point> SampleArc(DxfArc arc)
@@ -9173,17 +15832,25 @@ namespace RevitProjectDataAddin
             var canvas = sender as Canvas;
             var item = canvas != null ? canvas.DataContext as GridBotsecozu : null;
             if (canvas == null || item == null) return;
+            CancelDeferredInteractiveCanvasRedraw(canvas);
             if (!TryMakeTransform(canvas, item, out var T, out var fitScale, out _, out _)) return;
+            bool canUseInteractiveViewport = TryBeginInteractiveViewport(canvas, item);
 
             var vs = VS(item);
             var sp = e.GetPosition(canvas);
             var w = ScreenToWorld(T, sp);
+            double interactiveWheelSteps = e.Delta / InteractiveViewportWheelDeltaUnit;
+            double interactiveStepBase =
+                Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl)
+                ? InteractiveViewportCtrlWheelStep
+                : InteractiveViewportWheelStep;
+            double interactiveStep = Math.Pow(interactiveStepBase, interactiveWheelSteps);
 
             double step = e.Delta > 0 ? 1.1 : 0.9;                // ±10%
             if (Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl))
                 step = Math.Pow(step, 2);                         // nhanh hơn khi giữ Ctrl
 
-            double newZoom = Clamp(vs.Zoom * step, 0.05, 20.0);
+            double newZoom = Clamp(vs.Zoom * interactiveStep, 0.05, 20.0);
             double baseOx = canvas.ActualWidth / 2.0;
             double baseOy = (canvas.ActualHeight - 800) / 2.0;
             double Sprime = fitScale * newZoom;
@@ -9192,7 +15859,10 @@ namespace RevitProjectDataAddin
             vs.PanYmm = (sp.Y - baseOy) / Sprime - w.Y;
             vs.Zoom = newZoom;
 
-            Redraw(canvas, item);
+            if (canUseInteractiveViewport && ApplyInteractiveViewport(canvas, item))
+                ScheduleInteractiveViewportCommit(canvas, item);
+            else
+                Redraw(canvas, item);
             e.Handled = true;
         }
 
@@ -9206,20 +15876,33 @@ namespace RevitProjectDataAddin
                             (e.LeftButton == MouseButtonState.Pressed && Keyboard.IsKeyDown(Key.Space));
             if (!startPan) return;
 
-            var vs = VS(item);
-            _isPanning = true;
-            _panStartPx = e.GetPosition(canvas);
-            _panStartPanMm = new Point(vs.PanXmm, vs.PanYmm);
-            canvas.CaptureMouse();
-            e.Handled = true;
-
             if (e.ChangedButton == MouseButton.Middle && e.ClickCount == 2)
             {
-                vs.Zoom = 1.0; vs.PanXmm = 0; vs.PanYmm = 0;
+                var fitState = VS(item);
+                fitState.Zoom = 1.0;
+                fitState.PanXmm = 0;
+                fitState.PanYmm = 0;
                 Redraw(canvas, item);
-                _isPanning = false;
-                canvas.ReleaseMouseCapture();
+                e.Handled = true;
+                return;
             }
+
+            var vs = VS(item);
+            _isPanning = true;
+            CancelDeferredInteractiveCanvasRedraw(canvas);
+            _panStartPx = e.GetPosition(canvas);
+            _panStartPanMm = new Point(vs.PanXmm, vs.PanYmm);
+            if (TryMakeTransform(canvas, item, out var panStartTransform, out _, out _, out _))
+                _panStartScalePxPerMm = Math.Abs(panStartTransform.Scale) < 1e-9 ? 1.0 : panStartTransform.Scale;
+            else
+                _panStartScalePxPerMm = 1.0;
+            canvas.CaptureMouse();
+            TryBeginInteractiveViewport(canvas, item);
+            if (_interactiveViewportByCanvas.TryGetValue(canvas, out var panState) && panState != null)
+                _panStartOverlayMatrix = panState.OverlayTransform.Matrix;
+            else
+                _panStartOverlayMatrix = Matrix.Identity;
+            e.Handled = true;
         }
 
         // Example replacement in Canvas_MouseMove:
@@ -9229,23 +15912,36 @@ namespace RevitProjectDataAddin
             var canvas = sender as Canvas;
             var item = canvas != null ? canvas.DataContext as GridBotsecozu : null;
             if (canvas == null || item == null) return;
-            if (!TryMakeTransform(canvas, item, out var T, out _, out _, out _)) return;
 
             var vs = VS(item);
             var sp = e.GetPosition(canvas);
-            double S = T.Scale;
+            double S = Math.Abs(_panStartScalePxPerMm) < 1e-9 ? 1.0 : _panStartScalePxPerMm;
+            var delta = sp - _panStartPx;
 
-            vs.PanXmm = _panStartPanMm.X + (sp.X - _panStartPx.X) / S;
-            vs.PanYmm = _panStartPanMm.Y + (sp.Y - _panStartPx.Y) / S;
+            vs.PanXmm = _panStartPanMm.X + delta.X / S;
+            vs.PanYmm = _panStartPanMm.Y + delta.Y / S;
 
-            Redraw(canvas, item);
+            if (!ApplyInteractiveViewportPan(canvas, delta))
+                Redraw(canvas, item);
         }
 
         private void Canvas_MouseUp(object sender, MouseButtonEventArgs e)
         {
             if (!_isPanning) return;
             _isPanning = false;
-            if (sender is Canvas c) c.ReleaseMouseCapture();
+            if (sender is Canvas c)
+            {
+                var item = c.DataContext as GridBotsecozu;
+                c.ReleaseMouseCapture();
+
+                if (item != null)
+                {
+                    if (_interactiveViewportByCanvas.TryGetValue(c, out var state) && state.IsActive)
+                        CommitInteractiveViewport(c, item);
+                    else
+                        Redraw(c, item);
+                }
+            }
         }
 
         // Example replacement in Canvas_KeyDown:
@@ -9610,6 +16306,7 @@ namespace RevitProjectDataAddin
             string diameter,
             int spanIndex,
             bool isRight,
+            double bodyBaseLength,
             double fallbackLeft,
             double fallbackRight)
         {
@@ -9626,6 +16323,7 @@ namespace RevitProjectDataAddin
                 hoverStroke: Brushes.Blue);
 
             bool isRightAbdominal = isRight;
+            string currentDiameter = GetTanbuDiameter(item, spanIndex, isRightAbdominal, diameter);
 
             Action<bool> redrawIfChanged = changed =>
             {
@@ -9686,7 +16384,7 @@ namespace RevitProjectDataAddin
 
                 Brush normalBg = Brushes.Transparent;
                 Brush selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-                Brush dividerBrush = Brushes.LightGray;
+                Brush dividerBrush = PopupMenuDividerBrush;
 
                 UIElement WithRowDivider(UIElement child)
                 {
@@ -9733,8 +16431,8 @@ namespace RevitProjectDataAddin
                     return new Border
                     {
                         Background = Brushes.White,
-                        BorderBrush = Brushes.DimGray,
-                        BorderThickness = new Thickness(1.5),
+                        BorderBrush = PopupMenuBorderBrush,
+                        BorderThickness = PopupMenuBorderThickness,
                         CornerRadius = new CornerRadius(2),
                         Child = host
                     };
@@ -9755,19 +16453,69 @@ namespace RevitProjectDataAddin
                 }
 
                 Button selectedMainBtn = null;
+                Button pinnedMainBtn = null;
+                void ClearPinnedMain()
+                {
+                    if (pinnedMainBtn != null && !ReferenceEquals(pinnedMainBtn, selectedMainBtn))
+                        pinnedMainBtn.Background = normalBg;
+                    pinnedMainBtn = null;
+                }
+                void PinMain(Button btn)
+                {
+                    if (ReferenceEquals(pinnedMainBtn, btn))
+                    {
+                        if (pinnedMainBtn != null)
+                            pinnedMainBtn.Background = selectedBg;
+                        return;
+                    }
+
+                    if (pinnedMainBtn != null && !ReferenceEquals(pinnedMainBtn, selectedMainBtn))
+                        pinnedMainBtn.Background = normalBg;
+
+                    pinnedMainBtn = btn;
+                    if (pinnedMainBtn != null)
+                        pinnedMainBtn.Background = selectedBg;
+                }
                 void SelectMain(Button btn)
                 {
-                    if (selectedMainBtn != null) selectedMainBtn.Background = normalBg;
+                    if (selectedMainBtn != null && !ReferenceEquals(selectedMainBtn, pinnedMainBtn))
+                        selectedMainBtn.Background = normalBg;
                     selectedMainBtn = btn;
-                    if (selectedMainBtn != null) selectedMainBtn.Background = selectedBg;
+                    if (selectedMainBtn != null)
+                        selectedMainBtn.Background = selectedBg;
                 }
 
                 Button selectedSubBtn = null;
+                Button pinnedSubBtn = null;
+                void ClearPinnedSub()
+                {
+                    if (pinnedSubBtn != null && !ReferenceEquals(pinnedSubBtn, selectedSubBtn))
+                        pinnedSubBtn.Background = normalBg;
+                    pinnedSubBtn = null;
+                }
+                void PinSub(Button btn)
+                {
+                    if (ReferenceEquals(pinnedSubBtn, btn))
+                    {
+                        if (pinnedSubBtn != null)
+                            pinnedSubBtn.Background = selectedBg;
+                        return;
+                    }
+
+                    if (pinnedSubBtn != null && !ReferenceEquals(pinnedSubBtn, selectedSubBtn))
+                        pinnedSubBtn.Background = normalBg;
+
+                    pinnedSubBtn = btn;
+                    if (pinnedSubBtn != null)
+                        pinnedSubBtn.Background = selectedBg;
+                }
                 void SelectSub(Button btn)
                 {
-                    if (selectedSubBtn != null) selectedSubBtn.Background = normalBg;
+                    if (selectedSubBtn != null && !ReferenceEquals(selectedSubBtn, pinnedSubBtn))
+                        selectedSubBtn.Background = normalBg;
                     selectedSubBtn = btn;
-                    if (selectedSubBtn != null) selectedSubBtn.Background = selectedBg;
+                    if (selectedSubBtn != null)
+                        selectedSubBtn.Background = selectedBg;
                 }
 
                 // ✅ FIXED placement for MAIN popup (Relative to canvas)
@@ -9789,6 +16537,7 @@ namespace RevitProjectDataAddin
                 tb.Tag = handle;
 
                 System.Windows.Controls.Primitives.Popup subPop = null;
+                System.Windows.Controls.Primitives.Popup subSubPop = null;
 
                 MouseButtonEventHandler outsideCloser = null;
                 KeyEventHandler escCloser = null;
@@ -9800,10 +16549,13 @@ namespace RevitProjectDataAddin
                 {
                     try { if (ReferenceEquals(tb.Tag, handle)) tb.Tag = null; } catch { }
                     try { if (ReferenceEquals(_activePopupMenu, mainPop)) _activePopupMenu = null; } catch { }
+                    ClearPinnedMain();
+                    ClearPinnedSub();
 
                     if (isClosing) return;
                     isClosing = true;
 
+                    try { if (subSubPop != null) subSubPop.IsOpen = false; } catch { }
                     try { if (subPop != null) subPop.IsOpen = false; } catch { }
                     try { mainPop.IsOpen = false; } catch { }
 
@@ -9822,6 +16574,9 @@ namespace RevitProjectDataAddin
 
                 void CloseSub()
                 {
+                    ClearPinnedMain();
+                    ClearPinnedSub();
+                    try { if (subSubPop != null) subSubPop.IsOpen = false; } catch { }
                     try { if (subPop != null) subPop.IsOpen = false; } catch { }
                 }
 
@@ -9833,7 +16588,8 @@ namespace RevitProjectDataAddin
                     bool inside =
                         IsPointInside(tb, screenPt) ||
                         (mainPop.Child is FrameworkElement m && IsPointInside(m, screenPt)) ||
-                        (subPop != null && subPop.Child is FrameworkElement s2 && IsPointInside(s2, screenPt));
+                        (subPop != null && subPop.Child is FrameworkElement s2 && IsPointInside(s2, screenPt)) ||
+                        (subSubPop != null && subSubPop.Child is FrameworkElement s3 && IsPointInside(s3, screenPt));
 
                     if (!inside) CloseAll();
                 };
@@ -9879,7 +16635,7 @@ namespace RevitProjectDataAddin
                         Text = "❯",
                         VerticalAlignment = VerticalAlignment.Center,
                         HorizontalAlignment = HorizontalAlignment.Right,
-                        Margin = new Thickness(12, 0, 0, 0)
+                        Margin = new Thickness(10, 0, 0, 0)
                     };
                     Grid.SetColumn(arrow, 1);
                     grid.Children.Add(arrow);
@@ -9889,7 +16645,7 @@ namespace RevitProjectDataAddin
                         Content = grid,
                         HorizontalContentAlignment = HorizontalAlignment.Stretch,
                         VerticalContentAlignment = VerticalAlignment.Center,
-                        Padding = new Thickness(12, 6, 12, 6),
+                        Padding = new Thickness(10, 6, 10, 6),
                         Background = normalBg,
                         BorderBrush = Brushes.Transparent,
                         BorderThickness = new Thickness(0),
@@ -9931,7 +16687,7 @@ namespace RevitProjectDataAddin
                         Text = "❯",
                         VerticalAlignment = VerticalAlignment.Center,
                         HorizontalAlignment = HorizontalAlignment.Right,
-                        Margin = new Thickness(12, 0, 0, 0),
+                        Margin = new Thickness(10, 0, 0, 0),
                         Opacity = 0.0 // submenu items don't need arrow, but user asked "each row": keep layout consistent
                     };
                     Grid.SetColumn(arrow, 2);
@@ -9945,7 +16701,7 @@ namespace RevitProjectDataAddin
                         Content = grid,
                         HorizontalContentAlignment = HorizontalAlignment.Stretch,
                         VerticalContentAlignment = VerticalAlignment.Center,
-                        Padding = new Thickness(12, 6, 12, 6),
+                        Padding = new Thickness(10, 6, 10, 6),
                         Background = normalBg,
                         BorderBrush = Brushes.Transparent,
                         BorderThickness = new Thickness(0),
@@ -9986,7 +16742,7 @@ namespace RevitProjectDataAddin
 
                     // left inline editor
                     subRoot.Children.Add(WithRowDivider(
-                        MakeInlineLenRow(
+                        MakeLenNavBtn(
                             sideLabel: "左",
                             endIsRight: false,
                             closeAll: CloseAll,
@@ -9995,7 +16751,7 @@ namespace RevitProjectDataAddin
 
                     // right inline editor
                     subRoot.Children.Add(WithRowDivider(
-                        MakeInlineLenRow(
+                        MakeLenNavBtn(
                             sideLabel: "右",
                             endIsRight: true,
                             closeAll: CloseAll,
@@ -10006,19 +16762,14 @@ namespace RevitProjectDataAddin
 
                     placementBtn.Dispatcher.BeginInvoke(new Action(() =>
                     {
+                        PinMain(placementBtn);
                         subPop.IsOpen = true;
+                        ClearPinnedSub();
                         SelectSub(null);
                     }), DispatcherPriority.Input);
                 }
 
-                Func<bool, string> getHookLenText = endIsRight =>
-                {
-                    double fb = endIsRight ? fallbackRight : fallbackLeft;
-                    double v = GetTanbuHookLength(item, spanIndex, isRightAbdominal, endIsRight, fb);
-                    return v.ToString(CultureInfo.InvariantCulture);
-                };
-
-                Func<string, bool, Tuple<bool, double>> tryParseLen = (text, endIsRight) =>
+                Func<string, Tuple<bool, double>> tryParseLen = text =>
                 {
                     if (string.IsNullOrWhiteSpace(text))
                         return Tuple.Create(false, 0.0);
@@ -10030,57 +16781,242 @@ namespace RevitProjectDataAddin
                     return Tuple.Create(true, v);
                 };
 
-                Action<bool, string> applyHookLenFromText = (endIsRight, text) =>
+                bool ApplyTanbuHookLengthDelta(bool endIsRight, bool pullLeft, double delta)
                 {
-                    var parsed = tryParseLen(text, endIsRight);
+                    if (delta <= 0)
+                        return false;
+
+                    double fallback = endIsRight ? fallbackRight : fallbackLeft;
+                    double currentLen = GetTanbuHookLength(item, spanIndex, isRightAbdominal, endIsRight, fallback);
+
+                    double signedDelta;
+                    if (endIsRight)
+                    {
+                        signedDelta = pullLeft ? -delta : delta;
+                    }
+                    else
+                    {
+                        signedDelta = pullLeft ? delta : -delta;
+                    }
+
+                    double newLen = currentLen + signedDelta;
+                    return ApplyTanbuHookLength(item, spanIndex, isRightAbdominal, endIsRight, newLen);
+                }
+
+                Action<bool, bool, string> applyHookLenFromText = (endIsRight, pullLeft, text) =>
+                {
+                    var parsed = tryParseLen(text);
                     if (!parsed.Item1) return;
 
-                    bool changed = ApplyTanbuHookLength(item, spanIndex, isRightAbdominal, endIsRight, parsed.Item2);
+                    bool changed = ApplyTanbuHookLengthDelta(endIsRight, pullLeft, parsed.Item2);
                     if (changed) Redraw(canvas, item);
                 };
 
-                Button MakeInlineLenRow(string sideLabel, bool endIsRight, Action closeAll, Action<Button> selectSub, Func<ControlTemplate> getFlatBtnTemplate)
+                //Func<bool, string> getHookLenText = endIsRight =>
+                //{
+                //    double fallback = endIsRight ? fallbackRight : fallbackLeft;
+                //    double currentLen = GetTanbuHookLength(item, spanIndex, isRightAbdominal, endIsRight, fallback);
+                //    return currentLen.ToString(CultureInfo.InvariantCulture);
+                //};
+
+                Button MakeInlineLenRow(string sideLabel, bool endIsRight, bool pullLeft, Action closeAll, Action<Button> selectSub, Func<ControlTemplate> getFlatBtnTemplate)
                 {
-                    var grid = new Grid();
-                    grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(28) }); // 左/右
-                    grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // textbox
-                    grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // ❯
+                    var row = new DockPanel { LastChildFill = true };
 
                     var lbl = new TextBlock
                     {
                         Text = sideLabel ?? "",
                         VerticalAlignment = VerticalAlignment.Center
                     };
-                    Grid.SetColumn(lbl, 0);
-                    grid.Children.Add(lbl);
+                    DockPanel.SetDock(lbl, Dock.Left);
+
+                    var preview = CreateLengthPreviewCanvas(pullLeft);
+                    DockPanel.SetDock(preview, Dock.Right);
 
                     var tbx = new TextBox
                     {
-                        Text = getHookLenText(endIsRight),
-                        MinWidth = 10,
-                        Margin = new Thickness(6, 0, 6, 0),
-                        VerticalContentAlignment = VerticalAlignment.Center
+                        Text = string.Empty,
+                        Width = 50,
+                        MinWidth = 50,
+                        VerticalContentAlignment = VerticalAlignment.Center,
+                        Visibility = System.Windows.Visibility.Collapsed
                     };
-                    Grid.SetColumn(tbx, 1);
-                    grid.Children.Add(tbx);
 
-                    var arrow = new TextBlock
+                    var lenBorder = new FrameworkElementFactory(typeof(Border));
+                    lenBorder.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
+                    lenBorder.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Control.BorderBrushProperty));
+                    lenBorder.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(Control.BorderThicknessProperty));
+                    lenBorder.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
+                    lenBorder.SetValue(Border.SnapsToDevicePixelsProperty, true);
+
+                    var lenContentHost = new FrameworkElementFactory(typeof(ScrollViewer), "PART_ContentHost");
+                    lenContentHost.SetValue(FrameworkElement.SnapsToDevicePixelsProperty, true);
+                    lenBorder.AppendChild(lenContentHost);
+
+                    tbx.Template = new ControlTemplate(typeof(TextBox))
                     {
-                        Text = "❯",
-                        VerticalAlignment = VerticalAlignment.Center,
-                        HorizontalAlignment = HorizontalAlignment.Right,
-                        Margin = new Thickness(12, 0, 0, 0),
-                        Opacity = 0.0 // row is inline editor; keep layout consistent but no navigation
+                        VisualTree = lenBorder
                     };
-                    Grid.SetColumn(arrow, 2);
-                    grid.Children.Add(arrow);
+
+                    if (tbx.ReadLocalValue(Control.BorderBrushProperty) == DependencyProperty.UnsetValue)
+                        tbx.BorderBrush = PopupMenuEditorBorderBrush;
+
+                    if (tbx.ReadLocalValue(Control.BorderThicknessProperty) == DependencyProperty.UnsetValue)
+                        tbx.BorderThickness = new Thickness(1);
+
+                    if (tbx.ReadLocalValue(Control.BackgroundProperty) == DependencyProperty.UnsetValue)
+                        tbx.Background = Brushes.White;
+
+                    tbx.FocusVisualStyle = null;
+
+                    Brush initialBackground = tbx.Background ?? Brushes.White;
+                    Brush initialBorderBrush = tbx.BorderBrush ?? Brushes.Black;
+                    Thickness initialBorderThickness = tbx.BorderThickness;
+                    bool hasRejectedLenInput = false;
+
+                    bool IsDigitOnlyLenText(string text, bool allowEmpty = true)
+                    {
+                        if (string.IsNullOrEmpty(text))
+                            return allowEmpty;
+
+                        return text.All(char.IsDigit);
+                    }
+
+                    bool ShrinksCurrentTotal()
+                    {
+                        return pullLeft == endIsRight;
+                    }
+
+                    bool IsLenAllowedForCurrentAction(string text, bool allowEmpty = true)
+                    {
+                        if (string.IsNullOrEmpty(text))
+                            return allowEmpty;
+
+                        if (!double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed))
+                            return false;
+
+                        if (!ShrinksCurrentTotal())
+                            return true;
+
+                        return parsed < GetCurrentTanbuTotalLength();
+                    }
+
+                    string BuildLenCandidateText(string incomingText)
+                    {
+                        string currentText = tbx.Text ?? string.Empty;
+                        int selectionStart = Math.Max(0, Math.Min(tbx.SelectionStart, currentText.Length));
+                        int selectionLength = Math.Max(0, Math.Min(tbx.SelectionLength, currentText.Length - selectionStart));
+
+                        return currentText.Remove(selectionStart, selectionLength)
+                            .Insert(selectionStart, incomingText ?? string.Empty);
+                    }
+
+                    Thickness EnsureVisibleLenBorder(Thickness thickness)
+                    {
+                        if (thickness.Left <= 0 && thickness.Top <= 0 && thickness.Right <= 0 && thickness.Bottom <= 0)
+                            return new Thickness(1);
+
+                        return thickness;
+                    }
+
+                    void SetLenValidityState(bool isValid)
+                    {
+                        tbx.Background = initialBackground;
+                        tbx.BorderBrush = isValid ? initialBorderBrush : Brushes.Red;
+                        tbx.BorderThickness = isValid
+                            ? initialBorderThickness
+                            : EnsureVisibleLenBorder(initialBorderThickness);
+                    }
+
+                    void ShowRejectedLenInputState()
+                    {
+                        hasRejectedLenInput = true;
+                        tbx.Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            if (hasRejectedLenInput)
+                                SetLenValidityState(false);
+                        }), DispatcherPriority.Input);
+                    }
+
+                    void ClearRejectedLenInputState()
+                    {
+                        hasRejectedLenInput = false;
+                        SetLenValidityState(IsDigitOnlyLenText(tbx.Text) && IsLenAllowedForCurrentAction(tbx.Text));
+                    }
+
+                    tbx.TextChanged += (_, __) =>
+                    {
+                        hasRejectedLenInput = false;
+                        SetLenValidityState(IsDigitOnlyLenText(tbx.Text) && IsLenAllowedForCurrentAction(tbx.Text));
+                    };
+
+                    tbx.PreviewTextInput += (_, inputArgs) =>
+                    {
+                        if (!IsDigitOnlyLenText(BuildLenCandidateText(inputArgs.Text), allowEmpty: true))
+                        {
+                            ShowRejectedLenInputState();
+                            inputArgs.Handled = true;
+                            return;
+                        }
+
+                        if (!IsLenAllowedForCurrentAction(BuildLenCandidateText(inputArgs.Text), allowEmpty: true))
+                        {
+                            ShowRejectedLenInputState();
+                            inputArgs.Handled = true;
+                            return;
+                        }
+
+                        ClearRejectedLenInputState();
+                    };
+
+                    DataObject.AddPastingHandler(tbx, new DataObjectPastingEventHandler((_, pasteArgs) =>
+                    {
+                        string pastedText = null;
+
+                        if (pasteArgs.SourceDataObject != null)
+                        {
+                            if (pasteArgs.SourceDataObject.GetDataPresent(DataFormats.UnicodeText))
+                                pastedText = pasteArgs.SourceDataObject.GetData(DataFormats.UnicodeText) as string;
+                            else if (pasteArgs.SourceDataObject.GetDataPresent(DataFormats.Text))
+                                pastedText = pasteArgs.SourceDataObject.GetData(DataFormats.Text) as string;
+                        }
+
+                        if (!IsDigitOnlyLenText(BuildLenCandidateText(pastedText ?? string.Empty), allowEmpty: true))
+                        {
+                            ShowRejectedLenInputState();
+                            pasteArgs.CancelCommand();
+                            return;
+                        }
+
+                        if (!IsLenAllowedForCurrentAction(BuildLenCandidateText(pastedText ?? string.Empty), allowEmpty: true))
+                        {
+                            ShowRejectedLenInputState();
+                            pasteArgs.CancelCommand();
+                            return;
+                        }
+
+                        ClearRejectedLenInputState();
+                    }));
+
+                    tbx.LostKeyboardFocus += (_, __) =>
+                    {
+                        hasRejectedLenInput = false;
+                        SetLenValidityState(IsDigitOnlyLenText(tbx.Text) && IsLenAllowedForCurrentAction(tbx.Text));
+                    };
+
+                    SetLenValidityState(IsDigitOnlyLenText(tbx.Text) && IsLenAllowedForCurrentAction(tbx.Text));
+                    DockPanel.SetDock(tbx, Dock.Right);
+
+                    row.Children.Add(lbl);
+                    row.Children.Add(tbx);
+                    row.Children.Add(preview);
 
                     var btn = new Button
                     {
-                        Content = grid,
+                        Content = row,
                         HorizontalContentAlignment = HorizontalAlignment.Stretch,
                         VerticalContentAlignment = VerticalAlignment.Center,
-                        Padding = new Thickness(12, 6, 12, 6),
+                        Padding = new Thickness(12, 6, 10, 6),
                         Background = Brushes.Transparent,
                         BorderBrush = Brushes.Transparent,
                         BorderThickness = new Thickness(0),
@@ -10091,42 +17027,286 @@ namespace RevitProjectDataAddin
                         IsTabStop = false
                     };
 
-                    // Keep submenu highlighted on hover
-                    btn.MouseEnter += (a, b) => selectSub(btn);
-
-                    // Prevent click on button from closing; editing happens in TextBox
-                    btn.Click += (a, b) => { b.Handled = true; };
-
-                    // Commit on Enter
-                    tbx.PreviewKeyDown += (a, k) =>
-                    {
-                        if (k.Key == Key.Enter)
-                        {
-                            applyHookLenFromText(endIsRight, tbx.Text);
-                            closeAll();
-                            k.Handled = true;
-                        }
-                        else if (k.Key == Key.Escape)
-                        {
-                            closeAll();
-                            k.Handled = true;
-                        }
-                    };
-
-                    // Commit on focus out (but do NOT close menu automatically)
-                    tbx.LostKeyboardFocus += (a, b) =>
-                    {
-                        applyHookLenFromText(endIsRight, tbx.Text);
-                    };
-
-                    // On open, focus & select all for quick typing
-                    btn.Loaded += (a, b) =>
+                    void FocusBox()
                     {
                         tbx.Dispatcher.BeginInvoke(new Action(() =>
                         {
                             tbx.Focus();
                             tbx.SelectAll();
                         }), DispatcherPriority.Input);
+                    }
+
+                    void EndEditShowPreview()
+                    {
+                        tbx.Visibility = System.Windows.Visibility.Collapsed;
+                        preview.Visibility = System.Windows.Visibility.Visible;
+                    }
+
+                    void BeginEdit()
+                    {
+                        preview.Visibility = System.Windows.Visibility.Collapsed;
+                        tbx.Visibility = System.Windows.Visibility.Visible;
+                        FocusBox();
+                    }
+
+                    btn.MouseEnter += (_, __) => selectSub(btn);
+                    btn.MouseLeave += (_, __) =>
+                    {
+                        EndEditShowPreview();
+                        if (ReferenceEquals(selectedSubBtn, btn))
+                            selectSub(null);
+                    };
+                    btn.Click += (_, ee) =>
+                    {
+                        ee.Handled = true;
+                        selectSub(btn);
+                        if (tbx.Visibility != System.Windows.Visibility.Visible)
+                            BeginEdit();
+                        else
+                            FocusBox();
+                    };
+
+                    tbx.PreviewKeyDown += (_, k) =>
+                    {
+                        if (k.Key == Key.Enter)
+                        {
+                            if (!IsDigitOnlyLenText(tbx.Text) || !IsLenAllowedForCurrentAction(tbx.Text))
+                            {
+                                ShowRejectedLenInputState();
+                                k.Handled = true;
+                                return;
+                            }
+
+                            applyHookLenFromText(endIsRight, pullLeft, tbx.Text);
+                            EndEditShowPreview();
+                            closeAll();
+                            k.Handled = true;
+                        }
+                        else if (k.Key == Key.Escape)
+                        {
+                            EndEditShowPreview();
+                            k.Handled = true;
+                        }
+                    };
+
+                    tbx.LostKeyboardFocus += (_, __) =>
+                    {
+                        if (tbx.Visibility == System.Windows.Visibility.Visible)
+                            EndEditShowPreview();
+                    };
+
+                    return btn;
+                }
+
+                double GetCurrentTanbuTotalLength()
+                {
+                    string raw = (tb?.Text ?? string.Empty).Trim();
+                    int dashIndex = raw.LastIndexOf('-');
+                    if (dashIndex >= 0)
+                    {
+                        string lenText = raw.Substring(dashIndex + 1).Trim();
+                        if (double.TryParse(lenText, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed))
+                            return parsed;
+                    }
+
+                    double leftLen = GetTanbuHookLength(item, spanIndex, isRightAbdominal, false, fallbackLeft);
+                    double rightLen = GetTanbuHookLength(item, spanIndex, isRightAbdominal, true, fallbackRight);
+                    return bodyBaseLength + leftLen + rightLen;
+                }
+
+                bool ApplyTanbuTotalLength(bool anchorLeft, double newTotal)
+                {
+                    if (newTotal <= 0) return false;
+
+                    double leftLen = GetTanbuHookLength(item, spanIndex, isRightAbdominal, false, fallbackLeft);
+                    double rightLen = GetTanbuHookLength(item, spanIndex, isRightAbdominal, true, fallbackRight);
+                    double bodyLen = Math.Max(0.0, bodyBaseLength);
+
+                    if (anchorLeft)
+                    {
+                        double newRight = newTotal - bodyLen - leftLen;
+                        return ApplyTanbuHookLength(item, spanIndex, isRightAbdominal, true, newRight);
+                    }
+
+                    double newLeft = newTotal - bodyLen - rightLen;
+                    return ApplyTanbuHookLength(item, spanIndex, isRightAbdominal, false, newLeft);
+                }
+
+                Button MakeLenNavBtn(string sideLabel, bool endIsRight, Action closeAll, Action<Button> selectSub, Func<ControlTemplate> getFlatBtnTemplate)
+                {
+                    var btn = MakeMainBtn(sideLabel);
+
+                    void OpenLenDetail()
+                    {
+                        try { if (subSubPop != null) subSubPop.IsOpen = false; } catch { }
+
+                        subSubPop = new System.Windows.Controls.Primitives.Popup
+                        {
+                            PlacementTarget = btn,
+                            Placement = System.Windows.Controls.Primitives.PlacementMode.Right,
+                            HorizontalOffset = 1,
+                            VerticalOffset = -1.5,
+                            AllowsTransparency = true,
+                            StaysOpen = true
+                        };
+
+                        var root = new StackPanel { Orientation = Orientation.Vertical, Width = 120 };
+                        root.Children.Add(WithRowDivider(
+                            MakeInlineLenRow("左へ引く", endIsRight, true, closeAll, selectSub, getFlatBtnTemplate)));
+                        root.Children.Add(WithRowDivider(
+                            MakeInlineLenRow("右へ引く", endIsRight, false, closeAll, selectSub, getFlatBtnTemplate)));
+                        {
+                            var row = new DockPanel { LastChildFill = true };
+
+                            var lbl = new TextBlock
+                            {
+                                Text = "全部",
+                                VerticalAlignment = VerticalAlignment.Center
+                            };
+                            DockPanel.SetDock(lbl, Dock.Left);
+
+                            var totalBox = new TextBox
+                            {
+                                Text = GetCurrentTanbuTotalLength().ToString(CultureInfo.InvariantCulture),
+                                Width = 50,
+                                MinWidth = 50,
+                                VerticalContentAlignment = VerticalAlignment.Center,
+                                Background = Brushes.Transparent,
+                                Visibility = System.Windows.Visibility.Visible,
+                                IsReadOnly = true,
+                                BorderThickness = new Thickness(0),
+                                BorderBrush = Brushes.Transparent
+                            };
+                            DockPanel.SetDock(totalBox, Dock.Right);
+
+                            row.Children.Add(lbl);
+                            row.Children.Add(totalBox);
+                            //row.Children.Add(preview);
+
+                            var totalButton = new Button
+                            {
+                                Content = row,
+                                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                                VerticalContentAlignment = VerticalAlignment.Center,
+                                Padding = new Thickness(10, 6, 10, 6),
+                                Background = Brushes.Transparent,
+                                BorderBrush = Brushes.Transparent,
+                                BorderThickness = new Thickness(0),
+                                MinWidth = 150,
+                                OverridesDefaultStyle = true,
+                                Template = getFlatBtnTemplate(),
+                                Focusable = false,
+                                IsTabStop = false
+                            };
+
+                            void FocusTotalBox()
+                            {
+                                totalBox.Dispatcher.BeginInvoke(new Action(() =>
+                                {
+                                    totalBox.Focus();
+                                    totalBox.SelectAll();
+                                }), DispatcherPriority.Input);
+                            }
+
+                            void EndTotalEdit()
+                            {
+                                totalBox.Text = GetCurrentTanbuTotalLength().ToString(CultureInfo.InvariantCulture);
+                                totalBox.IsReadOnly = true;
+                                totalBox.BorderThickness = new Thickness(0);
+                                totalBox.BorderBrush = Brushes.Transparent;
+                                totalBox.Background = Brushes.Transparent;
+                                totalBox.Select(totalBox.Text?.Length ?? 0, 0);
+                                Keyboard.ClearFocus();
+                                canvas.Focus();
+                            }
+
+                            void BeginTotalEdit()
+                            {
+                                totalBox.Text = GetCurrentTanbuTotalLength().ToString(CultureInfo.InvariantCulture);
+                                totalBox.IsReadOnly = false;
+                                totalBox.BorderThickness = new Thickness(1);
+                                totalBox.BorderBrush = PopupMenuEditorBorderBrush;
+                                totalBox.Background = Brushes.White;
+                                FocusTotalBox();
+                            }
+
+                            totalButton.MouseEnter += (_, __) => selectSub(totalButton);
+                            totalButton.MouseLeave += (_, __) =>
+                            {
+                                EndTotalEdit();
+                                totalButton.Background = normalBg;
+                                if (ReferenceEquals(selectedSubBtn, totalButton))
+                                    selectSub(null);
+                            };
+                            totalButton.Click += (_, ee) =>
+                            {
+                                ee.Handled = true;
+                                selectSub(totalButton);
+                                if (totalBox.IsReadOnly)
+                                    BeginTotalEdit();
+                                else
+                                    FocusTotalBox();
+                            };
+                            totalBox.PreviewMouseLeftButtonDown += (_, ee) =>
+                            {
+                                if (!totalBox.IsReadOnly) return;
+                                BeginTotalEdit();
+                                ee.Handled = true;
+                            };
+                            totalBox.PreviewKeyDown += (_, ke) =>
+                            {
+                                if (ke.Key == Key.Enter)
+                                {
+                                    if (double.TryParse(totalBox.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var len)
+                                        && ApplyTanbuTotalLength(anchorLeft: endIsRight, newTotal: len))
+                                    {
+                                        Redraw(canvas, item);
+                                    }
+                                    EndTotalEdit();
+                                    closeAll();
+                                    ke.Handled = true;
+                                }
+                                else if (ke.Key == Key.Escape)
+                                {
+                                    EndTotalEdit();
+                                    ke.Handled = true;
+                                }
+                            };
+                            totalBox.LostKeyboardFocus += (_, __) =>
+                            {
+                                if (!totalBox.IsReadOnly)
+                                    EndTotalEdit();
+                            };
+                            totalBox.MouseLeave += (_, __) =>
+                            {
+                                EndTotalEdit();
+                                totalButton.Background = normalBg;
+                                if (ReferenceEquals(selectedSubBtn, totalButton))
+                                    selectSub(null);
+                            };
+
+                            root.Children.Add(WithRowDivider(totalButton));
+                        }
+
+                        subSubPop.Child = WrapBox(root);
+                        btn.Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            subSubPop.IsOpen = true;
+                            PinSub(btn);
+                        }), DispatcherPriority.Input);
+                    }
+
+                    btn.MouseEnter += (_, __) =>
+                    {
+                        PinSub(btn);
+                        selectSub(btn);
+                        OpenLenDetail();
+                    };
+                    btn.Click += (_, __) =>
+                    {
+                        PinSub(btn);
+                        selectSub(btn);
+                        OpenLenDetail();
                     };
 
                     return btn;
@@ -10152,11 +17332,11 @@ namespace RevitProjectDataAddin
                     foreach (var dia in _standardRebarDiameters)
                     {
                         var d = dia;
-                        bool checkedNow = string.Equals(d, diameter, StringComparison.Ordinal);
+                        bool checkedNow = string.Equals(d, currentDiameter, StringComparison.Ordinal);
                         subRoot.Children.Add(WithRowDivider(
                             MakeSubBtn(d, checkedNow, () =>
                             {
-                                bool changed = ApplyTanbuDiameter(kai, gSym, d);
+                                bool changed = SetTanbuDiameter(item, spanIndex, isRightAbdominal, d);
                                 redrawIfChanged(changed);
                             })));
                     }
@@ -10188,11 +17368,13 @@ namespace RevitProjectDataAddin
                 var btnLen = MakeMainBtn("腹筋の長さ");
                 btnLen.MouseEnter += (_, __) =>
                 {
+                    PinMain(btnLen);
                     SelectMain(btnLen);
                     OpenLenSubmenu(btnLen); // ✅ hover opens submenu
                 };
                 btnLen.Click += (_, __) =>
                 {
+                    PinMain(btnLen);
                     SelectMain(btnLen);
                     OpenLenSubmenu(btnLen);
                 };
@@ -10214,7 +17396,7 @@ namespace RevitProjectDataAddin
         }
         private bool ApplyTanbuHookLength(GridBotsecozu item, int spanIndex, bool isRightAbdominal, bool isRightEnd, double newLength)
         {
-            if (newLength <= 0)
+            if (double.IsNaN(newLength) || double.IsInfinity(newLength))
                 return false;
 
             return SetTanbuHookLength(item, spanIndex, isRightAbdominal, isRightEnd, newLength);
@@ -10263,6 +17445,7 @@ namespace RevitProjectDataAddin
             double wx, double wy,
             GridBotsecozu item,
             string kai, string gSym,
+            int spanIndex,
             string diameter, string pitch)
         {
             if (tbDia == null || tbPitch == null || tbRight == null || canvas == null)
@@ -10297,37 +17480,12 @@ namespace RevitProjectDataAddin
                 tbRight.MouseLeftButtonDown -= old;
                 GroupClickHandlerStore.Set(tbPitch, null);
             }
-            (double X, double Y) GetGroupRightTop(TextBlock dia, TextBlock pitchTb, TextBlock mat, double gapPx)
-            {
-                double GetLeft(FrameworkElement fe)
-                {
-                    var v = Canvas.GetLeft(fe);
-                    return double.IsNaN(v) ? 0 : v;
-                }
-
-                double GetTop(FrameworkElement fe)
-                {
-                    var v = Canvas.GetTop(fe);
-                    return double.IsNaN(v) ? 0 : v;
-                }
-
-                double right = Math.Max(
-                    GetLeft(dia) + Math.Max(1, dia.ActualWidth),
-                    Math.Max(
-                        GetLeft(pitchTb) + Math.Max(1, pitchTb.ActualWidth),
-                        GetLeft(mat) + Math.Max(1, mat.ActualWidth)));
-
-                double top = Math.Min(GetTop(dia), Math.Min(GetTop(pitchTb), GetTop(mat)));
-
-                return (right + gapPx, top);
-            }
-
             MouseButtonEventHandler handler = (s, e) =>
             {
                 e.Handled = true;
 
                 //var target = s as FrameworkElement ?? tbPitch;
-                var (menuX, menuY) = GetGroupRightTop(tbDia, tbPitch, tbRight, gapPx: 0);
+                var (menuX, menuY) = GetElementGroupRightTopOnCanvas(canvas, gapPx: 0, tbDia, tbPitch, tbRight);
                 ShowCentralStirrupPopupWithHoverSubmenushabadome(
                 canvas,
                 tbPitch,
@@ -10336,7 +17494,7 @@ namespace RevitProjectDataAddin
                 currentDiameter: diameter,
                 onSelectDiameter: newDia =>
                 {
-                    if (ApplyEndWidthStopValues(kai, gSym, newDia, pitch))
+                    if (ApplySpanEndWidthStopValues(item, spanIndex, newDia, pitch))
                         Redraw(canvas, item);
                 },
                 onEditPitch: () =>
@@ -10349,7 +17507,7 @@ namespace RevitProjectDataAddin
                             if (!double.TryParse(newText, NumberStyles.Float, CultureInfo.InvariantCulture, out var v))
                                 return;
 
-                            if (ApplyEndWidthStopValues(kai, gSym, diameter, v.ToString(CultureInfo.InvariantCulture)))
+                            if (ApplySpanEndWidthStopValues(item, spanIndex, diameter, v.ToString(CultureInfo.InvariantCulture)))
                                 Redraw(canvas, item);
                         });
                 });
@@ -10398,6 +17556,7 @@ namespace RevitProjectDataAddin
                     double wx, double wy,
                     GridBotsecozu item,
                     string kai, string gSym,
+                    int spanIndex,
                     string diameter, string pitch, string material,
                     bool showMaterial)
         {
@@ -10429,37 +17588,12 @@ namespace RevitProjectDataAddin
                 GroupClickHandlerStore.Set(tbPitch, null);
             }
 
-            (double X, double Y) GetGroupRightTop(TextBlock dia, TextBlock pitchTb, TextBlock mat, double gapPx)
-            {
-                double GetLeft(FrameworkElement fe)
-                {
-                    var v = Canvas.GetLeft(fe);
-                    return double.IsNaN(v) ? 0 : v;
-                }
-
-                double GetTop(FrameworkElement fe)
-                {
-                    var v = Canvas.GetTop(fe);
-                    return double.IsNaN(v) ? 0 : v;
-                }
-
-                double right = Math.Max(
-                    GetLeft(dia) + Math.Max(1, dia.ActualWidth),
-                    Math.Max(
-                        GetLeft(pitchTb) + Math.Max(1, pitchTb.ActualWidth),
-                        GetLeft(mat) + Math.Max(1, mat.ActualWidth)));
-
-                double top = Math.Min(GetTop(dia), Math.Min(GetTop(pitchTb), GetTop(mat)));
-
-                return (right + gapPx, top);
-            }
-
             MouseButtonEventHandler handler = (s, e) =>
             {
                 e.Handled = true;
 
                 //var target = s as FrameworkElement ?? tbPitch;
-                var (menuX, menuY) = GetGroupRightTop(tbDia, tbPitch, tbMat, gapPx: 0);
+                var (menuX, menuY) = GetElementGroupRightTopOnCanvas(canvas, gapPx: 0, tbDia, tbPitch, tbMat);
 
                 ShowCentralStirrupPopupWithHoverSubmenusnakago(
                     canvas,
@@ -10471,7 +17605,7 @@ namespace RevitProjectDataAddin
                     showMaterial: showMaterial,
                     onSelectDiameter: newDia =>
                     {
-                        if (ApplyCentralIntermediateValues(kai, gSym, newDia, pitch, material))
+                        if (ApplySpanCentralIntermediateValues(item, spanIndex, newDia, pitch, material))
                             Redraw(canvas, item);
                     },
                     onEditPitch: () =>
@@ -10485,13 +17619,13 @@ namespace RevitProjectDataAddin
                                 if (!double.TryParse(newText, NumberStyles.Float, CultureInfo.InvariantCulture, out v))
                                     return;
 
-                                if (ApplyCentralIntermediateValues(kai, gSym, diameter, v.ToString(CultureInfo.InvariantCulture), material))
+                                if (ApplySpanCentralIntermediateValues(item, spanIndex, diameter, v.ToString(CultureInfo.InvariantCulture), material))
                                     Redraw(canvas, item);
                             });
                     },
                     onSelectMaterial: newMat =>
                     {
-                        if (ApplyCentralIntermediateValues(kai, gSym, diameter, pitch, newMat))
+                        if (ApplySpanCentralIntermediateValues(item, spanIndex, diameter, pitch, newMat))
                             Redraw(canvas, item);
                     });
             };
@@ -10555,6 +17689,7 @@ namespace RevitProjectDataAddin
             GridBotsecozu item,
             string kai,
             string gSym,
+            int spanIndex,
             int currentShape,
             IList<Shape> nakagoShapes,
             double hitCenterXmm,
@@ -10639,7 +17774,7 @@ namespace RevitProjectDataAddin
 
                 Brush normalBg = Brushes.Transparent;
                 Brush selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-                Brush dividerBrush = Brushes.LightGray;
+                Brush dividerBrush = PopupMenuDividerBrush;
 
                 Func<UIElement, UIElement> withRowDivider = child =>
                     new Border
@@ -10675,8 +17810,8 @@ namespace RevitProjectDataAddin
                     new Border
                     {
                         Background = Brushes.White,
-                        BorderBrush = Brushes.DimGray,
-                        BorderThickness = new Thickness(1.5),
+                        BorderBrush = PopupMenuBorderBrush,
+                        BorderThickness = PopupMenuBorderThickness,
                         CornerRadius = new CornerRadius(2),
                         Child = new ContentControl
                         {
@@ -10799,7 +17934,7 @@ namespace RevitProjectDataAddin
                     {
                         Text = isChecked ? "✓" : "",
                         Width = 18,
-                        Foreground = Brushes.DimGray,
+                        Foreground = Brushes.Black,
                         VerticalAlignment = VerticalAlignment.Center
                     };
 
@@ -10858,7 +17993,7 @@ namespace RevitProjectDataAddin
                             (v == currentShape),
                             () =>
                             {
-                                if (ApplyCentralNakagoShape(kai, gSym, v))
+                                if (ApplySpanCentralIntermediateShape(item, spanIndex, v))
                                     Redraw(canvas, item);
                             },
                             v
@@ -11002,7 +18137,7 @@ namespace RevitProjectDataAddin
                 Width = w,
                 Height = h,
                 Background = Brushes.White,
-                BorderBrush = Brushes.Gray,
+                BorderBrush = PopupMenuBorderBrush,
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(0),
                 Padding = new Thickness(6)
@@ -11022,7 +18157,7 @@ namespace RevitProjectDataAddin
             {
                 Text = "中子 " + shape.ToString(CultureInfo.InvariantCulture),
                 FontSize = 11,
-                Foreground = Brushes.Gray
+                Foreground = Brushes.Black
             };
             Canvas.SetLeft(title, 2);
             Canvas.SetTop(title, 2);
@@ -11297,6 +18432,7 @@ namespace RevitProjectDataAddin
             GridBotsecozu item,
             string kai,
             string gSym,
+            int spanIndex,
             int currentShape,
             IList<Shape> shapes,
             double hitCenterXmm,
@@ -11392,7 +18528,7 @@ namespace RevitProjectDataAddin
 
                 Brush normalBg = Brushes.Transparent;
                 Brush selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-                Brush dividerBrush = Brushes.LightGray;
+                Brush dividerBrush = PopupMenuDividerBrush;
 
                 Func<UIElement, UIElement> withRowDivider = child =>
                     new Border
@@ -11428,8 +18564,8 @@ namespace RevitProjectDataAddin
                     new Border
                     {
                         Background = Brushes.White,
-                        BorderBrush = Brushes.DimGray,
-                        BorderThickness = new Thickness(1.5),
+                        BorderBrush = PopupMenuBorderBrush,
+                        BorderThickness = PopupMenuBorderThickness,
                         CornerRadius = new CornerRadius(2),
                         Child = new ContentControl
                         {
@@ -11551,7 +18687,7 @@ namespace RevitProjectDataAddin
                     {
                         Text = isChecked ? "✓" : "",
                         Width = 18,
-                        Foreground = Brushes.DimGray,
+                        Foreground = Brushes.Black,
                         VerticalAlignment = VerticalAlignment.Center
                     };
 
@@ -11610,7 +18746,7 @@ namespace RevitProjectDataAddin
                             (v == currentShape),
                             () =>
                             {
-                                if (ApplyCentralStirrupShape(kai, gSym, v))
+                                if (ApplySpanCentralStirrupShape(item, spanIndex, v))
                                     Redraw(canvas, item);
                             },
                             v
@@ -11665,7 +18801,7 @@ namespace RevitProjectDataAddin
                 Width = w,
                 Height = h,
                 Background = Brushes.White,
-                BorderBrush = Brushes.Gray,
+                BorderBrush = PopupMenuBorderBrush,
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(0),
                 Padding = new Thickness(6)
@@ -11683,7 +18819,7 @@ namespace RevitProjectDataAddin
             {
                 Text = "スタラップ " + shape.ToString(CultureInfo.InvariantCulture),
                 FontSize = 11,
-                Foreground = Brushes.Gray
+                Foreground = Brushes.Black
             };
             Canvas.SetLeft(title, 4);
             Canvas.SetTop(title, 2);
@@ -11950,6 +19086,7 @@ namespace RevitProjectDataAddin
             double wx, double wy,
             GridBotsecozu item,
             string kai, string gSym,
+            int spanIndex,
             string diameter, string pitch, string material,
             bool showMaterial)
         {
@@ -11981,36 +19118,11 @@ namespace RevitProjectDataAddin
                 GroupClickHandlerStore.Set(tbPitch, null);
             }
 
-            (double X, double Y) GetGroupRightTop(TextBlock dia, TextBlock pitchTb, TextBlock mat, double gapPx)
-            {
-                double GetLeft(FrameworkElement fe)
-                {
-                    var v = Canvas.GetLeft(fe);
-                    return double.IsNaN(v) ? 0 : v;
-                }
-
-                double GetTop(FrameworkElement fe)
-                {
-                    var v = Canvas.GetTop(fe);
-                    return double.IsNaN(v) ? 0 : v;
-                }
-
-                double right = Math.Max(
-                    GetLeft(dia) + Math.Max(1, dia.ActualWidth),
-                    Math.Max(
-                        GetLeft(pitchTb) + Math.Max(1, pitchTb.ActualWidth),
-                        GetLeft(mat) + Math.Max(1, mat.ActualWidth)));
-
-                double top = Math.Min(GetTop(dia), Math.Min(GetTop(pitchTb), GetTop(mat)));
-
-                return (right + gapPx, top);
-            }
-
             MouseButtonEventHandler handler = (s, e) =>
             {
                 e.Handled = true;
 
-                var (menuX, menuY) = GetGroupRightTop(tbDia, tbPitch, tbMat, gapPx: 0);
+                var (menuX, menuY) = GetElementGroupRightTopOnCanvas(canvas, gapPx: 0, tbDia, tbPitch, tbMat);
 
                 ShowCentralStirrupPopupWithHoverSubmenus(
                     canvas,
@@ -12022,7 +19134,7 @@ namespace RevitProjectDataAddin
                     showMaterial: showMaterial,
                     onSelectDiameter: newDia =>
                     {
-                        if (ApplyCentralStirrupValues(kai, gSym, newDia, pitch, material))
+                        if (ApplySpanCentralStirrupValues(item, spanIndex, newDia, pitch, material))
                             Redraw(canvas, item);
                     },
                     onEditPitch: () =>
@@ -12036,13 +19148,13 @@ namespace RevitProjectDataAddin
                                 if (!double.TryParse(newText, NumberStyles.Float, CultureInfo.InvariantCulture, out v))
                                     return;
 
-                                if (ApplyCentralStirrupValues(kai, gSym, diameter, v.ToString(CultureInfo.InvariantCulture), material))
+                                if (ApplySpanCentralStirrupValues(item, spanIndex, diameter, v.ToString(CultureInfo.InvariantCulture), material))
                                     Redraw(canvas, item);
                             });
                     },
                     onSelectMaterial: newMat =>
                     {
-                        if (ApplyCentralStirrupValues(kai, gSym, diameter, pitch, newMat))
+                        if (ApplySpanCentralStirrupValues(item, spanIndex, diameter, pitch, newMat))
                             Redraw(canvas, item);
                     });
             };
@@ -12077,7 +19189,7 @@ namespace RevitProjectDataAddin
 
             var normalBg = Brushes.Transparent;
             var selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-            var dividerBrush = Brushes.LightGray;
+            var dividerBrush = PopupMenuDividerBrush;
             var win = Window.GetWindow(canvas);
 
             UIElement WithRowDivider(UIElement child)
@@ -12125,8 +19237,8 @@ namespace RevitProjectDataAddin
                 return new Border
                 {
                     Background = Brushes.White,
-                    BorderBrush = Brushes.DimGray,
-                    BorderThickness = new Thickness(1.5),
+                    BorderBrush = PopupMenuBorderBrush,
+                    BorderThickness = PopupMenuBorderThickness,
                     CornerRadius = new CornerRadius(2),
                     Child = host
                 };
@@ -12479,7 +19591,7 @@ namespace RevitProjectDataAddin
 
             var normalBg = Brushes.Transparent;
             var selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-            var dividerBrush = Brushes.LightGray;
+            var dividerBrush = PopupMenuDividerBrush;
             var win = Window.GetWindow(canvas);
 
             UIElement WithRowDivider(UIElement child)
@@ -12527,8 +19639,8 @@ namespace RevitProjectDataAddin
                 return new Border
                 {
                     Background = Brushes.White,
-                    BorderBrush = Brushes.DimGray,
-                    BorderThickness = new Thickness(1.5),
+                    BorderBrush = PopupMenuBorderBrush,
+                    BorderThickness = PopupMenuBorderThickness,
                     CornerRadius = new CornerRadius(2),
                     Child = host
                 };
@@ -12905,7 +20017,7 @@ namespace RevitProjectDataAddin
 
             var normalBg = Brushes.Transparent;
             var selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-            var dividerBrush = Brushes.LightGray;
+            var dividerBrush = PopupMenuDividerBrush;
             var win = Window.GetWindow(canvas);
 
             UIElement WithRowDivider(UIElement child)
@@ -12953,8 +20065,8 @@ namespace RevitProjectDataAddin
                 return new Border
                 {
                     Background = Brushes.White,
-                    BorderBrush = Brushes.DimGray,
-                    BorderThickness = new Thickness(1.5),
+                    BorderBrush = PopupMenuBorderBrush,
+                    BorderThickness = PopupMenuBorderThickness,
                     CornerRadius = new CornerRadius(2),
                     Child = host
                 };
@@ -13364,7 +20476,7 @@ namespace RevitProjectDataAddin
 
             var normalBg = Brushes.Transparent;
             var selectedBg = new SolidColorBrush(Color.FromRgb(210, 225, 255));
-            var dividerBrush = Brushes.LightGray;
+            var dividerBrush = PopupMenuDividerBrush;
 
             UIElement WithRowDivider(UIElement child)
             {
@@ -13411,8 +20523,8 @@ namespace RevitProjectDataAddin
                 return new Border
                 {
                     Background = Brushes.White,
-                    BorderBrush = Brushes.DimGray,
-                    BorderThickness = new Thickness(1.5),
+                    BorderBrush = PopupMenuBorderBrush,
+                    BorderThickness = PopupMenuBorderThickness,
                     CornerRadius = new CornerRadius(2),
                     Child = host
                 };
@@ -13734,38 +20846,45 @@ namespace RevitProjectDataAddin
         {
             if (spanIndex < 0) return;
 
+            bool changed = false;
+
             foreach (var beamKvp in _tanbuHookOverrides.ToList())
             {
                 var dict = beamKvp.Value;
                 if (dict == null) continue;
 
                 // remove 4 keys per span:
-                dict.Remove((spanIndex, false, false)); // 左の腹筋 - 左端
-                dict.Remove((spanIndex, false, true));  // 左の腹筋 - 右端
-                dict.Remove((spanIndex, true, false));  // 右の腹筋 - 左端
-                dict.Remove((spanIndex, true, true));   // 右の腹筋 - 右端
+                changed = dict.Remove((spanIndex, false, false)) || changed; // 左の腹筋 - 左端
+                changed = dict.Remove((spanIndex, false, true)) || changed;  // 左の腹筋 - 右端
+                changed = dict.Remove((spanIndex, true, false)) || changed;  // 右の腹筋 - 左端
+                changed = dict.Remove((spanIndex, true, true)) || changed;   // 右の腹筋 - 右端
 
                 if (dict.Count == 0)
                     _tanbuHookOverrides.Remove(beamKvp.Key);
-
-                var persistent = beamKvp.Key.TanbuHookOverrides;
-                if (persistent == null || persistent.Count == 0) continue;
-
-                bool removed = false;
-                foreach (var key in new[]
-                {
-                    BuildTanbuHookKey(spanIndex, false, false),
-                    BuildTanbuHookKey(spanIndex, false, true),
-                    BuildTanbuHookKey(spanIndex, true, false),
-                    BuildTanbuHookKey(spanIndex, true, true)
-                })
-                {
-                    removed |= persistent.Remove(key);
-                }
-
-                if (removed)
-                    beamKvp.Key.TanbuHookOverrides = new Dictionary<string, double>(persistent);
             }
+
+            if (_currentSecoList?.GridBotsecozuMap != null)
+            {
+                foreach (var grids in _currentSecoList.GridBotsecozuMap.Values)
+                {
+                    if (grids == null) continue;
+                    foreach (var grid in grids)
+                    {
+                        if (grid?.TanbuHookOverrides == null || grid.TanbuHookOverrides.Count == 0)
+                            continue;
+
+                        var toDelete = grid.TanbuHookOverrides.Keys
+                            .Where(k => TryParseTanbuHookKey(k, out var parsed) && parsed.spanIndex == spanIndex)
+                            .ToList();
+
+                        foreach (var key in toDelete)
+                            changed = grid.TanbuHookOverrides.Remove(key) || changed;
+                    }
+                }
+            }
+
+            if (changed)
+                PropertyChangeTracker.MarkChanged();
         }
 
         private void CloseTaggedPopup(FrameworkElement target)
@@ -13829,14 +20948,117 @@ namespace RevitProjectDataAddin
                 return 0;
             }
         }
+
+        private double MeasureTextWidthDxfMm(Canvas canvas, string text, Typeface typeface, double fontPx, double targetHeightMm)
+        {
+            text = text ?? string.Empty;
+            if (targetHeightMm <= 0) return 0;
+
+            try
+            {
+                var dpi = VisualTreeHelper.GetDpi(canvas);
+                var ft = new FormattedText(
+                    text,
+                    CultureInfo.CurrentCulture,
+                    FlowDirection.LeftToRight,
+                    typeface,
+                    fontPx,
+                    Brushes.Black,
+                    dpi.PixelsPerDip);
+
+                var geometry = ft.BuildGeometry(new Point(0, 0));
+                var bounds = geometry?.Bounds ?? Rect.Empty;
+                if (!bounds.IsEmpty && bounds.Width > 0 && bounds.Height > 0)
+                {
+                    // PDF vector export normalizes text to DxfText.Height (mm),
+                    // so horizontal spacing must follow the same width/height ratio.
+                    return (bounds.Width / bounds.Height) * targetHeightMm;
+                }
+            }
+            catch
+            {
+            }
+
+            return 0;
+        }
+        private Rect GetElementBoundsOnCanvas(FrameworkElement element, Canvas canvas)
+        {
+            if (element == null || canvas == null) return Rect.Empty;
+
+            element.UpdateLayout();
+            double width = element.ActualWidth;
+            double height = element.ActualHeight;
+            if (width <= 0 || height <= 0)
+            {
+                element.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                width = width <= 0 ? element.DesiredSize.Width : width;
+                height = height <= 0 ? element.DesiredSize.Height : height;
+            }
+
+            try
+            {
+                var topLeft = element.TransformToVisual(canvas).Transform(new Point(0, 0));
+                return new Rect(topLeft.X, topLeft.Y, Math.Max(0, width), Math.Max(0, height));
+            }
+            catch
+            {
+                double left = Canvas.GetLeft(element);
+                double top = Canvas.GetTop(element);
+                if (double.IsNaN(left)) left = 0;
+                if (double.IsNaN(top)) top = 0;
+                return new Rect(left, top, Math.Max(0, width), Math.Max(0, height));
+            }
+        }
+
+        private (double X, double Y) GetElementGroupRightTopOnCanvas(
+            Canvas canvas,
+            double gapPx,
+            params FrameworkElement[] elements)
+        {
+            if (canvas == null || elements == null || elements.Length == 0)
+                return (0, 0);
+
+            Rect union = Rect.Empty;
+            foreach (var element in elements)
+            {
+                var rect = GetElementBoundsOnCanvas(element, canvas);
+                if (rect.IsEmpty || rect.Width <= 0 || rect.Height <= 0)
+                    continue;
+
+                union = union.IsEmpty ? rect : Rect.Union(union, rect);
+            }
+
+            if (union.IsEmpty)
+                return (0, 0);
+
+            return (union.Right + gapPx, union.Top);
+        }
+
+        private TextBlock CloneTextBlockForCanvasOverlay(TextBlock source)
+        {
+            return new TextBlock
+            {
+                Text = source?.Text ?? string.Empty,
+                FontFamily = source?.FontFamily ?? this.FontFamily,
+                FontSize = source?.FontSize ?? 12.0,
+                FontStyle = source?.FontStyle ?? FontStyles.Normal,
+                FontWeight = source?.FontWeight ?? FontWeights.Normal,
+                FontStretch = source?.FontStretch ?? FontStretches.Normal,
+                Foreground = source?.Foreground ?? Brushes.Black,
+                Background = Brushes.Transparent,
+                TextWrapping = TextWrapping.NoWrap,
+                IsHitTestVisible = false
+            };
+        }
+
         private void DrawCentralStirrupTripletPx(
-            Canvas canvas, WCTransform T, GridBotsecozu item,
-            double centerXmm, double yMm,
-            double fontPx,
-            Brush brush,
-            string diaText, string pitchText, string matText,
-            out TextBlock tbDia, out TextBlock tbPitch, out TextBlock tbMat,
-            double gapPx = 6.0)
+    Canvas canvas, WCTransform T, GridBotsecozu item,
+    double centerXmm, double yMm,
+    double fontPx,
+    Brush brush,
+    string diaText, string pitchText, string matText,
+    out TextBlock tbDia, out TextBlock tbPitch, out TextBlock tbMat,
+    double gapPx = 6.0)
         {
             tbDia = null;
             tbPitch = null;
@@ -13845,36 +21067,68 @@ namespace RevitProjectDataAddin
             matText = matText ?? string.Empty;
             bool hasMat = !string.IsNullOrWhiteSpace(matText);
 
-            double combinedScale = ResolveTextCombinedScale(T, item);
-            double effectiveFontPx = fontPx * combinedScale;
             double scalePxPerMm = Math.Abs(T.Scale) < 1e-9 ? 1.0 : Math.Abs(T.Scale);
-            double gapMm = gapPx / scalePxPerMm;
+            const double dxfTextHeightMm = 200.0;
+            double effectiveFontPx = Math.Max(1.0, dxfTextHeightMm * scalePxPerMm);
             string fontFamilyName = this.FontFamily?.Source ?? "Yu Mincho";
-            var typeface = new Typeface(new FontFamily(fontFamilyName), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+            var fontFamily = new FontFamily(fontFamilyName);
 
-            double wDiaMm = MeasureTextWidthPx(canvas, diaText, typeface, effectiveFontPx) / scalePxPerMm;
-            double wPitchMm = MeasureTextWidthPx(canvas, pitchText, typeface, effectiveFontPx) / scalePxPerMm;
-            double wMatMm = hasMat ? (MeasureTextWidthPx(canvas, matText, typeface, effectiveFontPx) / scalePxPerMm) : 0;
+            Point anchorPx = T.P(centerXmm, yMm);
 
-            double totalMm = wDiaMm + gapMm + wPitchMm + (hasMat ? gapMm + wMatMm : 0);
-            double xStart = centerXmm - totalMm / 2.0;
-            double xDia = xStart + wDiaMm / 2.0;
-            double xPitch = xStart + wDiaMm + gapMm + wPitchMm / 2.0;
-            double xMat = xStart + wDiaMm + gapMm + wPitchMm + (hasMat ? gapMm : 0) + wMatMm / 2.0;
+            TextBlock CreateTripletTextBlock(string text)
+            {
+                return new TextBlock
+                {
+                    Text = text ?? string.Empty,
+                    FontFamily = fontFamily,
+                    FontSize = effectiveFontPx,
+                    Foreground = brush ?? Brushes.Black,
+                    Background = Brushes.Transparent,
+                    TextWrapping = TextWrapping.NoWrap
+                };
+            }
 
-            tbDia = DrawText_Rec(canvas, T, item, diaText, xDia, yMm, fontPx, brush, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-            tbPitch = DrawText_Rec(canvas, T, item, pitchText, xPitch, yMm, fontPx, brush, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
-            tbMat = DrawText_Rec(canvas, T, item, matText, xMat, yMm, fontPx, brush, HAnchor.Center, VAnchor.Bottom, 150, "TEXT");
+            tbDia = CreateTripletTextBlock(diaText);
+            tbPitch = CreateTripletTextBlock(pitchText);
+            tbMat = CreateTripletTextBlock(matText);
+            if (gapPx > 0) tbPitch.Margin = new Thickness(gapPx, 0, 0, 0);
+            if (hasMat && gapPx > 0) tbMat.Margin = new Thickness(gapPx, 0, 0, 0);
+
+            var tripletHost = new StackPanel
+            {
+                Orientation = Orientation.Horizontal
+            };
+            tripletHost.Children.Add(tbDia);
+            tripletHost.Children.Add(tbPitch);
+            tripletHost.Children.Add(tbMat);
+
+            tripletHost.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            double totalPx = tripletHost.DesiredSize.Width;
+            double maxHeightPx = tripletHost.DesiredSize.Height;
+            double xStartPx = anchorPx.X - totalPx / 2.0;
+            double topPx = anchorPx.Y - maxHeightPx;
+
+            Canvas.SetLeft(tripletHost, xStartPx);
+            Canvas.SetTop(tripletHost, topPx);
+            canvas.Children.Add(tripletHost);
+
+            var (h, v) = ToDxfAlign(HAnchor.Center, VAnchor.Bottom);
+            var textColor = ColorFromBrush(brush ?? Brushes.Black, Colors.Black);
+            string fullText = string.Join(" ", new[] { diaText, pitchText, matText }.Where(s => !string.IsNullOrWhiteSpace(s)));
+            SceneFor(item).Add(new DxfText(fullText, centerXmm, yMm, dxfTextHeightMm, hAlign: h, vAlign: v, rotDeg: 0,
+                                           layer: "TEXT", style: "STANDARD", fontPx: effectiveFontPx,
+                                           fontFamily: fontFamilyName, color: textColor, hAnchor: HAnchor.Center, vAnchor: VAnchor.Bottom,
+                                           skipCanvasBitmap: true));
         }
         private void BeginInlinePitchEditPushNeighbors(
-            Canvas canvas,
-            TextBlock tbPitch,
-            FrameworkElement leftTb,   // tbDia
-            FrameworkElement rightTb,  // tbMat
-            Func<string> getCurrentText,
-            Action<string> commitText,
-            double gapPx = 6.0,
-            double paddingPx = 14.0)
+        Canvas canvas,
+        TextBlock tbPitch,
+        FrameworkElement leftTb,   // tbDia
+        FrameworkElement rightTb,  // tbMat
+        Func<string> getCurrentText,
+        Action<string> commitText,
+        double gapPx = 6.0,
+        double paddingPx = 14.0)
         {
             if (canvas == null || tbPitch == null || leftTb == null || rightTb == null) return;
 
@@ -13883,28 +21137,25 @@ namespace RevitProjectDataAddin
             rightTb.UpdateLayout();
             tbPitch.UpdateLayout();
 
-            double pitchLeft0 = Canvas.GetLeft(tbPitch);
-            double pitchTop0 = Canvas.GetTop(tbPitch);
-            double leftLeft0 = Canvas.GetLeft(leftTb);
-            double leftTop0 = Canvas.GetTop(leftTb);
-            double rightLeft0 = Canvas.GetLeft(rightTb);
-            double rightTop0 = Canvas.GetTop(rightTb);
-
-            if (double.IsNaN(pitchLeft0) || double.IsNaN(pitchTop0)) return;
-            if (double.IsNaN(leftLeft0) || double.IsNaN(leftTop0)) return;
-            if (double.IsNaN(rightLeft0) || double.IsNaN(rightTop0)) return;
+            Rect pitchRect0 = GetElementBoundsOnCanvas(tbPitch, canvas);
+            Rect leftRect0 = GetElementBoundsOnCanvas(leftTb, canvas);
+            Rect rightRect0 = GetElementBoundsOnCanvas(rightTb, canvas);
+            if (pitchRect0.IsEmpty || leftRect0.IsEmpty || rightRect0.IsEmpty) return;
 
             // Measure neighbors width
             leftTb.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
             rightTb.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-            double wLeft = leftTb.DesiredSize.Width;
-            double wRight = rightTb.DesiredSize.Width;
+            double wLeft = Math.Max(leftRect0.Width, leftTb.DesiredSize.Width);
+            double wRight = Math.Max(rightRect0.Width, rightTb.DesiredSize.Width);
 
             // Center X of pitch (fixed anchor while editing)
-            double pitchCenterX = pitchLeft0 + (tbPitch.ActualWidth / 2.0);
+            double pitchCenterX = pitchRect0.Left + (pitchRect0.Width / 2.0);
 
             var originalPitchText = tbPitch.Text ?? string.Empty;
             var startText = getCurrentText != null ? (getCurrentText() ?? "") : originalPitchText;
+            var leftOverlay = leftTb is TextBlock leftText ? CloneTextBlockForCanvasOverlay(leftText) : null;
+            var pitchOverlay = CloneTextBlockForCanvasOverlay(tbPitch);
+            var rightOverlay = rightTb is TextBlock rightText ? CloneTextBlockForCanvasOverlay(rightText) : null;
 
             var edit = new TextBox
             {
@@ -13922,8 +21173,29 @@ namespace RevitProjectDataAddin
                 VerticalScrollBarVisibility = ScrollBarVisibility.Hidden
             };
 
-            // Hide pitch text while editing
+            if (leftOverlay != null)
+            {
+                Canvas.SetLeft(leftOverlay, leftRect0.Left);
+                Canvas.SetTop(leftOverlay, leftRect0.Top);
+                Panel.SetZIndex(leftOverlay, Panel.GetZIndex(leftTb) + 10);
+                canvas.Children.Add(leftOverlay);
+            }
+            Canvas.SetLeft(pitchOverlay, pitchRect0.Left);
+            Canvas.SetTop(pitchOverlay, pitchRect0.Top);
+            Panel.SetZIndex(pitchOverlay, Panel.GetZIndex(tbPitch) + 10);
+            canvas.Children.Add(pitchOverlay);
+            if (rightOverlay != null)
+            {
+                Canvas.SetLeft(rightOverlay, rightRect0.Left);
+                Canvas.SetTop(rightOverlay, rightRect0.Top);
+                Panel.SetZIndex(rightOverlay, Panel.GetZIndex(rightTb) + 10);
+                canvas.Children.Add(rightOverlay);
+            }
+
+            // Hide original texts while editing
+            leftTb.Visibility = System.Windows.Visibility.Hidden;
             tbPitch.Visibility = System.Windows.Visibility.Hidden;
+            rightTb.Visibility = System.Windows.Visibility.Hidden;
 
             Panel.SetZIndex(edit, Panel.GetZIndex(tbPitch) + 10);
             canvas.Children.Add(edit);
@@ -13954,24 +21226,31 @@ namespace RevitProjectDataAddin
             {
                 // 1) Grow edit to fit the whole text (no clamp)
                 double w = MeasureTextWidth(edit.Text) + paddingPx;
-                double minW = Math.Max(24, tbPitch.ActualWidth);
+                double minW = Math.Max(24, pitchRect0.Width);
                 if (w < minW) w = minW;
 
                 edit.Width = w;
-                edit.Height = Math.Max(tbPitch.ActualHeight, 18);
+                edit.Height = Math.Max(pitchRect0.Height, 18);
 
                 double editLeft = pitchCenterX - (w / 2.0);
 
                 // 2) Place editor at pitch position
                 Canvas.SetLeft(edit, editLeft);
-                Canvas.SetTop(edit, pitchTop0);
+                Canvas.SetTop(edit, pitchRect0.Top);
 
                 // 3) Push neighbors away from the editor
-                Canvas.SetLeft(leftTb, editLeft - gapPx - wLeft);
-                Canvas.SetTop(leftTb, leftTop0);
-
-                Canvas.SetLeft(rightTb, editLeft + w + gapPx);
-                Canvas.SetTop(rightTb, rightTop0);
+                if (leftOverlay != null)
+                {
+                    Canvas.SetLeft(leftOverlay, editLeft - gapPx - wLeft);
+                    Canvas.SetTop(leftOverlay, leftRect0.Top);
+                }
+                Canvas.SetLeft(pitchOverlay, editLeft);
+                Canvas.SetTop(pitchOverlay, pitchRect0.Top);
+                if (rightOverlay != null)
+                {
+                    Canvas.SetLeft(rightOverlay, editLeft + w + gapPx);
+                    Canvas.SetTop(rightOverlay, rightRect0.Top);
+                }
             }
 
             bool isClosing = false;
@@ -13991,15 +21270,16 @@ namespace RevitProjectDataAddin
                 // Restore original positions (Redraw cũng sẽ reset, nhưng restore giúp mượt)
                 try
                 {
-                    Canvas.SetLeft(leftTb, leftLeft0);
-                    Canvas.SetTop(leftTb, leftTop0);
-                    Canvas.SetLeft(rightTb, rightLeft0);
-                    Canvas.SetTop(rightTb, rightTop0);
+                    if (leftOverlay != null) canvas.Children.Remove(leftOverlay);
+                    canvas.Children.Remove(pitchOverlay);
+                    if (rightOverlay != null) canvas.Children.Remove(rightOverlay);
                 }
                 catch { }
 
                 try { canvas.Children.Remove(edit); } catch { }
+                leftTb.Visibility = System.Windows.Visibility.Visible;
                 tbPitch.Visibility = System.Windows.Visibility.Visible;
+                rightTb.Visibility = System.Windows.Visibility.Visible;
 
                 isClosing = false;
             }
@@ -14112,17 +21392,20 @@ namespace RevitProjectDataAddin
 
             void UpdateBoxRect()
             {
-                double l1 = Canvas.GetLeft(tbDia); if (double.IsNaN(l1)) l1 = 0;
-                double t1 = Canvas.GetTop(tbDia); if (double.IsNaN(t1)) t1 = 0;
-                double w1 = tbDia.ActualWidth, h1 = tbDia.ActualHeight; MeasureFallback(tbDia, ref w1, ref h1);
+                Rect r1 = GetElementBoundsOnCanvas(tbDia, canvas);
+                Rect r2 = GetElementBoundsOnCanvas(tbPitch, canvas);
+                Rect r3 = GetElementBoundsOnCanvas(tbMat, canvas);
 
-                double l2 = Canvas.GetLeft(tbPitch); if (double.IsNaN(l2)) l2 = 0;
-                double t2 = Canvas.GetTop(tbPitch); if (double.IsNaN(t2)) t2 = 0;
-                double w2 = tbPitch.ActualWidth, h2 = tbPitch.ActualHeight; MeasureFallback(tbPitch, ref w2, ref h2);
+                double w1 = r1.Width, h1 = r1.Height; MeasureFallback(tbDia, ref w1, ref h1);
+                double w2 = r2.Width, h2 = r2.Height; MeasureFallback(tbPitch, ref w2, ref h2);
+                double w3 = r3.Width, h3 = r3.Height; MeasureFallback(tbMat, ref w3, ref h3);
 
-                double l3 = Canvas.GetLeft(tbMat); if (double.IsNaN(l3)) l3 = 0;
-                double t3 = Canvas.GetTop(tbMat); if (double.IsNaN(t3)) t3 = 0;
-                double w3 = tbMat.ActualWidth, h3 = tbMat.ActualHeight; MeasureFallback(tbMat, ref w3, ref h3);
+                double l1 = r1.IsEmpty ? 0 : r1.Left;
+                double t1 = r1.IsEmpty ? 0 : r1.Top;
+                double l2 = r2.IsEmpty ? 0 : r2.Left;
+                double t2 = r2.IsEmpty ? 0 : r2.Top;
+                double l3 = r3.IsEmpty ? 0 : r3.Left;
+                double t3 = r3.IsEmpty ? 0 : r3.Top;
 
                 double left = Math.Min(l1, Math.Min(l2, l3));
                 double top = Math.Min(t1, Math.Min(t2, t3));
@@ -14159,6 +21442,7 @@ namespace RevitProjectDataAddin
 
                 box.Visibility = System.Windows.Visibility.Collapsed;
                 box.Background = Brushes.Transparent;
+
                 box.BorderBrush = Brushes.Transparent;
             }
 
@@ -14192,8 +21476,6 @@ namespace RevitProjectDataAddin
             tbPitch.LayoutUpdated += layoutUpd;
             tbMat.LayoutUpdated += layoutUpd;
         }
-
-
 
     }
 }

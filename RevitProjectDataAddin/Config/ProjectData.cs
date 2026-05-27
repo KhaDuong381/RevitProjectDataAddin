@@ -56,70 +56,139 @@ public class ProjectData : INotifyPropertyChanged
     }
     //????????????????????????????????????????????????????????????????????
     private static string MakeKeyForMap(string kai, string tsu) => $"{kai}::{tsu}";
+    public void SyncDependentDataWithKihon()
+    {
+        if (Kihon == null)
+        {
+            return;
+        }
+
+        SyncKisokaiWithNameKai();
+        SyncHashiraWithNameKai();
+        SyncHarikaiWithNameKai();
+
+        if (Haichi == null)
+        {
+            Haichi = new HaichiList();
+        }
+
+        if (Haichi.柱配置図 == null)
+        {
+            Haichi.柱配置図 = new ObservableCollection<柱配置図>();
+        }
+
+        if (Haichi.梁配置図 == null)
+        {
+            Haichi.梁配置図 = new ObservableCollection<梁配置図>();
+        }
+
+        if (Haichi.柱配置図.Count == 0)
+        {
+            Haichi.柱配置図.Add(new 柱配置図());
+        }
+
+        if (Haichi.梁配置図.Count == 0)
+        {
+            Haichi.梁配置図.Add(new 梁配置図());
+        }
+
+        BuildDefaultColumnLayouts();
+        BuildDefaultBeamLayouts();
+    }
     private void BuildDefaultBeamLayouts()
     {
         // Guards
         if (Kihon == null) return;
         if (Haichi?.梁配置図 == null || Haichi.梁配置図.Count == 0) return;
-
+ 
         var layout = Haichi.梁配置図[0];
         if (layout.BeamSegmentsMap == null)
             layout.BeamSegmentsMap = new Dictionary<string, ObservableCollection<梁セグメント>>();
-
+ 
         // Danh sách tên
         var kaiList = Kihon.NameKai?.Select(x => x.Name).Where(s => !string.IsNullOrWhiteSpace(s)).ToList() ?? new List<string>();
         var xList = Kihon.NameX?.Select(x => x.Name).Where(s => !string.IsNullOrWhiteSpace(s)).ToList() ?? new List<string>();
         var yList = Kihon.NameY?.Select(y => y.Name).Where(s => !string.IsNullOrWhiteSpace(s)).ToList() ?? new List<string>();
-
+ 
         var tsuAll = xList.Concat(yList).ToList();
-
+ 
         foreach (var kai in kaiList)
         {
             foreach (var tsu in tsuAll)
             {
                 var key = MakeKeyForMap(kai, tsu);
-                if (layout.BeamSegmentsMap.ContainsKey(key))
-                    continue; // không đè dữ liệu đang có
-
-                // Quy tắc: nếu tsu thuộc X → tạo theo Y; nếu tsu thuộc Y → tạo theo X (đúng như UI)
                 var along = xList.Contains(tsu) ? yList : xList;
-
-                var segments = new ObservableCollection<梁セグメント>();
-                for (int i = 0; i < Math.Max(0, along.Count - 1); i++)
+ 
+                if (!layout.BeamSegmentsMap.TryGetValue(key, out var segments))
                 {
-                    var left = along[i];
-                    var right = along[i + 1];
-
-                    segments.Add(new 梁セグメント
-                    {
-                        梁の符号 = null, // chuẩn hoá sau theo 梁候補リスト (y như UI)
-                        上側のズレ寸法 = "300",
-                        下側のズレ寸法 = "300",
-                        梁の段差 = "-200",
-                        タイトル = $"{kai} {tsu}の{left}-{right}",
-                        左側 = left,
-                        右側 = right
-                    });
+                    segments = new ObservableCollection<梁セグメント>();
+                    layout.BeamSegmentsMap[key] = segments;
                 }
-
+ 
+                SyncBeamSegments(segments, along, kai, tsu);
+ 
                 // Lấy danh sách ứng viên 梁 theo tầng; nếu rỗng → ["G0"] (đúng UI)
                 var floorBeamList = リスト?.梁リスト?.FirstOrDefault(r => r.各階 == kai);
                 var candidates = (floorBeamList?.梁 != null && floorBeamList.梁.Any())
                     ? floorBeamList.梁.Select(b => b.Name).ToList()
                     : new List<string> { "G0" };
-
+ 
                 var first = candidates.FirstOrDefault() ?? "G0";
-
+ 
                 // Chuẩn hoá 梁の符号 về phần tử đầu nếu null/invalid (đúng bước (5) của UI)
                 foreach (var s in segments)
                 {
                     if (string.IsNullOrEmpty(s.梁の符号) || !candidates.Contains(s.梁の符号))
                         s.梁の符号 = first;
                 }
-
-                layout.BeamSegmentsMap[key] = segments;
             }
         }
+    }
+
+    private static void SyncBeamSegments(ObservableCollection<梁セグメント> segs, List<string> alongNames, string kai, string tsu)
+    {
+        if (segs == null) return;
+
+        int expectedCount = Math.Max(0, (alongNames?.Count ?? 0) - 1);
+        List<梁セグメント> existingSegments = segs.Where(segment => segment != null).ToList();
+
+        if (segs.Count != expectedCount)
+        {
+            segs.Clear();
+            for (int i = 0; i < expectedCount; i++)
+            {
+                梁セグメント segment = i < existingSegments.Count ? existingSegments[i] : new 梁セグメント();
+                ApplyBeamSegmentIdentity(segment, alongNames, kai, tsu, i);
+                segs.Add(segment);
+            }
+
+            return;
+        }
+
+        for (int i = 0; i < expectedCount; i++)
+        {
+            梁セグメント segment = segs[i] ?? new 梁セグメント();
+            ApplyBeamSegmentIdentity(segment, alongNames, kai, tsu, i);
+            if (segs[i] == null)
+            {
+                segs[i] = segment;
+            }
+        }
+    }
+
+    private static void ApplyBeamSegmentIdentity(梁セグメント segment, List<string> alongNames, string kai, string tsu, int index)
+    {
+        if (segment == null || alongNames == null || index < 0 || index + 1 >= alongNames.Count)
+        {
+            return;
+        }
+
+        string left = alongNames[index];
+        string right = alongNames[index + 1];
+
+        segment.タイトル = $"{kai} {tsu}の{left}-{right}";
+        segment.左側 = left;
+        segment.右側 = right;
     }
     private void BuildDefaultColumnLayouts()
     {
@@ -416,6 +485,12 @@ public class 梁施工図 : INotifyPropertyChanged
 
 }
 
+public class OrangeSegOverridePersistData
+{
+    public double X1 { get; set; }
+    public double X2 { get; set; }
+}
+
 public class GridBotsecozu : INotifyPropertyChanged
 {
     private Dictionary<string, double> _tanbuHookOverrides = new Dictionary<string, double>();
@@ -423,6 +498,139 @@ public class GridBotsecozu : INotifyPropertyChanged
     {
         get => _tanbuHookOverrides;
         set => SetProperty(ref _tanbuHookOverrides, value ?? new Dictionary<string, double>());
+    }
+
+    private Dictionary<string, string> _tanbuDiameterOverrides = new Dictionary<string, string>();
+    public Dictionary<string, string> TanbuDiameterOverrides
+    {
+        get => _tanbuDiameterOverrides;
+        set => SetProperty(ref _tanbuDiameterOverrides, value ?? new Dictionary<string, string>());
+    }
+
+    private Dictionary<string, string> _orangeDimTextOverrides = new Dictionary<string, string>();
+    public Dictionary<string, string> OrangeDimTextOverrides
+    {
+        get => _orangeDimTextOverrides;
+        set => SetProperty(ref _orangeDimTextOverrides, value ?? new Dictionary<string, string>());
+    }
+
+    private Dictionary<string, double> _ankaOverrides = new Dictionary<string, double>();
+    public Dictionary<string, double> AnkaOverrides
+    {
+        get => _ankaOverrides;
+        set => SetProperty(ref _ankaOverrides, value ?? new Dictionary<string, double>());
+    }
+
+    private Dictionary<string, double> _ankaSegOverrides = new Dictionary<string, double>();
+    public Dictionary<string, double> AnkaSegOverrides
+    {
+        get => _ankaSegOverrides;
+        set => SetProperty(ref _ankaSegOverrides, value ?? new Dictionary<string, double>());
+    }
+
+    private HashSet<string> _deletedOrangeSegs = new HashSet<string>();
+    public HashSet<string> DeletedOrangeSegs
+    {
+        get => _deletedOrangeSegs;
+        set => SetProperty(ref _deletedOrangeSegs, value ?? new HashSet<string>());
+    }
+
+    private Dictionary<string, OrangeSegOverridePersistData> _orangeSegOverrides = new Dictionary<string, OrangeSegOverridePersistData>();
+    public Dictionary<string, OrangeSegOverridePersistData> OrangeSegOverrides
+    {
+        get => _orangeSegOverrides;
+        set => SetProperty(ref _orangeSegOverrides, value ?? new Dictionary<string, OrangeSegOverridePersistData>());
+    }
+
+    private Dictionary<string, List<double>> _orangeSegEqualCutPoints = new Dictionary<string, List<double>>();
+    public Dictionary<string, List<double>> OrangeSegEqualCutPoints
+    {
+        get => _orangeSegEqualCutPoints;
+        set => SetProperty(ref _orangeSegEqualCutPoints, value ?? new Dictionary<string, List<double>>());
+    }
+
+    private Dictionary<string, string> _spanWidthOverrides = new Dictionary<string, string>();
+    public Dictionary<string, string> SpanWidthOverrides
+    {
+        get => _spanWidthOverrides;
+        set => SetProperty(ref _spanWidthOverrides, value ?? new Dictionary<string, string>());
+    }
+
+    private Dictionary<string, string> _spanHeightOverrides = new Dictionary<string, string>();
+    public Dictionary<string, string> SpanHeightOverrides
+    {
+        get => _spanHeightOverrides;
+        set => SetProperty(ref _spanHeightOverrides, value ?? new Dictionary<string, string>());
+    }
+
+    private Dictionary<string, string> _spanCentralStirrupDiameterOverrides = new Dictionary<string, string>();
+    public Dictionary<string, string> SpanCentralStirrupDiameterOverrides
+    {
+        get => _spanCentralStirrupDiameterOverrides;
+        set => SetProperty(ref _spanCentralStirrupDiameterOverrides, value ?? new Dictionary<string, string>());
+    }
+
+    private Dictionary<string, string> _spanCentralStirrupPitchOverrides = new Dictionary<string, string>();
+    public Dictionary<string, string> SpanCentralStirrupPitchOverrides
+    {
+        get => _spanCentralStirrupPitchOverrides;
+        set => SetProperty(ref _spanCentralStirrupPitchOverrides, value ?? new Dictionary<string, string>());
+    }
+
+    private Dictionary<string, string> _spanCentralStirrupMaterialOverrides = new Dictionary<string, string>();
+    public Dictionary<string, string> SpanCentralStirrupMaterialOverrides
+    {
+        get => _spanCentralStirrupMaterialOverrides;
+        set => SetProperty(ref _spanCentralStirrupMaterialOverrides, value ?? new Dictionary<string, string>());
+    }
+
+    private Dictionary<string, string> _spanEndWidthStopDiameterOverrides = new Dictionary<string, string>();
+    public Dictionary<string, string> SpanEndWidthStopDiameterOverrides
+    {
+        get => _spanEndWidthStopDiameterOverrides;
+        set => SetProperty(ref _spanEndWidthStopDiameterOverrides, value ?? new Dictionary<string, string>());
+    }
+
+    private Dictionary<string, string> _spanEndWidthStopPitchOverrides = new Dictionary<string, string>();
+    public Dictionary<string, string> SpanEndWidthStopPitchOverrides
+    {
+        get => _spanEndWidthStopPitchOverrides;
+        set => SetProperty(ref _spanEndWidthStopPitchOverrides, value ?? new Dictionary<string, string>());
+    }
+
+    private Dictionary<string, string> _spanCentralIntermediateDiameterOverrides = new Dictionary<string, string>();
+    public Dictionary<string, string> SpanCentralIntermediateDiameterOverrides
+    {
+        get => _spanCentralIntermediateDiameterOverrides;
+        set => SetProperty(ref _spanCentralIntermediateDiameterOverrides, value ?? new Dictionary<string, string>());
+    }
+
+    private Dictionary<string, string> _spanCentralIntermediatePitchOverrides = new Dictionary<string, string>();
+    public Dictionary<string, string> SpanCentralIntermediatePitchOverrides
+    {
+        get => _spanCentralIntermediatePitchOverrides;
+        set => SetProperty(ref _spanCentralIntermediatePitchOverrides, value ?? new Dictionary<string, string>());
+    }
+
+    private Dictionary<string, string> _spanCentralIntermediateMaterialOverrides = new Dictionary<string, string>();
+    public Dictionary<string, string> SpanCentralIntermediateMaterialOverrides
+    {
+        get => _spanCentralIntermediateMaterialOverrides;
+        set => SetProperty(ref _spanCentralIntermediateMaterialOverrides, value ?? new Dictionary<string, string>());
+    }
+
+    private Dictionary<string, string> _spanCentralStirrupShapeOverrides = new Dictionary<string, string>();
+    public Dictionary<string, string> SpanCentralStirrupShapeOverrides
+    {
+        get => _spanCentralStirrupShapeOverrides;
+        set => SetProperty(ref _spanCentralStirrupShapeOverrides, value ?? new Dictionary<string, string>());
+    }
+
+    private Dictionary<string, string> _spanCentralIntermediateShapeOverrides = new Dictionary<string, string>();
+    public Dictionary<string, string> SpanCentralIntermediateShapeOverrides
+    {
+        get => _spanCentralIntermediateShapeOverrides;
+        set => SetProperty(ref _spanCentralIntermediateShapeOverrides, value ?? new Dictionary<string, string>());
     }
 
     public event PropertyChangedEventHandler PropertyChanged;
@@ -685,6 +893,27 @@ public class 柱セグメント : INotifyPropertyChanged
         set => SetProperty(ref _位置表示, value);
     }
 
+    private string _autoOffsetSourceColumnCode;
+    public string AutoOffsetSourceColumnCode
+    {
+        get => _autoOffsetSourceColumnCode;
+        set => SetProperty(ref _autoOffsetSourceColumnCode, value);
+    }
+
+    private string _autoOffsetSourceWidth;
+    public string AutoOffsetSourceWidth
+    {
+        get => _autoOffsetSourceWidth;
+        set => SetProperty(ref _autoOffsetSourceWidth, value);
+    }
+
+    private string _autoOffsetSourceDepth;
+    public string AutoOffsetSourceDepth
+    {
+        get => _autoOffsetSourceDepth;
+        set => SetProperty(ref _autoOffsetSourceDepth, value);
+    }
+
     public 柱セグメント()
     {
         柱の符号 = "C0";
@@ -693,6 +922,9 @@ public class 柱セグメント : INotifyPropertyChanged
         左側のズレ = "500";
         右側のズレ = "500";
         位置表示 = null;
+        AutoOffsetSourceColumnCode = null;
+        AutoOffsetSourceWidth = null;
+        AutoOffsetSourceDepth = null;
 
     }
 
@@ -4541,8 +4773,8 @@ public class Z柱の配置 : INotifyPropertyChanged
         柱脚横向き中子本数 = "2";
 
         //Giữa
-        柱幅1 = "900";
-        柱成1 = "900";
+        柱幅1 = "1000";
+        柱成1 = "1000";
         主筋径1 = "29";
         主筋材質1 = "SD390";
         芯筋径1 = "29";
@@ -5616,3 +5848,7 @@ public enum TaskType
     Inspection,
     Delivery
 }
+
+
+
+
