@@ -12,7 +12,7 @@ using System.Reflection;
 namespace RevitProjectDataAddin
 {
     [Transaction(TransactionMode.Manual)]
-    public class ColumnYokoNakagoCommand : IExternalCommand
+    public class ColumnTaTeNakagoCommand : IExternalCommand
     {
         private static void ShowTaskDialog(string title, string message)
         {
@@ -23,7 +23,7 @@ namespace RevitProjectDataAddin
         private const double RebarVerticalShiftMillimeters = 1000.0;
         private const double LocationToleranceFeet = 1e-4;
         private const string SectionName = "柱頭";
-        private const string RebarCommentPrefix = "COLUMN_YOKO_NAKAGO ";
+        private const string RebarCommentPrefix = "COLUMN_TATE_NAKAGO ";
         private const string MainRebarCommentPrefix = "COLUMN_MAIN_REBAR ";
         private const string HookType1804DName = "DBS_HOOK_180_4D";
         private const string HookType1356DName = "DBS_HOOK_135_6D";
@@ -33,14 +33,14 @@ namespace RevitProjectDataAddin
         {
             if (!ProjectManager.HasSelectedProject)
             {
-                ShowTaskDialog("Column Yoko Nakago", "Please select a project first.");
+                ShowTaskDialog("Column TaTe Nakago", "Please select a project first.");
                 return Result.Cancelled;
             }
 
             UIDocument uiDoc = commandData.Application.ActiveUIDocument;
             if (uiDoc == null)
             {
-                ShowTaskDialog("Column Yoko Nakago", "No active Revit document was found.");
+                ShowTaskDialog("Column TaTe Nakago", "No active Revit document was found.");
                 return Result.Cancelled;
             }
 
@@ -48,7 +48,7 @@ namespace RevitProjectDataAddin
             ProjectData projectData = StorageUtils.LoadProject(doc, ProjectManager.SelectedProjectName);
             if (projectData == null)
             {
-                ShowTaskDialog("Column Yoko Nakago", $"Could not load ProjectData for project '{ProjectManager.SelectedProjectName}'.");
+                ShowTaskDialog("Column TaTe Nakago", $"Could not load ProjectData for project '{ProjectManager.SelectedProjectName}'.");
                 return Result.Cancelled;
             }
 
@@ -58,7 +58,7 @@ namespace RevitProjectDataAddin
 
             if (xNames == null || yNames == null || kaiNames == null || kaiNames.Count < 2)
             {
-                ShowTaskDialog("Column Yoko Nakago", "ProjectData Kihon axis data is missing or invalid.");
+                ShowTaskDialog("Column TaTe Nakago", "ProjectData Kihon axis data is missing or invalid.");
                 return Result.Cancelled;
             }
 
@@ -66,7 +66,7 @@ namespace RevitProjectDataAddin
             string layoutError;
             if (!TryGetColumnLayout(projectData, out columnLayout, out layoutError))
             {
-                ShowTaskDialog("Column Yoko Nakago", layoutError);
+                ShowTaskDialog("Column TaTe Nakago", layoutError);
                 return Result.Cancelled;
             }
 
@@ -74,7 +74,7 @@ namespace RevitProjectDataAddin
             string gridError;
             if (!TryCollectGridsByName(doc, out gridsByName, out gridError))
             {
-                ShowTaskDialog("Column Yoko Nakago", gridError);
+                ShowTaskDialog("Column TaTe Nakago", gridError);
                 return Result.Cancelled;
             }
 
@@ -82,12 +82,12 @@ namespace RevitProjectDataAddin
             string levelError;
             if (!TryCollectLevelsByName(doc, out levelsByName, out levelError))
             {
-                ShowTaskDialog("Column Yoko Nakago", levelError);
+                ShowTaskDialog("Column TaTe Nakago", levelError);
                 return Result.Cancelled;
             }
 
             List<string> warnings = new List<string>();
-            List<YokoNakagoSpec> specs = BuildYokoNakagoSpecs(
+            List<TaTeNakagoSpec> specs = BuildTaTeNakagoSpecs(
                 projectData,
                 columnLayout,
                 kaiNames,
@@ -99,13 +99,13 @@ namespace RevitProjectDataAddin
 
             if (specs.Count == 0)
             {
-                string emptyResult = $"No valid {SectionName} Yoko Nakago specs were found.";
+                string emptyResult = $"No valid {SectionName} TaTe Nakago specs were found.";
                 if (warnings.Count > 0)
                 {
                     emptyResult += "\n\nWarnings:\n" + string.Join("\n", warnings.Take(20));
                 }
 
-                ShowTaskDialog("Column Yoko Nakago", emptyResult);
+                ShowTaskDialog("Column TaTe Nakago", emptyResult);
                 return Result.Cancelled;
             }
 
@@ -115,14 +115,14 @@ namespace RevitProjectDataAddin
             int created = 0;
             List<string> failed = new List<string>();
 
-            using (Transaction tx = new Transaction(doc, "Create Column Yoko Nakago"))
+            using (Transaction tx = new Transaction(doc, "Create Column TaTe Nakago"))
             {
                 tx.Start();
-                DeleteExistingYokoNakago(doc, SectionName);
+                DeleteExistingTaTeNakago(doc, SectionName);
 
                 HookTypes hookTypes = FindOrCreateHookTypes(doc, warnings);
 
-                foreach (YokoNakagoSpec spec in specs)
+                foreach (TaTeNakagoSpec spec in specs)
                 {
                     try
                     {
@@ -141,7 +141,7 @@ namespace RevitProjectDataAddin
                             continue;
                         }
 
-                        created += CreateYokoNakagoForSpec(doc, hostColumn, spec, barType, hookTypes, warnings);
+                        created += CreateTaTeNakagoForSpec(doc, hostColumn, spec, barType, hookTypes, warnings);
                     }
                     catch (Exception ex)
                     {
@@ -152,7 +152,7 @@ namespace RevitProjectDataAddin
                 tx.Commit();
             }
 
-            string result = $"Created Yoko Nakago count: {created}";
+            string result = $"Created TaTe Nakago count: {created}";
             if (warnings.Count > 0)
             {
                 result += "\n\nWarnings:\n" + string.Join("\n", warnings.Take(20));
@@ -165,12 +165,12 @@ namespace RevitProjectDataAddin
 
             if (!ProjectManager.SuppressColumnCompletionDialogs || created <= 0 || warnings.Count > 0)
             {
-                ShowTaskDialog("Column Yoko Nakago", result);
+                ShowTaskDialog("Column TaTe Nakago", result);
             }
             return Result.Succeeded;
         }
 
-        private static List<YokoNakagoSpec> BuildYokoNakagoSpecs(
+        private static List<TaTeNakagoSpec> BuildTaTeNakagoSpecs(
             ProjectData projectData,
             柱配置図 columnLayout,
             List<string> kaiNames,
@@ -180,7 +180,7 @@ namespace RevitProjectDataAddin
             Dictionary<string, Level> levelsByName,
             List<string> warnings)
         {
-            List<YokoNakagoSpec> specs = new List<YokoNakagoSpec>();
+            List<TaTeNakagoSpec> specs = new List<TaTeNakagoSpec>();
             Dictionary<string, 柱リスト> floorListsByKai = (projectData?.リスト?.柱リスト ?? new ObservableCollection<柱リスト>())
                 .Where(list => list != null && !string.IsNullOrWhiteSpace(list.各階))
                 .GroupBy(list => list.各階, StringComparer.OrdinalIgnoreCase)
@@ -286,9 +286,9 @@ namespace RevitProjectDataAddin
                             intersectionPoint.Y + offsetYmm * FeetPerMillimeter,
                             baseLevel.Elevation);
 
-                        YokoNakagoSpec spec;
+                        TaTeNakagoSpec spec;
                         string specError;
-                        if (!TryBuildYokoNakagoSpec(
+                        if (!TryBuildTaTeNakagoSpec(
                             kaiName,
                             xName,
                             yName,
@@ -312,7 +312,7 @@ namespace RevitProjectDataAddin
             return specs;
         }
 
-        private static bool TryBuildYokoNakagoSpec(
+        private static bool TryBuildTaTeNakagoSpec(
             string kaiName,
             string xName,
             string yName,
@@ -321,7 +321,7 @@ namespace RevitProjectDataAddin
             XYZ point,
             Level baseLevel,
             Level topLevel,
-            out YokoNakagoSpec spec,
+            out TaTeNakagoSpec spec,
             out string errorMessage)
         {
             spec = null;
@@ -374,77 +374,90 @@ namespace RevitProjectDataAddin
             }
 
             double pitchMm;
-            string pitchText = GetSectionProperty(layout, SectionName, "横向き中子ピッチ");
+            string pitchText = GetSectionProperty(layout, SectionName, "縦向き中子ピッチ");
             if (!TryParseMillimeters(pitchText, out pitchMm) || pitchMm <= 0.0)
             {
                 pitchText = GetSectionProperty(layout, SectionName, "ピッチ");
                 if (!TryParseMillimeters(pitchText, out pitchMm) || pitchMm <= 0.0)
                 {
-                    errorMessage = $"{SectionName} 横向き中子ピッチ is invalid: '{pitchText}'.";
+                    errorMessage = $"{SectionName} 縦向き中子ピッチ is invalid: '{pitchText}'.";
                     return false;
                 }
             }
 
             double coverTopMm;
-            if (!TryParseMillimeters(sectionData.上, out coverTopMm) || coverTopMm < 0.0)
+            string coverTopText = GetStringProperty(sectionData, "上");
+            if (!TryParseMillimeters(coverTopText, out coverTopMm) || coverTopMm < 0.0)
             {
-                errorMessage = $"{SectionName} 上 cover is invalid: '{sectionData.上}'.";
+                errorMessage = $"{SectionName} 上 cover is invalid: '{coverTopText}'.";
                 return false;
             }
 
             double coverBottomMm;
-            if (!TryParseMillimeters(sectionData.下, out coverBottomMm) || coverBottomMm < 0.0)
+            string coverBottomText = GetStringProperty(sectionData, "下");
+            if (!TryParseMillimeters(coverBottomText, out coverBottomMm) || coverBottomMm < 0.0)
             {
-                errorMessage = $"{SectionName} 下 cover is invalid: '{sectionData.下}'.";
+                errorMessage = $"{SectionName} 下 cover is invalid: '{coverBottomText}'.";
                 return false;
             }
 
             double coverLeftMm;
-            if (!TryParseMillimeters(sectionData.左, out coverLeftMm) || coverLeftMm < 0.0)
+            string coverLeftText = GetStringProperty(sectionData, "左");
+            if (!TryParseMillimeters(coverLeftText, out coverLeftMm) || coverLeftMm < 0.0)
             {
-                errorMessage = $"{SectionName} 左 cover is invalid: '{sectionData.左}'.";
+                errorMessage = $"{SectionName} 左 cover is invalid: '{coverLeftText}'.";
                 return false;
             }
 
             double coverRightMm;
-            if (!TryParseMillimeters(sectionData.右, out coverRightMm) || coverRightMm < 0.0)
+            string coverRightText = GetStringProperty(sectionData, "右");
+            if (!TryParseMillimeters(coverRightText, out coverRightMm) || coverRightMm < 0.0)
             {
-                errorMessage = $"{SectionName} 右 cover is invalid: '{sectionData.右}'.";
+                errorMessage = $"{SectionName} 右 cover is invalid: '{coverRightText}'.";
                 return false;
             }
 
-            string diameter = GetSectionProperty(layout, SectionName, "横向き中子径")?.Trim();
+            string diameter = GetSectionProperty(layout, SectionName, "縦向き中子径")?.Trim();
             if (string.IsNullOrWhiteSpace(diameter))
             {
-                errorMessage = $"{SectionName} 横向き中子径 is empty.";
+                errorMessage = $"{SectionName} 縦向き中子径 is empty.";
                 return false;
             }
 
             double diameterMm;
             if (!TryParseMillimeters(diameter, out diameterMm) || diameterMm <= 0.0)
             {
-                errorMessage = $"{SectionName} 横向き中子径 is invalid: '{diameter}'.";
+                errorMessage = $"{SectionName} 縦向き中子径 is invalid: '{diameter}'.";
                 return false;
             }
 
-            string shape = GetSectionProperty(layout, SectionName, "横向き中子形")?.Trim();
+            double yokoDiameterMm = 0.0;
+            string yokoDiameter = GetSectionProperty(layout, SectionName, "横向き中子径")?.Trim();
+            if (!string.IsNullOrWhiteSpace(yokoDiameter)
+                && (!TryParseMillimeters(yokoDiameter, out yokoDiameterMm) || yokoDiameterMm <= 0.0))
+            {
+                errorMessage = $"{SectionName} 横向き中子径 is invalid: '{yokoDiameter}'.";
+                return false;
+            }
+
+            string shape = GetSectionProperty(layout, SectionName, "縦向き中子形")?.Trim();
             if (string.IsNullOrWhiteSpace(shape))
             {
-                errorMessage = $"{SectionName} 横向き中子形 is empty.";
+                errorMessage = $"{SectionName} 縦向き中子形 is empty.";
                 return false;
             }
 
             int count;
             string countText = GetFirstNonEmptyString(
-                GetSectionProperty(layout, SectionName, "横向き中子本数", "柱頭横向き中子本数"),
-                sectionData.横向き中子本数);
+                GetSectionProperty(layout, SectionName, "縦向き中子本数"),
+                GetStringProperty(sectionData, "縦向き中子本数"));
             if (!TryParsePositiveInt(countText, out count))
             {
-                errorMessage = $"{SectionName} 横向き中子本数 is invalid: '{countText}'.";
+                errorMessage = $"{SectionName} 縦向き中子本数 is invalid: '{countText}'.";
                 return false;
             }
 
-            spec = new YokoNakagoSpec(
+            spec = new TaTeNakagoSpec(
                 kaiName,
                 xName,
                 yName,
@@ -455,17 +468,18 @@ namespace RevitProjectDataAddin
                 hoopDiaMm,
                 diameter,
                 diameterMm,
+                yokoDiameterMm,
                 shape,
-                GetSectionProperty(layout, SectionName, "横向き中子材質")?.Trim() ?? string.Empty,
+                GetSectionProperty(layout, SectionName, "縦向き中子材質")?.Trim() ?? string.Empty,
                 pitchMm,
                 count,
                 coverTopMm,
                 coverBottomMm,
                 coverLeftMm,
                 coverRightMm,
-                sectionData.YokogaoNakagoCustomPositions,
-                sectionData.YokogaoNakagoDirections,
-                sectionData.横向き中子_方向,
+                sectionData.NakagoCustomPositions,
+                sectionData.NakagoDirections,
+                false,
                 point,
                 baseLevel,
                 topLevel);
@@ -473,16 +487,16 @@ namespace RevitProjectDataAddin
             return true;
         }
 
-        private static int CreateYokoNakagoForSpec(
+        private static int CreateTaTeNakagoForSpec(
             Document doc,
             FamilyInstance column,
-            YokoNakagoSpec spec,
+            TaTeNakagoSpec spec,
             RebarBarType barType,
             HookTypes hookTypes,
             List<string> warnings)
         {
             XYZ center = GetColumnCenter(column) ?? spec.Point;
-            List<YokoNakagoBarData> barData = BuildBarData(doc, column, spec, center, warnings);
+            List<TaTeNakagoBarData> barData = BuildBarData(doc, column, spec, center, warnings);
             if (barData.Count == 0)
             {
                 return 0;
@@ -498,8 +512,8 @@ namespace RevitProjectDataAddin
             double pitchFt = spec.PitchMm * FeetPerMillimeter;
             double shiftFt = RebarVerticalShiftMillimeters * FeetPerMillimeter;
             double startZ = minZ + spec.CoverBottomMm * FeetPerMillimeter + shiftFt;
-            double endZ = maxZ - spec.CoverTopMm * FeetPerMillimeter + shiftFt;          
-            double yokoNakagoLiftFt = GetYokoNakagoClearanceMm(spec.HoopDiaMm, spec.DiameterMm) * FeetPerMillimeter;
+            double endZ = maxZ - spec.CoverTopMm * FeetPerMillimeter + shiftFt;
+            double taTeNakagoLiftFt = GetTaTeNakagoClearanceMm(spec.HoopDiaMm, spec.DiameterMm, spec.YokoDiameterMm) * FeetPerMillimeter;
             if (endZ < startZ)
             {
                 warnings.Add($"{spec.Kai} {spec.YName}-{spec.XName} {spec.ColumnCode}: host column height is too small for the requested cover.");
@@ -509,9 +523,9 @@ namespace RevitProjectDataAddin
             int created = 0;
             for (double z = startZ; z <= endZ + 1e-9; z += pitchFt)
             {
-                foreach (YokoNakagoBarData data in barData)
+                foreach (TaTeNakagoBarData data in barData)
                 {
-                    double barZ = z + yokoNakagoLiftFt;
+                    double barZ = z + taTeNakagoLiftFt;
                     if (barZ > endZ + 1e-9)
                     {
                         continue;
@@ -564,50 +578,50 @@ namespace RevitProjectDataAddin
             return created;
         }
 
-        private static List<YokoNakagoBarData> BuildBarData(Document doc, FamilyInstance column, YokoNakagoSpec spec, XYZ columnCenter, List<string> warnings)
+        private static List<TaTeNakagoBarData> BuildBarData(Document doc, FamilyInstance column, TaTeNakagoSpec spec, XYZ columnCenter, List<string> warnings)
         {
-            List<YokoNakagoBarData> bars = new List<YokoNakagoBarData>();
+            List<TaTeNakagoBarData> bars = new List<TaTeNakagoBarData>();
             int shape;
             if (!int.TryParse(ExtractDigits(spec.Shape), out shape) || shape < 1 || shape > 5)
             {
-                warnings.Add($"{spec.Kai} {spec.YName}-{spec.XName} {spec.ColumnCode}: 横向き中子形='{spec.Shape}' is not handled yet; supported shapes are 1..5.");
+                warnings.Add($"{spec.Kai} {spec.YName}-{spec.XName} {spec.ColumnCode}: vertical nakago shape='{spec.Shape}' is not handled yet; supported shapes are 1..5.");
                 return bars;
             }
 
             double actualHoopDiaMm = GetActualBarDiameter(spec.HoopDiaMm);
-            double actualYokoDiaMm = GetActualBarDiameter(spec.DiameterMm);
-            List<double> leftMainRebarCanvasYPositions = CollectLeftMainRebarCanvasYPositions(doc, column, spec, columnCenter, warnings);
-            double leftX = -spec.WidthMm / 2.0 + spec.CoverLeftMm + actualHoopDiaMm - actualYokoDiaMm;
-            double rightX = spec.WidthMm / 2.0 - spec.CoverRightMm - actualHoopDiaMm + actualYokoDiaMm;
-            double yokoNakagoBendRadiusMm = GetYokoNakagoBendCenterlineRadiusMm(spec.DiameterMm);
+            double actualTaTeDiaMm = GetActualBarDiameter(spec.DiameterMm);
+            List<double> topMainRebarCanvasXPositions = CollectTopMainRebarCanvasXPositions(doc, column, spec, columnCenter, warnings);
+            double topY = -(spec.CoverTopMm + actualHoopDiaMm - actualTaTeDiaMm);
+            double bottomY = -(spec.DepthMm - spec.CoverBottomMm - actualHoopDiaMm + actualTaTeDiaMm);
+            double taTeNakagoBendRadiusMm = GetTaTeNakagoBendCenterlineRadiusMm(spec.DiameterMm);
 
-            if (rightX <= leftX)
+            if (topY <= bottomY)
             {
-                warnings.Add($"{spec.Kai} {spec.YName}-{spec.XName} {spec.ColumnCode}: calculated Yoko Nakago length is not positive.");
+                warnings.Add($"{spec.Kai} {spec.YName}-{spec.XName} {spec.ColumnCode}: calculated TaTe Nakago length is not positive.");
                 return bars;
             }
 
-            if (leftMainRebarCanvasYPositions.Count == 0)
+            if (topMainRebarCanvasXPositions.Count == 0)
             {
-                warnings.Add($"{spec.Kai} {spec.YName}-{spec.XName} {spec.ColumnCode}: no COLUMN_MAIN_REBAR left-side coordinates were found. Run Column Main before Yoko Nakago.");
+                warnings.Add($"{spec.Kai} {spec.YName}-{spec.XName} {spec.ColumnCode}: no COLUMN_MAIN_REBAR top-side coordinates were found. Run Column Main before TaTe Nakago.");
                 return bars;
             }
 
             for (int i = 0; i < spec.Count; i++)
             {
                 int positionIndex = GetIndexedIntValue(spec.CustomPositions, i, i);
-                if (positionIndex < 0 || positionIndex >= leftMainRebarCanvasYPositions.Count)
+                if (positionIndex < 0 || positionIndex >= topMainRebarCanvasXPositions.Count)
                 {
-                    warnings.Add($"{spec.Kai} {spec.YName}-{spec.XName} {spec.ColumnCode}: Yoko Nakago position index {positionIndex} is outside the created left main rebar coordinate range.");
+                    warnings.Add($"{spec.Kai} {spec.YName}-{spec.XName} {spec.ColumnCode}: TaTe Nakago position index {positionIndex} is outside the created top main rebar coordinate range.");
                     continue;
                 }
 
                 bool isReversed = GetIndexedBoolValue(spec.Directions, i, false);
-                HookPair hooks = GetYokoNakagoHookData(shape, false);
-                double bendDirection = isReversed ? -1.0 : 1.0;
-                double y = -leftMainRebarCanvasYPositions[positionIndex] - bendDirection * yokoNakagoBendRadiusMm;
-                UV startMm = new UV(leftX, y);
-                UV endMm = new UV(rightX, y);
+                HookPair hooks = GetTaTeNakagoHookData(shape, false);
+                double bendDirection = isReversed ? 1.0 : -1.0;
+                double x = topMainRebarCanvasXPositions[positionIndex] + bendDirection * taTeNakagoBendRadiusMm;
+                UV startMm = new UV(x, topY);
+                UV endMm = new UV(x, bottomY);
                 string startHook = hooks.Start;
                 string endHook = hooks.End;
                 RebarHookOrientation startHookOrientation = RebarHookOrientation.Left;
@@ -627,7 +641,7 @@ namespace RevitProjectDataAddin
                     endHookOrientation = RebarHookOrientation.Right;
                 }
 
-                bars.Add(new YokoNakagoBarData(
+                bars.Add(new TaTeNakagoBarData(
                     i,
                     startMm,
                     endMm,
@@ -640,7 +654,7 @@ namespace RevitProjectDataAddin
             return bars;
         }
 
-        private static List<double> CollectLeftMainRebarCanvasYPositions(Document doc, FamilyInstance column, YokoNakagoSpec spec, XYZ columnCenter, List<string> warnings)
+        private static List<double> CollectTopMainRebarCanvasXPositions(Document doc, FamilyInstance column, TaTeNakagoSpec spec, XYZ columnCenter, List<string> warnings)
         {
             List<double> positions = new List<double>();
             if (doc == null || column == null)
@@ -652,7 +666,7 @@ namespace RevitProjectDataAddin
                 .OfClass(typeof(Rebar))
                 .Cast<Rebar>())
             {
-                if (!IsCreatedLeftMainRebarForColumn(rebar, column, spec))
+                if (!IsCreatedTopMainRebarForColumn(rebar, column, spec))
                 {
                     continue;
                 }
@@ -660,16 +674,15 @@ namespace RevitProjectDataAddin
                 BoundingBoxXYZ bbox = rebar.get_BoundingBox(null);
                 if (bbox == null)
                 {
-                    warnings.Add($"{spec.Kai} {spec.YName}-{spec.XName} {spec.ColumnCode}: a COLUMN_MAIN_REBAR left-side bar has no bounding box.");
+                    warnings.Add($"{spec.Kai} {spec.YName}-{spec.XName} {spec.ColumnCode}: a COLUMN_MAIN_REBAR top-side bar has no bounding box.");
                     continue;
                 }
 
                 XYZ midpoint = (bbox.Min + bbox.Max) * 0.5;
-                double localYmm = (midpoint.Y - columnCenter.Y) / FeetPerMillimeter;
-                double canvasYmm = spec.DepthMm / 2.0 - localYmm;
-                if (!positions.Any(value => Math.Abs(value - canvasYmm) < 0.001))
+                double localXmm = (midpoint.X - columnCenter.X) / FeetPerMillimeter;
+                if (!positions.Any(value => Math.Abs(value - localXmm) < 0.001))
                 {
-                    positions.Add(canvasYmm);
+                    positions.Add(localXmm);
                 }
             }
 
@@ -677,7 +690,7 @@ namespace RevitProjectDataAddin
             return positions;
         }
 
-        private static bool IsCreatedLeftMainRebarForColumn(Rebar rebar, FamilyInstance column, YokoNakagoSpec spec)
+        private static bool IsCreatedTopMainRebarForColumn(Rebar rebar, FamilyInstance column, TaTeNakagoSpec spec)
         {
             if (rebar == null || column == null)
             {
@@ -706,7 +719,7 @@ namespace RevitProjectDataAddin
             }
 
             string position = comment.Substring(posIndex + 5).Trim();
-            return position.StartsWith("left-", StringComparison.OrdinalIgnoreCase);
+            return position.StartsWith("top-", StringComparison.OrdinalIgnoreCase);
         }
 
         private static Dictionary<string, FamilyInstance> CollectExistingColumnsByKey(Document doc)
@@ -754,7 +767,7 @@ namespace RevitProjectDataAddin
             return true;
         }
 
-        private static RebarBarType GetOrFindRebarBarType(Document doc, YokoNakagoSpec spec, Dictionary<string, RebarBarType> cache)
+        private static RebarBarType GetOrFindRebarBarType(Document doc, TaTeNakagoSpec spec, Dictionary<string, RebarBarType> cache)
         {
             string cacheKey = $"{spec.Diameter}|{spec.Material}";
             RebarBarType barType;
@@ -848,7 +861,7 @@ namespace RevitProjectDataAddin
             return fallback;
         }
 
-        private static void DeleteExistingYokoNakago(Document doc, string sectionName)
+        private static void DeleteExistingTaTeNakago(Document doc, string sectionName)
         {
             List<ElementId> rebarIdsToDelete = new FilteredElementCollector(doc)
                 .OfClass(typeof(Rebar))
@@ -959,7 +972,7 @@ namespace RevitProjectDataAddin
 
             if (duplicateNames.Count > 0)
             {
-                errorMessage = "Model contains duplicate grid names. Please resolve them before running Column Yoko Nakago: "
+                errorMessage = "Model contains duplicate grid names. Please resolve them before running Column TaTe Nakago: "
                     + string.Join(", ", duplicateNames.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(name => name, StringComparer.OrdinalIgnoreCase));
                 return false;
             }
@@ -991,7 +1004,7 @@ namespace RevitProjectDataAddin
 
             if (duplicateNames.Count > 0)
             {
-                errorMessage = "Model contains duplicate level names. Please resolve them before running Column Yoko Nakago: "
+                errorMessage = "Model contains duplicate level names. Please resolve them before running Column TaTe Nakago: "
                     + string.Join(", ", duplicateNames.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(name => name, StringComparer.OrdinalIgnoreCase));
                 return false;
             }
@@ -1032,6 +1045,49 @@ namespace RevitProjectDataAddin
 
             GridBotDataHashira sectionData;
             return layout.gridbotdata.TryGetValue(sectionName, out sectionData) ? sectionData : null;
+        }
+
+        private static GridBotDataHashira GetSectionDataFromObject(object layout, string sectionName)
+        {
+            if (layout == null || string.IsNullOrWhiteSpace(sectionName))
+            {
+                return null;
+            }
+
+            PropertyInfo property = layout.GetType().GetProperty("gridbotdata", BindingFlags.Instance | BindingFlags.Public);
+            if (property == null)
+            {
+                return null;
+            }
+
+            object value = property.GetValue(layout);
+            var dictionary = value as System.Collections.IDictionary;
+            if (dictionary == null)
+            {
+                return null;
+            }
+
+            foreach (System.Collections.DictionaryEntry entry in dictionary)
+            {
+                string key = entry.Key as string;
+                if (string.Equals(key, sectionName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return entry.Value as GridBotDataHashira;
+                }
+            }
+
+            return null;
+        }
+
+        private static object GetObjectProperty(object obj, string propertyName)
+        {
+            if (obj == null || string.IsNullOrWhiteSpace(propertyName))
+            {
+                return null;
+            }
+
+            PropertyInfo property = obj.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public);
+            return property?.GetValue(obj);
         }
 
         private static string GetSectionProperty(object layout, string sectionName, params string[] baseNames)
@@ -1208,7 +1264,7 @@ namespace RevitProjectDataAddin
             return Math.Round(value / LocationToleranceFeet) * LocationToleranceFeet;
         }
 
-        private static HookPair GetYokoNakagoHookData(int shape, bool isReversed)
+        private static HookPair GetTaTeNakagoHookData(int shape, bool isReversed)
         {
             switch (shape)
             {
@@ -1302,17 +1358,18 @@ namespace RevitProjectDataAddin
                 default: return nominalDiameter;
             }
         }
-        private static double GetYokoNakagoClearanceMm(double nominalHoopDiameter, double nominalYokoNakagoDiameter)
+        private static double GetTaTeNakagoClearanceMm(double nominalHoopDiameter, double nominalTaTeNakagoDiameter, double nominalYokoNakagoDiameter)
         {
             double actualHoopDiaMm = GetActualBarDiameter(nominalHoopDiameter);
+            double actualTaTeDiaMm = GetActualBarDiameter(nominalTaTeNakagoDiameter);
             double actualYokoDiaMm = GetActualBarDiameter(nominalYokoNakagoDiameter);
-            return (actualHoopDiaMm + actualYokoDiaMm) / 2.0;
+            return (actualHoopDiaMm + actualTaTeDiaMm) / 2.0 + actualYokoDiaMm;
         }
 
-        private static double GetYokoNakagoBendCenterlineRadiusMm(double nominalYokoNakagoDiameter)
+        private static double GetTaTeNakagoBendCenterlineRadiusMm(double nominalYokoNakagoDiameter)
         {
-            double actualYokoDiaMm = GetActualBarDiameter(nominalYokoNakagoDiameter);
-            return nominalYokoNakagoDiameter * 2.0 + actualYokoDiaMm / 2.0;
+            double actualTaTeDiaMm = GetActualBarDiameter(nominalYokoNakagoDiameter);
+            return nominalYokoNakagoDiameter * 2.0 + actualTaTeDiaMm / 2.0;
         }
 
         private static bool GetIndexedBoolValue(Dictionary<int, bool> dictionary, int index, bool fallback)
@@ -1354,9 +1411,9 @@ namespace RevitProjectDataAddin
             return string.IsNullOrWhiteSpace(ex.Message) ? ex.GetType().Name : ex.Message;
         }
 
-        private sealed class YokoNakagoSpec
+        private sealed class TaTeNakagoSpec
         {
-            public YokoNakagoSpec(
+            public TaTeNakagoSpec(
                 string kai,
                 string xName,
                 string yName,
@@ -1367,6 +1424,7 @@ namespace RevitProjectDataAddin
                 double hoopDiaMm,
                 string diameter,
                 double diameterMm,
+                double yokoDiameterMm,
                 string shape,
                 string material,
                 double pitchMm,
@@ -1392,6 +1450,7 @@ namespace RevitProjectDataAddin
                 HoopDiaMm = hoopDiaMm;
                 Diameter = diameter;
                 DiameterMm = diameterMm;
+                YokoDiameterMm = yokoDiameterMm;
                 Shape = shape;
                 Material = material;
                 PitchMm = pitchMm;
@@ -1402,7 +1461,7 @@ namespace RevitProjectDataAddin
                 CoverRightMm = coverRightMm;
                 CustomPositions = customPositions ?? new Dictionary<int, int>();
                 Directions = directions ?? new Dictionary<int, bool>();
-                SectionName = ColumnYokoNakagoCommand.SectionName;
+                SectionName = ColumnTaTeNakagoCommand.SectionName;
                 Point = point;
                 BaseLevel = baseLevel;
                 TopLevel = topLevel;
@@ -1418,6 +1477,7 @@ namespace RevitProjectDataAddin
             public double HoopDiaMm { get; }
             public string Diameter { get; }
             public double DiameterMm { get; }
+            public double YokoDiameterMm { get; }
             public string Shape { get; }
             public string Material { get; }
             public double PitchMm { get; }
@@ -1434,9 +1494,9 @@ namespace RevitProjectDataAddin
             public Level TopLevel { get; }
         }
 
-        private sealed class YokoNakagoBarData
+        private sealed class TaTeNakagoBarData
         {
-            public YokoNakagoBarData(
+            public TaTeNakagoBarData(
                 int index,
                 UV startMm,
                 UV endMm,

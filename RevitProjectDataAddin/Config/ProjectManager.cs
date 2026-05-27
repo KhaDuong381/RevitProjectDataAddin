@@ -3,6 +3,7 @@
     public static class ProjectManager
     {
         public static string SelectedProjectName { get; private set; }
+        public static bool SuppressColumnCompletionDialogs { get; set; }
 
         public static bool HasSelectedProject => !string.IsNullOrEmpty(SelectedProjectName);
 
@@ -18,8 +19,6 @@
             GridButtonManager.EnableGrid(true);
             LevelButtonManager.EnableLevel(true);
             ColumnButtonManager.EnableColumn(true);
-            ColumnHoopButtonManager.EnableColumnHoop(true);
-            ColumnYokoNakagoButtonManager.EnableColumnYokoNakago(true);
             BeamButtonManager.EnableBeam(true);
         }
 
@@ -35,8 +34,6 @@
             GridButtonManager.EnableGrid(false);
             LevelButtonManager.EnableLevel(false);
             ColumnButtonManager.EnableColumn(false);
-            ColumnHoopButtonManager.EnableColumnHoop(false);
-            ColumnYokoNakagoButtonManager.EnableColumnYokoNakago(false);
             BeamButtonManager.EnableBeam(false);
         }
     }

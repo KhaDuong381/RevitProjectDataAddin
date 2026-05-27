@@ -12,6 +12,11 @@ namespace RevitProjectDataAddin
     [Transaction(TransactionMode.Manual)]
     public class ColumnCommand : IExternalCommand
     {
+        private static void ShowTaskDialog(string title, string message)
+        {
+            TaskDialog.Show(title, message);
+        }
+
         private const double FeetPerMillimeter = 1.0 / 304.8;
         private const double LocationToleranceFeet = 1e-4;
         private const double SizeToleranceMillimeters = 0.1;
@@ -22,14 +27,14 @@ namespace RevitProjectDataAddin
         {
             if (!ProjectManager.HasSelectedProject)
             {
-                TaskDialog.Show("Column", "Please select a project first.");
+                ShowTaskDialog("Column", "Please select a project first.");
                 return Result.Cancelled;
             }
 
             UIDocument uiDoc = commandData.Application.ActiveUIDocument;
             if (uiDoc == null)
             {
-                TaskDialog.Show("Column", "No active Revit document was found.");
+                ShowTaskDialog("Column", "No active Revit document was found.");
                 return Result.Cancelled;
             }
 
@@ -37,34 +42,34 @@ namespace RevitProjectDataAddin
             ProjectData projectData = StorageUtils.LoadProject(doc, ProjectManager.SelectedProjectName);
             if (projectData == null)
             {
-                TaskDialog.Show("Column", $"Could not load ProjectData for project '{ProjectManager.SelectedProjectName}'.");
+                ShowTaskDialog("Column", $"Could not load ProjectData for project '{ProjectManager.SelectedProjectName}'.");
                 return Result.Cancelled;
             }
 
             if (projectData.Kihon == null)
             {
-                TaskDialog.Show("Column", "ProjectData.Kihon is null.");
+                ShowTaskDialog("Column", "ProjectData.Kihon is null.");
                 return Result.Cancelled;
             }
 
             List<string> xNames = GetAxisNames(projectData.Kihon.NameX?.Select(axis => axis?.Name));
             if (xNames == null)
             {
-                TaskDialog.Show("Column", "NameX data is missing or invalid.");
+                ShowTaskDialog("Column", "NameX data is missing or invalid.");
                 return Result.Cancelled;
             }
 
             List<string> yNames = GetAxisNames(projectData.Kihon.NameY?.Select(axis => axis?.Name));
             if (yNames == null)
             {
-                TaskDialog.Show("Column", "NameY data is missing or invalid.");
+                ShowTaskDialog("Column", "NameY data is missing or invalid.");
                 return Result.Cancelled;
             }
 
             List<string> kaiNames = GetAxisNames(projectData.Kihon.NameKai?.Select(kai => kai?.Name));
             if (kaiNames == null || kaiNames.Count < 2)
             {
-                TaskDialog.Show("Column", "At least two valid NameKai entries are required.");
+                ShowTaskDialog("Column", "At least two valid NameKai entries are required.");
                 return Result.Cancelled;
             }
 
@@ -72,7 +77,7 @@ namespace RevitProjectDataAddin
             string columnLayoutError;
             if (!TryGetColumnLayout(projectData, out columnLayout, out columnLayoutError))
             {
-                TaskDialog.Show("Column", columnLayoutError);
+                ShowTaskDialog("Column", columnLayoutError);
                 return Result.Cancelled;
             }
 
@@ -80,7 +85,7 @@ namespace RevitProjectDataAddin
             string gridError;
             if (!TryCollectGridsByName(doc, out gridsByName, out gridError))
             {
-                TaskDialog.Show("Column", gridError);
+                ShowTaskDialog("Column", gridError);
                 return Result.Cancelled;
             }
 
@@ -88,7 +93,7 @@ namespace RevitProjectDataAddin
             string levelError;
             if (!TryCollectLevelsByName(doc, out levelsByName, out levelError))
             {
-                TaskDialog.Show("Column", levelError);
+                ShowTaskDialog("Column", levelError);
                 return Result.Cancelled;
             }
 
@@ -96,7 +101,7 @@ namespace RevitProjectDataAddin
             string resolverError;
             if (!TryCreateColumnTypeResolver(doc, out typeResolver, out resolverError))
             {
-                TaskDialog.Show("Column", resolverError);
+                ShowTaskDialog("Column", resolverError);
                 return Result.Cancelled;
             }
 
@@ -223,17 +228,20 @@ namespace RevitProjectDataAddin
                 transaction.Commit();
             }
 
-            TaskDialog.Show("Column", BuildResultMessage(
-                createdCount,
-                updatedCount,
-                unchangedCount,
-                deletedCount,
-                targets.Count,
-                typeResolver.TemplateSymbol,
-                typeResolver.CreatedTypeNames,
-                failedSyncs,
-                failedDeletes,
-                warnings));
+            if (!ProjectManager.SuppressColumnCompletionDialogs)
+            {
+                ShowTaskDialog("Column", BuildResultMessage(
+                    createdCount,
+                    updatedCount,
+                    unchangedCount,
+                    deletedCount,
+                    targets.Count,
+                    typeResolver.TemplateSymbol,
+                    typeResolver.CreatedTypeNames,
+                    failedSyncs,
+                    failedDeletes,
+                    warnings));
+            }
 
             return Result.Succeeded;
         }
@@ -1601,11 +1609,11 @@ namespace RevitProjectDataAddin
 
             public Level TopLevel { get; }
 
+            public double TopOffsetMm { get; }
+
             public double LeftOffsetMm { get; }
 
             public double RightOffsetMm { get; }
-
-            public double TopOffsetMm { get; }
 
             public double BottomOffsetMm { get; }
 

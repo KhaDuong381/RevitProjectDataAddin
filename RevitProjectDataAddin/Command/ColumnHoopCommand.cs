@@ -14,7 +14,13 @@ namespace RevitProjectDataAddin
     [Transaction(TransactionMode.Manual)]
     public class ColumnHoopCommand : IExternalCommand
     {
+        private static void ShowTaskDialog(string title, string message)
+        {
+            TaskDialog.Show(title, message);
+        }
+
         private const double FeetPerMillimeter = 1.0 / 304.8;
+        private const double RebarVerticalShiftMillimeters = 1000.0;
         private const double LocationToleranceFeet = 1e-4;
         private const string TargetSectionName = "柱頭";
         private const string HookType1356DName = "DBS_HOOK_135_6D";
@@ -24,14 +30,14 @@ namespace RevitProjectDataAddin
         {
             if (!ProjectManager.HasSelectedProject)
             {
-                TaskDialog.Show("Column HOOP", "Please select a project first.");
+                ShowTaskDialog("Column HOOP", "Please select a project first.");
                 return Result.Cancelled;
             }
 
             UIDocument uiDoc = commandData.Application.ActiveUIDocument;
             if (uiDoc == null)
             {
-                TaskDialog.Show("Column HOOP", "No active Revit document was found.");
+                ShowTaskDialog("Column HOOP", "No active Revit document was found.");
                 return Result.Cancelled;
             }
 
@@ -39,7 +45,7 @@ namespace RevitProjectDataAddin
             ProjectData projectData = StorageUtils.LoadProject(doc, ProjectManager.SelectedProjectName);
             if (projectData == null)
             {
-                TaskDialog.Show("Column HOOP", $"Could not load ProjectData for project '{ProjectManager.SelectedProjectName}'.");
+                ShowTaskDialog("Column HOOP", $"Could not load ProjectData for project '{ProjectManager.SelectedProjectName}'.");
                 return Result.Cancelled;
             }
 
@@ -49,7 +55,7 @@ namespace RevitProjectDataAddin
 
             if (xNames == null || yNames == null || kaiNames == null || kaiNames.Count < 2)
             {
-                TaskDialog.Show("Column HOOP", "ProjectData Kihon axis data is missing or invalid.");
+                ShowTaskDialog("Column HOOP", "ProjectData Kihon axis data is missing or invalid.");
                 return Result.Cancelled;
             }
 
@@ -57,7 +63,7 @@ namespace RevitProjectDataAddin
             string layoutError;
             if (!TryGetColumnLayout(projectData, out columnLayout, out layoutError))
             {
-                TaskDialog.Show("Column HOOP", layoutError);
+                ShowTaskDialog("Column HOOP", layoutError);
                 return Result.Cancelled;
             }
 
@@ -65,7 +71,7 @@ namespace RevitProjectDataAddin
             string gridError;
             if (!TryCollectGridsByName(doc, out gridsByName, out gridError))
             {
-                TaskDialog.Show("Column HOOP", gridError);
+                ShowTaskDialog("Column HOOP", gridError);
                 return Result.Cancelled;
             }
 
@@ -73,7 +79,7 @@ namespace RevitProjectDataAddin
             string levelError;
             if (!TryCollectLevelsByName(doc, out levelsByName, out levelError))
             {
-                TaskDialog.Show("Column HOOP", levelError);
+                ShowTaskDialog("Column HOOP", levelError);
                 return Result.Cancelled;
             }
 
@@ -96,7 +102,7 @@ namespace RevitProjectDataAddin
                     emptyResult += "\n\nWarnings:\n" + string.Join("\n", warnings.Take(20));
                 }
 
-                TaskDialog.Show("Column HOOP", emptyResult);
+                ShowTaskDialog("Column HOOP", emptyResult);
                 return Result.Cancelled;
             }
 
@@ -166,7 +172,10 @@ namespace RevitProjectDataAddin
                 result += "\n\nFailed:\n" + string.Join("\n", failed.Take(10));
             }
 
-            TaskDialog.Show("Column HOOP", result);
+            if (!ProjectManager.SuppressColumnCompletionDialogs || created <= 0 || warnings.Count > 0)
+            {
+                ShowTaskDialog("Column HOOP", result);
+            }
             return Result.Succeeded;
         }
 
@@ -1208,8 +1217,9 @@ namespace RevitProjectDataAddin
                 throw new InvalidOperationException("Pitch must be greater than zero.");
             }
 
-            double startZ = minZ + endInsetFt;
-            double endZ = maxZ - endInsetFt;
+            double shiftFt = RebarVerticalShiftMillimeters * FeetPerMillimeter;
+            double startZ = minZ + endInsetFt + shiftFt;
+            double endZ = maxZ - endInsetFt + shiftFt;
             if (endZ < startZ)
             {
                 warnings.Add($"{data.Kai} {data.YName}-{data.XName} {data.ColumnCode}: host column height is too small for the requested cover.");

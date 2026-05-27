@@ -120,6 +120,19 @@ namespace RevitProjectDataAddin
         }
     }
 
+    public static class ColumnMainRebarButtonManager
+    {
+        private static PushButton _columnMainRebarButton;
+
+        public static void SetButton(PushButton button) => _columnMainRebarButton = button;
+
+        public static void EnableColumnMainRebar(bool enable)
+        {
+            if (_columnMainRebarButton != null)
+                _columnMainRebarButton.Enabled = enable;
+        }
+    }
+
     public static class ColumnYokoNakagoButtonManager
     {
         private static PushButton _columnYokoNakagoButton;
@@ -130,6 +143,19 @@ namespace RevitProjectDataAddin
         {
             if (_columnYokoNakagoButton != null)
                 _columnYokoNakagoButton.Enabled = enable;
+        }
+    }
+
+    public static class ColumnTaTeNakagoButtonManager
+    {
+        private static PushButton _columnTaTeNakagoButton;
+
+        public static void SetButton(PushButton button) => _columnTaTeNakagoButton = button;
+
+        public static void EnableColumnTaTeNakago(bool enable)
+        {
+            if (_columnTaTeNakagoButton != null)
+                _columnTaTeNakagoButton.Enabled = enable;
         }
     }
 

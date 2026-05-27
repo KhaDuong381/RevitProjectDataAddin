@@ -99,31 +99,11 @@ namespace RevitProjectDataAddin
                 "ColumnButton",
                 "Column",
                 Assembly.GetExecutingAssembly().Location,
-                "RevitProjectDataAddin.ColumnCommand");
+                "RevitProjectDataAddin.ColumnRebarCommand");
 
             PushButton columnButton = panel3.AddItem(columnButtonData) as PushButton;
             columnButton.Enabled = false;
             ColumnButtonManager.SetButton(columnButton);
-
-            PushButtonData columnHoopButtonData = new PushButtonData(
-                "ColumnHoopButton",
-                "Column HOOP",
-                Assembly.GetExecutingAssembly().Location,
-                "RevitProjectDataAddin.ColumnHoopCommand");
-
-            PushButton columnHoopButton = panel3.AddItem(columnHoopButtonData) as PushButton;
-            columnHoopButton.Enabled = false;
-            ColumnHoopButtonManager.SetButton(columnHoopButton);
-
-            PushButtonData columnYokoNakagoButtonData = new PushButtonData(
-                "ColumnYokoNakagoButton",
-                "Yoko Nakago",
-                Assembly.GetExecutingAssembly().Location,
-                "RevitProjectDataAddin.ColumnYokoNakagoCommand");
-
-            PushButton columnYokoNakagoButton = panel3.AddItem(columnYokoNakagoButtonData) as PushButton;
-            columnYokoNakagoButton.Enabled = false;
-            ColumnYokoNakagoButtonManager.SetButton(columnYokoNakagoButton);
 
             PushButtonData beamButtonData = new PushButtonData(
                 "BeamButton",
